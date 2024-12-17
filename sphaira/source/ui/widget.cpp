@@ -7,8 +7,10 @@ namespace sphaira::ui {
 void Widget::Update(Controller* controller, TouchInfo* touch) {
     for (const auto& [button, action] : m_actions) {
         if ((action.m_type & ActionType::DOWN) && controller->GotDown(button)) {
+            if (static_cast<u64>(button) & static_cast<u64>(Button::ANY_BUTTON)) {
+                App::PlaySoundEffect(SoundEffect_Focus);
+            }
             action.Invoke(true);
-            App::PlaySoundEffect(SoundEffect_Focus);
         }
         else if ((action.m_type & ActionType::UP) && controller->GotUp(button)) {
             action.Invoke(false);

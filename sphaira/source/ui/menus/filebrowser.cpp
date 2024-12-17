@@ -1,4 +1,5 @@
 #include "ui/menus/filebrowser.hpp"
+#include "ui/menus/homebrew.hpp"
 #include "ui/sidebar.hpp"
 #include "ui/option_box.hpp"
 #include "ui/popup_list.hpp"
@@ -303,8 +304,6 @@ auto get_collection(fs::FsNative& fs, const fs::FsPath& path, const fs::FsPath& 
     R_SUCCEED();
 }
 
-#if 1
-// recursion
 auto get_collections(fs::FsNative& fs, const fs::FsPath& path, const fs::FsPath& parent_name, FsDirCollections& out) -> Result {
     // get a list of all the files / dirs
     FsDirCollection collection;
@@ -323,48 +322,6 @@ auto get_collections(fs::FsNative& fs, const fs::FsPath& path, const fs::FsPath&
 
     R_SUCCEED();
 }
-#else
-// normal
-auto get_collections(fs::FsNative& fs, fs::FsPath path, fs::FsPath parent_name, FsDirCollections& out) -> Result {
-    // get a list of all the files / dirs
-    struct StoredStack {
-        fs::FsPath path;
-        fs::FsPath parent_name;
-        s64 index;
-    };
-
-    std::stack<StoredStack> stack;
-    s64 index{};
-    // std::vector<StoredStack> indexes;
-
-    while (true) {
-        FsDirCollection collection;
-        R_TRY(get_collection(fs, path, parent_name, collection, true, true, false));
-        out.emplace_back(collection);
-
-        if (collection.dirs.size()) {
-            stack.emplace(path, parent_name, index);
-            index = 0;
-        }
-    }
-
-    FsDirCollection collection;
-    R_TRY(get_collection(fs, path, parent_name, collection, true, true, false));
-    log_write("got collection: %s parent_name: %s files: %zu dirs: %zu\n", path, parent_name, collection.files.size(), collection.dirs.size());
-    out.emplace_back(collection);
-
-    // for (size_t i = 0; i < collection.dirs.size(); i++) {
-    for (const auto&p : collection.dirs) {
-        // use heap as to not explode the stack
-        const auto new_path = std::make_unique<fs::FsPath>(Menu::GetNewPath(path, p.name));
-        const auto new_parent_name = std::make_unique<fs::FsPath>(Menu::GetNewPath(parent_name, p.name));
-        log_write("trying to get nested collection: %s parent_name: %s\n", *new_path, *new_parent_name);
-        R_TRY(get_collections(fs, *new_path, *new_parent_name, out));
-    }
-
-    R_SUCCEED();
-}
-#endif
 
 auto get_collections(const fs::FsPath& path, const fs::FsPath& parent_name, FsDirCollections& out) -> Result {
     fs::FsNativeSd fs;
@@ -392,6 +349,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
         std::make_pair(Button::DOWN, Action{[this](){
             if (m_index < (m_entries_current.size() - 1)) {
                 SetIndex(m_index + 1);
+                App::PlaySoundEffect(SoundEffect_Scroll);
                 if (m_index - m_index_offset >= 8) {
                     log_write("moved down\n");
                     m_index_offset++;
@@ -401,6 +359,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
         std::make_pair(Button::UP, Action{[this](){
             if (m_index != 0) {
                 SetIndex(m_index - 1);
+                App::PlaySoundEffect(SoundEffect_Scroll);
                 if (m_index < m_index_offset ) {
                     log_write("moved up\n");
                     m_index_offset--;
@@ -571,12 +530,13 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
             }
 
             // can't rename more than 1 file
-            if (m_entries_current.size() && m_selected_count < 2) {
+            if (m_entries_current.size() && !m_selected_count) {
                 options->Add(std::make_shared<SidebarEntryCallback>("Rename"_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set New File Name", -1, FS_MAX_PATH)) && !out.empty()) {
-                        const auto& entry = GetEntry();
-                        const auto src_path = GetNewPathCurrent();
+                    const auto& entry = GetEntry();
+                    const auto name = entry.GetName();
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set New File Name", name.c_str())) && !out.empty() && out != name) {
+                        const auto src_path = GetNewPath(entry);
                         const auto dst_path = GetNewPath(m_path, out);
 
                         Result rc;
@@ -603,7 +563,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Create File"_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set File Name", -1, FS_MAX_PATH)) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set File Name")) && !out.empty()) {
                         fs::FsPath full_path;
                         if (out[0] == '/') {
                             full_path = out;
@@ -624,7 +584,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Create Folder"_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name", -1, FS_MAX_PATH)) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name")) && !out.empty()) {
                         fs::FsPath full_path;
                         if (out[0] == '/') {
                             full_path = out;
@@ -648,18 +608,22 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 }
 
                 if (m_entries_current.size()) {
-                    if (HasTypeInSelectedEntries(FsDirEntryType_File) && m_selected_count < 2 && !FindFileAssocFor().empty()) {
+                    if (HasTypeInSelectedEntries(FsDirEntryType_File) && !m_selected_count && (GetEntry().GetExtension() == "nro" || !FindFileAssocFor().empty())) {
                         options->Add(std::make_shared<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){;
-                            #if 1
                             App::Push(std::make_shared<OptionBox>(
                                 "WARNING: Installing forwarders will lead to a ban!"_i18n,
                                 "Back"_i18n, "Install"_i18n, 0, [this](auto op_index){
                                     if (op_index && *op_index) {
-                                        InstallForwarder();
+                                        if (GetEntry().GetExtension() == "nro") {
+                                            if (R_FAILED(homebrew::Menu::InstallHomebrewFromPath(GetNewPathCurrent()))) {
+                                                log_write("failed to create forwarder\n");
+                                            }
+                                        } else {
+                                            InstallForwarder();
+                                        }
                                     }
                                 }
                             ));
-                            #endif
                         }));
                     }
 
@@ -809,7 +773,8 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         nvgSave(vg);
-        nvgScissor(vg, x + text_xoffset+65, y, w-(x+text_xoffset+65+50), h);
+        const auto txt_clip = std::min(GetY() + GetH(), y + h) - y;
+        nvgScissor(vg, x + text_xoffset+65, y, w-(x+text_xoffset+65+50), txt_clip);
             gfx::drawText(vg, x + text_xoffset+65, y + (h / 2.f), 20.f, e.name, NULL, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->elements[text_id].colour);
         nvgRestore(vg);
 
@@ -910,25 +875,6 @@ void Menu::InstallForwarder() {
         title, items, [this, assoc_list](auto op_index){
             if (op_index) {
                 const auto assoc = assoc_list[*op_index];
-                #if 1
-                #if 0
-                NroEntry nro{};
-                log_write("parsing nro\n");
-                if (R_FAILED(nro_parse(assoc.path, nro))) {
-                    log_write("failed nro parse\n");
-                    return;
-                }
-
-                OwoConfig config{};
-                config.nro_path = nro.path.toString();
-                // config.args = nro_add_arg_file(GetNewPathCurrent());
-                config.name = nro.nacp.lang[0].name;// + std::string{" | "} + file_name;
-                // config.name = file_name;
-                config.nacp = nro.nacp;
-                // config.icon = GetRomIcon(pbox, file_name, extension, database, nro);
-                config.icon = nro.icon;// GetRomIcon(pbox, file_name, extension, database, nro);
-                App::Install(config);
-                #else
                 log_write("pushing it\n");
                 App::Push(std::make_shared<ProgressBox>("Installing Forwarder", [assoc, this](auto pbox) -> bool {
                     log_write("inside callback\n");
@@ -961,36 +907,6 @@ void Menu::InstallForwarder() {
 
                     return R_SUCCEEDED(App::Install(pbox, config));
                 }));
-                #endif
-                #else
-
-                const auto& assoc = assoc_list[*op_index];
-                log_write("doing nro parse\n");
-
-                NroEntry nro{};
-                if (R_SUCCEEDED(nro_parse(assoc.path.c_str(), nro))) {
-                    log_write("got nro data\n");
-                    std::string file_name = GetEntry().GetInternalName();
-                    std::string extension = GetEntry().GetInternalExtension();
-
-                    if (auto pos = file_name.find_last_of('.'); pos != std::string::npos) {
-                        log_write("got filename\n");
-                        file_name = file_name.substr(0, pos);
-                        log_write("got filename2: %s\n\n", file_name.c_str());
-                    }
-
-                    const auto database = GetRomDatabaseFromPath(m_path);
-
-                    OwoConfig config{};
-                    config.nro_path = assoc.path;
-                    config.args = nro_add_arg_file(GetNewPathCurrent());
-                    config.name = nro.nacp.lang[0].name + std::string{" | "} + file_name;
-                    // config.name = file_name;
-                    config.nacp = nro.nacp;
-                    config.icon = GetRomIcon(file_name, extension, database, nro);
-                    App::Install(config);
-                }
-                #endif
             } else {
                 log_write("pressed B to skip launch...\n");
             }

@@ -36,6 +36,9 @@ struct Menu final : MenuBase {
         return m_entries;
     }
 
+    static Result InstallHomebrew(const fs::FsPath& path, const NacpStruct& nacp, const std::vector<u8>& icon);
+    static Result InstallHomebrewFromPath(const fs::FsPath& path);
+
 private:
     static constexpr inline const char* INI_SECTION = "homebrew";
 

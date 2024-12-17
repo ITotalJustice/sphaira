@@ -90,6 +90,8 @@ auto PopupList::Update(Controller* controller, TouchInfo* touch) -> void {
         return;
     }
 
+    const auto old_index = m_index;
+
     if (controller->GotDown(Button::DOWN) && m_index < (m_items.size() - 1)) {
         m_index++;
         m_selected_y += m_block.h;
@@ -98,7 +100,10 @@ auto PopupList::Update(Controller* controller, TouchInfo* touch) -> void {
         m_selected_y -= m_block.h;
     }
 
-    OnLayoutChange();
+    if (old_index != m_index) {
+        App::PlaySoundEffect(SoundEffect_Scroll);
+        OnLayoutChange();
+    }
 }
 
 auto PopupList::OnLayoutChange() -> void {

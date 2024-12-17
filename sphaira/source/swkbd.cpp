@@ -10,7 +10,7 @@ struct Config {
     bool numpad{};
 };
 
-Result ShowInternal(Config& cfg, const char* guide, s64 len_min, s64 len_max) {
+Result ShowInternal(Config& cfg, const char* guide, const char* initial, s64 len_min, s64 len_max) {
     SwkbdConfig c;
     R_TRY(swkbdCreate(&c, 0));
     swkbdConfigMakePresetDefault(&c);
@@ -22,6 +22,10 @@ Result ShowInternal(Config& cfg, const char* guide, s64 len_min, s64 len_max) {
 
     if (guide) {
         swkbdConfigSetGuideText(&c, guide);
+    }
+
+    if (initial) {
+        swkbdConfigSetInitialText(&c, initial);
     }
 
     if (len_min >= 0) {
@@ -37,16 +41,16 @@ Result ShowInternal(Config& cfg, const char* guide, s64 len_min, s64 len_max) {
 
 } // namespace
 
-Result ShowText(std::string& out, const char* guide, s64 len_min, s64 len_max) {
+Result ShowText(std::string& out, const char* guide, const char* initial, s64 len_min, s64 len_max) {
     Config cfg;
-    R_TRY(ShowInternal(cfg, guide, len_min, len_max));
+    R_TRY(ShowInternal(cfg, guide, initial, len_min, len_max));
     out = cfg.out_text;
     R_SUCCEED();
 }
 
-Result ShowNumPad(s64& out, const char* guide, s64 len_min, s64 len_max) {
+Result ShowNumPad(s64& out, const char* guide, const char* initial, s64 len_min, s64 len_max) {
     Config cfg;
-    R_TRY(ShowInternal(cfg, guide, len_min, len_max));
+    R_TRY(ShowInternal(cfg, guide, initial, len_min, len_max));
     out = std::atoll(cfg.out_text);
     R_SUCCEED();
 }

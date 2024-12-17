@@ -661,11 +661,13 @@ EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
         std::make_pair(Button::DPAD_DOWN | Button::RS_DOWN, Action{[this](){
             if (m_index < (m_options.size() - 1)) {
                 SetIndex(m_index + 1);
+                App::PlaySoundEffect(SoundEffect_Focus);
             }
         }}),
         std::make_pair(Button::DPAD_UP | Button::RS_UP, Action{[this](){
             if (m_index != 0) {
                 SetIndex(m_index - 1);
+                App::PlaySoundEffect(SoundEffect_Focus);
             }
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){

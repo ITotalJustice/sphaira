@@ -508,7 +508,7 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
 
             options->Add(std::make_shared<SidebarEntryCallback>("Page"_i18n, [this](){
                 s64 out;
-                if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number", -1, 3))) {
+                if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number", nullptr, -1, 3))) {
                     if (out < m_page_index_max) {
                         m_page_index = out;
                         PackListDownload();

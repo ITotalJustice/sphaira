@@ -72,11 +72,10 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
             if (m_index < (m_entries.size() - 1)) {
                 if (m_index < (m_entries.size() - 3)) {
                     SetIndex(m_index + 3);
-                    App::PlaySoundEffect(SoundEffect_Scroll);
                 } else {
                     SetIndex(m_entries.size() - 1);
-                    App::PlaySoundEffect(SoundEffect_Scroll);
                 }
+                App::PlaySoundEffect(SoundEffect_Scroll);
                 if (m_index - m_start >= 9) {
                     log_write("moved down\n");
                     m_start += 3;
@@ -263,11 +262,7 @@ void Menu::SetIndex(std::size_t index) {
 
 void Menu::InstallHomebrew() {
     const auto& nro = m_entries[m_index];
-    OwoConfig config{};
-    config.nro_path = nro.path.toString();
-    config.nacp = nro.nacp;
-    config.icon = nro.icon;
-    App::Install(config);
+    InstallHomebrew(nro.path, nro.nacp, nro.icon);
 }
 
 void Menu::ScanHomebrew() {
@@ -275,22 +270,11 @@ void Menu::ScanHomebrew() {
     nro_scan("/switch", m_entries, m_hide_sphaira.Get());
     log_write("nros found: %zu time_taken: %.2f\n", m_entries.size(), ts.GetSeconds());
 
-    // todo: optimise this. maybe create a file per entry
-    // which would speed up parsing
-    for (auto& e : m_entries) {
-        if (ini_hassection(e.path, App::PLAYLOG_PATH)) {
-        //    log_write("has section for: %s\n", e.path);
-           e.hbini.timestamp = ini_getl(e.path, "timestamp", 0, App::PLAYLOG_PATH);
-        }
-        e.image = 0; // images are lazy loaded
-    }
-
-    #if 0
     struct IniUser {
         std::vector<NroEntry>& entires;
         Hbini* ini;
         std::string last_section;
-    } ini_user { m_entries };
+    } ini_user{ m_entries };
 
     ini_browse([](const mTCHAR *Section, const mTCHAR *Key, const mTCHAR *Value, void *UserData) -> int {
         auto user = static_cast<IniUser*>(UserData);
@@ -308,14 +292,16 @@ void Menu::ScanHomebrew() {
         }
 
         if (user->ini) {
-
+            if (!strcmp(Key, "timestamp")) {
+                user->ini->timestamp = atoi(Value);
+            } else if (!strcmp(Key, "launch_count")) {
+                user->ini->launch_count = atoi(Value);
+            }
         }
 
-        // app->
-        log_write("found: %s %s %s\n", Section, Key, Value);
+        // log_write("found: %s %s %s\n", Section, Key, Value);
         return 1;
     }, &ini_user, App::PLAYLOG_PATH);
-    #endif
 
     this->Sort();
     SetIndex(0);
@@ -372,6 +358,21 @@ void Menu::Sort() {
 
 void Menu::SortAndFindLastFile() {
     Sort();
+}
+
+Result Menu::InstallHomebrew(const fs::FsPath& path, const NacpStruct& nacp, const std::vector<u8>& icon) {
+    OwoConfig config{};
+    config.nro_path = path.toString();
+    config.nacp = nacp;
+    config.icon = icon;
+    return App::Install(config);
+}
+
+Result Menu::InstallHomebrewFromPath(const fs::FsPath& path) {
+    NacpStruct nacp;
+    R_TRY(nro_get_nacp(path, nacp))
+    const auto icon = nro_get_icon(path);
+    return InstallHomebrew(path, nacp, icon);
 }
 
 } // namespace sphaira::ui::menu::homebrew

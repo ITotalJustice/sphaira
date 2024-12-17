@@ -234,6 +234,7 @@ auto Sidebar::Update(Controller* controller, TouchInfo* touch) -> void {
 
     // if we moved
     if (m_index != old_index) {
+        App::PlaySoundEffect(SoundEffect_Scroll);
         m_items[old_index]->OnFocusLost();
         m_items[m_index]->OnFocusGained();
 

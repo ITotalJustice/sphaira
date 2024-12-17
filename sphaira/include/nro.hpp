@@ -14,20 +14,20 @@ struct Hbini {
 };
 
 struct NroEntry {
-    fs::FsPath path;
-    s64 size;
-    NacpStruct nacp;
+    fs::FsPath path{};
+    s64 size{};
+    NacpStruct nacp{};
 
-    std::vector<u8> icon;
-    u64 icon_size;
-    u64 icon_offset;
+    std::vector<u8> icon{};
+    u64 icon_size{};
+    u64 icon_offset{};
 
-    FsTimeStampRaw timestamp;
-    Hbini hbini;
+    FsTimeStampRaw timestamp{};
+    Hbini hbini{};
 
-    int image; // nvg image
-    int x,y,w,h; // image
-    bool is_nacp_valid;
+    int image{}; // nvg image
+    int x,y,w,h{}; // image
+    bool is_nacp_valid{};
 
     auto GetName() const -> const char* {
         return nacp.lang[0].name;

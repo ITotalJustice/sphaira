@@ -457,7 +457,7 @@ void drawButton(NVGcontext* vg, float x, float y, float size, Button button) {
     drawText(vg, x, y, size, getButton(button), nullptr, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, getColour(Colour::WHITE));
 }
 
-void drawButtons(NVGcontext* vg, const Widget::Actions& actions, const NVGcolor& c, float start_x) {
+void drawButtons(NVGcontext* vg, const Widget::Actions& _actions, const NVGcolor& c, float start_x) {
     nvgBeginPath(vg);
     nvgFontSize(vg, 24.f);
     nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP);
@@ -466,6 +466,22 @@ void drawButtons(NVGcontext* vg, const Widget::Actions& actions, const NVGcolor&
     float x = start_x;
     const float y = 675.f;
     float bounds[4]{};
+
+    // swaps L/R position, idc how shit this is, it's called once per frame.
+    std::vector<std::pair<Button, Action>> actions;
+    actions.reserve(_actions.size());
+
+    for (const auto a: _actions) {
+        // swap
+        if (a.first == Button::R && actions.size() && actions.back().first == Button::L) {
+            const auto s = actions.back();
+            actions.back() = a;
+            actions.emplace_back(s);
+
+        } else {
+            actions.emplace_back(a);
+        }
+    }
 
     for (const auto& [button, action] : actions) {
         if (action.IsHidden() || action.m_hint.empty()) {

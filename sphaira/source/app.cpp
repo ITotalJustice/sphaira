@@ -524,7 +524,7 @@ void App::Poll() {
         m_touch_info.finger_id = touch_state.touches[0].finger_id;
         m_touch_info.is_touching = true;
         m_touch_info.is_tap = true;
-        PlaySoundEffect(SoundEffect_Limit);
+        // PlaySoundEffect(SoundEffect_Limit);
     } else if (touch_state.count >= 1 && m_touch_info.is_touching && m_touch_info.finger_id == touch_state.touches[0].finger_id) {
         m_touch_info.prev_x = m_touch_info.cur_x;
         m_touch_info.prev_y = m_touch_info.cur_y;
@@ -596,39 +596,6 @@ void App::Draw() {
 auto App::GetVg() -> NVGcontext* {
     return g_app->vg;
 }
-
-#if 0
-void App::UpdateList() {
-    const auto index_copy = this->index;
-    const auto start_copy = this->start;
-
-    else if (controller.down) {
-        // todo: replace with actual focus
-        PlaySoundEffect(SoundEffect_Limit);
-    }
-
-    if (controller.any_direction()) {
-        if (index_copy != this->index) {
-            PlaySoundEffect(SoundEffect_Focus);
-            if (start_copy != this->start) {
-                // float r = randomGet64() % 100;
-                // float pitch = r / 100.0;
-                // plsrPlayerSetPitch(m_sound_ids[SoundEffect_Scroll], pitch);
-                PlaySoundEffect(SoundEffect_Scroll);
-            }
-
-            if (this->index == 0 || this->index == this->nro_entries.size() || ((controller.down & HidNpadButton_AnyLeft) && this->index && this->index % 3 == 0) || ((controller.down & HidNpadButton_AnyRight) && this->index && (this->index + 1) % 3 == 0)) {
-                PlaySoundEffect(SoundEffect_Limit);
-            }
-        } else {
-            const auto mask = HidNpadButton_AnyDown | HidNpadButton_AnyUp | HidNpadButton_AnyLeft | HidNpadButton_AnyRight;
-            if (controller.down & mask) {
-                PlaySoundEffect(SoundEffect_Limit);
-            }
-        }
-    }
-}
-#endif
 
 void DrawElement(float x, float y, float w, float h, ThemeEntryID id) {
     const auto& e = g_app->m_theme.elements[id];
@@ -858,8 +825,8 @@ App::App(const char* argv0) {
         m_app_path = argv0;
     }
 
-    // set pop-back if applet and we are hbmenu
-    if (!IsApplication() && IsHbmenu()) {
+    // set if we are hbmenu
+    if (IsHbmenu()) {
         __nx_applet_exit_mode = 1;
     }
 

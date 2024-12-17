@@ -71,7 +71,6 @@ auto nro_parse_internal(fs::FsNative& fs, const fs::FsPath& path, NroEntry& entr
     } else {
         R_TRY(fsFileRead(&f, data.header.size + asset.nacp.offset, &entry.nacp, sizeof(entry.nacp), FsReadOption_None, &bytes_read));
         entry.is_nacp_valid = true;
-        log_write("got nacp\n");
     }
 
     // lazy load the icons
@@ -241,7 +240,7 @@ auto nro_get_icon(const fs::FsPath& path) -> std::vector<u8> {
     R_TRY_RESULT(fsFileRead(&f, data.header.size, &asset, sizeof(asset), FsReadOption_None, &bytes_read), {});
     R_UNLESS(asset.magic == NROASSETHEADER_MAGIC, {});
 
-    return nro_get_icon_internal(&f, asset.icon.size, asset.icon.offset);
+    return nro_get_icon_internal(&f, asset.icon.size, data.header.size + asset.icon.offset);
 }
 
 auto nro_get_nacp(const fs::FsPath& path, NacpStruct& nacp) -> Result {

@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        preset: [Release, RelWithDebInfo, MinSizeRel, Debug]
+    runs-on: ${{ matrix.os }}
+    container: devkitpro/devkita64:latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    # fetch latest cmake
+    - uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      run: |
+        cmake --preset ${{ matrix.preset }}
+
+    - name: Build
+      run: cmake --build --preset ${{ matrix.preset }} --parallel 4
+
+    - uses: actions/upload-artifact@master
+      with:
+        name: sphaira-${{ matrix.preset }}
+        path: build/${{ matrix.preset }}/sphaira.nro

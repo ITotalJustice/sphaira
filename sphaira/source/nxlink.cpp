@@ -224,7 +224,7 @@ void loop(void* args) {
     };
 
     while (!g_quit) {
-        svcSleepThread(33'333'333);
+        svcSleepThread(1000000);
 
         if (poll_network_change()) {
             continue;
@@ -267,7 +267,7 @@ void loop(void* args) {
         sockaddr_in sa_remote{};
 
         while (!g_quit) {
-            svcSleepThread(33'333'333);
+            svcSleepThread(10000);
 
             if (poll_network_change()) {
                 break;
@@ -297,7 +297,7 @@ void loop(void* args) {
             }
 
             fs::FsPath name{};
-            if (namelen > sizeof(name)) {
+            if (namelen >= sizeof(name)) {
                 log_write("namelen is bigger than name: 0x%X\n", socketGetLastResult());
                 continue;
             }

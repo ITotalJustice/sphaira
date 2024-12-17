@@ -51,3 +51,5 @@ see `assets/romfs/assoc/` for more examples of file assoc entries
 - libpulsar
 - minIni
 - gbatemp
+- hb-appstore
+- everyone who has contributed to this project!

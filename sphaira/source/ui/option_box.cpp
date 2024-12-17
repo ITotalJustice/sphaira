@@ -123,6 +123,7 @@ auto OptionBox::Setup(std::size_t index) -> void {
                 m_entries[m_index].Selected(false);
                 m_index--;
                 m_entries[m_index].Selected(true);
+                App::PlaySoundEffect(SoundEffect_Focus);
             }
         }}),
         std::make_pair(Button::RIGHT, Action{[this](){
@@ -130,6 +131,7 @@ auto OptionBox::Setup(std::size_t index) -> void {
                 m_entries[m_index].Selected(false);
                 m_index++;
                 m_entries[m_index].Selected(true);
+                App::PlaySoundEffect(SoundEffect_Focus);
             }
         }}),
         std::make_pair(Button::A, Action{[this](){

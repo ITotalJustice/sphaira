@@ -78,8 +78,18 @@ bool init(long index) {
         default: lang_name = "en"; break;
     }
 
-    const fs::FsPath path = "romfs:/i18n/" + lang_name + ".json";
-    if (R_SUCCEEDED(fs::FsStdio().read_entire_file(path, g_i18n_data))) {
+    const fs::FsPath sdmc_path = "/config/sphaira/i18n/" + lang_name + ".json";
+    const fs::FsPath romfs_path = "romfs:/i18n/" + lang_name + ".json";
+    fs::FsPath path = sdmc_path;
+
+    // try and load override translation first
+    Result rc = fs::FsNativeSd().read_entire_file(path, g_i18n_data);
+    if (R_FAILED(rc)) {
+        path = romfs_path;
+        rc = fs::FsStdio().read_entire_file(path, g_i18n_data);
+    }
+
+    if (R_SUCCEEDED(rc)) {
         json = yyjson_read((const char*)g_i18n_data.data(), g_i18n_data.size(), YYJSON_READ_ALLOW_TRAILING_COMMAS|YYJSON_READ_ALLOW_COMMENTS|YYJSON_READ_ALLOW_INVALID_UNICODE);
         if (json) {
             root = yyjson_doc_get_root(json);

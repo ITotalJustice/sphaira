@@ -32,6 +32,13 @@ void MenuBase::Draw(NVGcontext* vg, Theme* theme) {
     u32 strength{};
     u32 ip{};
 
+    const auto _time = time(NULL);
+    struct tm tm{};
+    const auto gmt = gmtime(&_time);
+    if (gmt) {
+        tm = *gmt;
+    }
+
     // todo: app thread poll every 1s and this query the result
     psmGetBatteryChargePercentage(&battery_percetange);
     psmGetChargerType(&charger_type);
@@ -54,7 +61,8 @@ void MenuBase::Draw(NVGcontext* vg, Theme* theme) {
         start_x -= spacing;
 
     // draw("version %s", APP_VERSION);
-    draw("%u%%", battery_percetange);
+    draw("%u\uFE6A", battery_percetange);
+    draw("%02u:%02u:%02u", tm.tm_hour, tm.tm_min, tm.tm_sec);
     if (ip) {
         draw("%u.%u.%u.%u", ip&0xFF, (ip>>8)&0xFF, (ip>>16)&0xFF, (ip>>24)&0xFF);
     } else {

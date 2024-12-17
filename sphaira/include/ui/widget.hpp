@@ -26,16 +26,6 @@ struct Widget : public Object {
         return m_focus;
     }
 
-    // void PushWidget(std::shared_ptr<Widget> widget);
-    // void PopWidget();
-
-    void SetParent(Widget* parent) {
-        m_parent = parent;
-    }
-    auto GetParent() -> Widget* {
-        return m_parent;
-    }
-
     auto HasAction(Button button) const -> bool;
     void SetAction(Button button, Action action);
     void SetActions(std::same_as<std::pair<Button, Action>> auto ...args) {
@@ -66,8 +56,6 @@ struct Widget : public Object {
     using Actions = std::map<Button, Action>;
     // using Actions = std::unordered_map<Button, Action>;
     Actions m_actions;
-    Widget* m_parent{};
-    // std::vector<std::shared_ptr<Widget>> widgets;
     bool m_focus{false};
     bool m_pop{false};
 };
