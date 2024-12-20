@@ -469,17 +469,17 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 options->Add(std::make_shared<SidebarEntryBool>("Show Hidden"_i18n, m_show_hidden.Get(), [this](bool& v_out){
                     m_show_hidden.Set(v_out);
                     SortAndFindLastFile();
-                }, "Yes"_i18n, "No"));
+                }, "Yes"_i18n, "No"_i18n));
 
                 options->Add(std::make_shared<SidebarEntryBool>("Folders First"_i18n, m_folders_first.Get(), [this](bool& v_out){
                     m_folders_first.Set(v_out);
                     SortAndFindLastFile();
-                }, "Yes"_i18n, "No"));
+                }, "Yes"_i18n, "No"_i18n));
 
                 options->Add(std::make_shared<SidebarEntryBool>("Hidden Last"_i18n, m_hidden_last.Get(), [this](bool& v_out){
                     m_hidden_last.Set(v_out);
                     SortAndFindLastFile();
-                }, "Yes"_i18n, "No"));
+                }, "Yes"_i18n, "No"_i18n));
             }));
 
             if (m_entries_current.size()) {
@@ -519,7 +519,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
             if (!m_selected_files.empty() && (m_selected_type == SelectedType::Cut || m_selected_type == SelectedType::Copy)) {
                 options->Add(std::make_shared<SidebarEntryCallback>("Paste"_i18n, [this](){
-                    const std::string buf = "Paste " + std::to_string(m_selected_files.size()) + " file(s)?";
+                    const std::string buf = "Paste "_i18n + std::to_string(m_selected_files.size()) + " file(s)?"_i18n;
                     App::Push(std::make_shared<OptionBox>(
                         buf, "No"_i18n, "Yes"_i18n, 1, [this](auto op_index){
                         if (op_index && *op_index) {
@@ -535,7 +535,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                     std::string out;
                     const auto& entry = GetEntry();
                     const auto name = entry.GetName();
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set New File Name", name.c_str())) && !out.empty() && out != name) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set New File Name"_i18n.c_str(), name.c_str())) && !out.empty() && out != name) {
                         const auto src_path = GetNewPath(entry);
                         const auto dst_path = GetNewPath(m_path, out);
 
@@ -563,7 +563,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Create File"_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set File Name")) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set File Name"_i18n.c_str())) && !out.empty()) {
                         fs::FsPath full_path;
                         if (out[0] == '/') {
                             full_path = out;
@@ -584,7 +584,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Create Folder"_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name")) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name"_i18n.c_str())) && !out.empty()) {
                         fs::FsPath full_path;
                         if (out[0] == '/') {
                             full_path = out;
@@ -687,7 +687,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const auto& text_col = theme->elements[ThemeEntryID_TEXT].colour;
 
     if (m_entries_current.empty()) {
-        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, text_col, "Empty...");
+        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, text_col, "Empty..."_i18n.c_str());
         return;
     }
 
@@ -779,8 +779,8 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         nvgRestore(vg);
 
         if (e.IsDir()) {
-            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->elements[text_id].colour, "%zd files", e.file_count);
-            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->elements[text_id].colour, "%zd dirs", e.dir_count);
+            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->elements[text_id].colour, "%zd files"_i18n.c_str(), e.file_count);
+            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->elements[text_id].colour, "%zd dirs"_i18n.c_str(), e.dir_count);
         } else {
             if (!e.time_stamp.is_valid) {
                 fs::FsNativeSd fs;
@@ -877,7 +877,7 @@ void Menu::InstallForwarder() {
             if (op_index) {
                 const auto assoc = assoc_list[*op_index];
                 log_write("pushing it\n");
-                App::Push(std::make_shared<ProgressBox>("Installing Forwarder", [assoc, this](auto pbox) -> bool {
+                App::Push(std::make_shared<ProgressBox>("Installing Forwarder"_i18n, [assoc, this](auto pbox) -> bool {
                     log_write("inside callback\n");
 
                     NroEntry nro{};
@@ -1325,7 +1325,7 @@ void Menu::OnDeleteCallback() {
         Scan(m_path);
         log_write("did delete\n");
     } else {
-        App::Push(std::make_shared<ProgressBox>("Deleting", [this](auto pbox){
+        App::Push(std::make_shared<ProgressBox>("Deleting"_i18n, [this](auto pbox){
             fs::FsNativeSd fs;
             FsDirCollections collections;
 
@@ -1338,7 +1338,7 @@ void Menu::OnDeleteCallback() {
 
                 const auto full_path = GetNewPath(m_selected_path, p.name);
                 if (p.IsDir()) {
-                    pbox->NewTransfer("Scanning " + full_path);
+                    pbox->NewTransfer("Scanning "_i18n + full_path);
                     if (R_FAILED(get_collections(full_path, p.name, collections))) {
                         log_write("failed to get dir collection: %s\n", full_path);
                         return false;
@@ -1356,7 +1356,7 @@ void Menu::OnDeleteCallback() {
                         }
 
                         const auto full_path = GetNewPath(c.path, p.name);
-                        pbox->NewTransfer("Deleting " + full_path);
+                        pbox->NewTransfer("Deleting "_i18n + full_path);
                         if (p.type == FsDirEntryType_Dir) {
                             log_write("deleting dir: %s\n", full_path);
                             fs.DeleteDirectory(full_path);
@@ -1383,7 +1383,7 @@ void Menu::OnDeleteCallback() {
                 }
 
                 const auto full_path = GetNewPath(m_selected_path, p.name);
-                pbox->NewTransfer("Deleting " + full_path);
+                pbox->NewTransfer("Deleting "_i18n + full_path);
 
                 if (p.IsDir()) {
                     log_write("deleting dir: %s\n", full_path);
@@ -1422,7 +1422,7 @@ void Menu::OnPasteCallback() {
         Scan(m_path);
         log_write("did paste\n");
     } else {
-        App::Push(std::make_shared<ProgressBox>("Pasting", [this](auto pbox){
+        App::Push(std::make_shared<ProgressBox>("Pasting"_i18n, [this](auto pbox){
             fs::FsNativeSd fs;
 
             if (m_selected_type == SelectedType::Cut) {
@@ -1435,7 +1435,7 @@ void Menu::OnPasteCallback() {
                     const auto src_path = GetNewPath(m_selected_path, p.name);
                     const auto dst_path = GetNewPath(m_path, p.name);
 
-                    pbox->NewTransfer("Pasting " + src_path);
+                    pbox->NewTransfer("Pasting "_i18n + src_path);
 
                     if (p.IsDir()) {
                         fs.RenameDirectory(src_path, dst_path);
@@ -1455,7 +1455,7 @@ void Menu::OnPasteCallback() {
 
                     const auto full_path = GetNewPath(m_selected_path, p.name);
                     if (p.IsDir()) {
-                        pbox->NewTransfer("Scanning " + full_path);
+                        pbox->NewTransfer("Scanning "_i18n + full_path);
                         if (R_FAILED(get_collections(full_path, p.name, collections))) {
                             log_write("failed to get dir collection: %s\n", full_path);
                             return false;
@@ -1473,10 +1473,10 @@ void Menu::OnPasteCallback() {
                     const auto dst_path = GetNewPath(p);
 
                     if (p.IsDir()) {
-                        pbox->NewTransfer("Creating " + dst_path);
+                        pbox->NewTransfer("Creating "_i18n + dst_path);
                         fs.CreateDirectory(dst_path);
                     } else {
-                        pbox->NewTransfer("Copying " + src_path);
+                        pbox->NewTransfer("Copying "_i18n + src_path);
                         R_TRY_RESULT(pbox->CopyFile(src_path, dst_path), false);
                     }
                 }
@@ -1495,7 +1495,7 @@ void Menu::OnPasteCallback() {
                         const auto dst_path = GetNewPath(base_dst_path, p.name);
 
                         log_write("creating: %s to %s\n", src_path, dst_path);
-                        pbox->NewTransfer("Creating " + dst_path);
+                        pbox->NewTransfer("Creating "_i18n + dst_path);
                         fs.CreateDirectory(dst_path);
                     }
 
@@ -1508,7 +1508,7 @@ void Menu::OnPasteCallback() {
                         const auto src_path = GetNewPath(c.path, p.name);
                         const auto dst_path = GetNewPath(base_dst_path, p.name);
 
-                        pbox->NewTransfer("Copying " + src_path);
+                        pbox->NewTransfer("Copying "_i18n + src_path);
                         log_write("copying: %s to %s\n", src_path, dst_path);
                         R_TRY_RESULT(pbox->CopyFile(src_path, dst_path), false);
                     }

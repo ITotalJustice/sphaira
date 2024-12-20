@@ -99,7 +99,7 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                 #endif
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Delete"_i18n, [this](){
-                    const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].path.toString() + "?";
+                    const auto buf = "Are you sure you want to delete " + m_entries[m_index].path.toString();
                     App::Push(std::make_shared<OptionBox>(
                         buf,
                         "Back"_i18n, "Delete"_i18n, 1, [this](auto op_index){

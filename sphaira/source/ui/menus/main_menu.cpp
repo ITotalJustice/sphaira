@@ -195,17 +195,17 @@ MainMenu::MainMenu() {
 
             SidebarEntryArray::Items language_items;
             language_items.push_back("Auto"_i18n);
-            language_items.push_back("English");
-            language_items.push_back("Japanese");
-            language_items.push_back("French");
-            language_items.push_back("German");
-            language_items.push_back("Italian");
-            language_items.push_back("Spanish");
-            language_items.push_back("Chinese");
-            language_items.push_back("Korean");
-            language_items.push_back("Dutch");
-            language_items.push_back("Portuguese");
-            language_items.push_back("Russian");
+            language_items.push_back("English"_i18n);
+            language_items.push_back("Japanese"_i18n);
+            language_items.push_back("French"_i18n);
+            language_items.push_back("German"_i18n);
+            language_items.push_back("Italian"_i18n);
+            language_items.push_back("Spanish"_i18n);
+            language_items.push_back("Chinese"_i18n);
+            language_items.push_back("Korean"_i18n);
+            language_items.push_back("Dutch"_i18n);
+            language_items.push_back("Portuguese"_i18n);
+            language_items.push_back("Russian"_i18n);
 
             options->AddHeader("Header"_i18n);
             options->AddSpacer();
@@ -248,7 +248,7 @@ MainMenu::MainMenu() {
                             if (success) {
                                 m_update_state = UpdateState::None;
                             } else {
-                                App::Push(std::make_shared<ui::ErrorBox>(MAKERESULT(351, 1), "Failed to download update"));
+                                App::Push(std::make_shared<ui::ErrorBox>(MAKERESULT(351, 1), "Failed to download update"_i18n));
                             }
                         }, 2));
                     }));

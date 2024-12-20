@@ -251,18 +251,18 @@ void App::Loop() {
                     switch (arg.type) {
                         case NxlinkCallbackType_Connected:
                             log_write("[NxlinkCallbackType_Connected]\n");
-                            App::Notify("Nxlink Connected");
+                            App::Notify("Nxlink Connected"_i18n);
                             break;
                         case NxlinkCallbackType_WriteBegin:
                             log_write("[NxlinkCallbackType_WriteBegin] %s\n", arg.file.filename);
-                            App::Notify("Nxlink Upload");
+                            App::Notify("Nxlink Upload"_i18n);
                             break;
                         case NxlinkCallbackType_WriteProgress:
                             // log_write("[NxlinkCallbackType_WriteProgress]\n");
                             break;
                         case NxlinkCallbackType_WriteEnd:
                             log_write("[NxlinkCallbackType_WriteEnd] %s\n", arg.file.filename);
-                            App::Notify("Nxlink Finished");
+                            App::Notify("Nxlink Finished"_i18n);
                             break;
                     }
                 } else if constexpr(std::is_same_v<T, DownloadEventData>) {
@@ -446,10 +446,10 @@ auto App::Install(OwoConfig& config) -> Result {
 
     if (R_FAILED(rc)) {
         App::PlaySoundEffect(SoundEffect_Error);
-        App::Push(std::make_shared<ui::ErrorBox>(rc, "Failed to install forwarder"));
+        App::Push(std::make_shared<ui::ErrorBox>(rc, "Failed to install forwarder"_i18n));
     } else {
         App::PlaySoundEffect(SoundEffect_Install);
-        App::Notify("Installed!");
+        App::Notify("Installed!"_i18n);
     }
 
     return rc;
@@ -476,10 +476,10 @@ auto App::Install(ui::ProgressBox* pbox, OwoConfig& config) -> Result {
 
     if (R_FAILED(rc)) {
         App::PlaySoundEffect(SoundEffect_Error);
-        App::Push(std::make_shared<ui::ErrorBox>(rc, "Failed to install forwarder"));
+        App::Push(std::make_shared<ui::ErrorBox>(rc, "Failed to install forwarder"_i18n));
     } else {
         App::PlaySoundEffect(SoundEffect_Install);
-        App::Notify("Installed!");
+        App::Notify("Installed!"_i18n);
     }
 
     return rc;

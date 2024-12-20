@@ -4,6 +4,7 @@
 #include "app.hpp"
 #include "defines.hpp"
 #include "log.hpp"
+#include "i18n.hpp"
 
 namespace sphaira::ui {
 namespace {
@@ -17,8 +18,8 @@ void threadFunc(void* arg) {
 } // namespace
 
 ProgressBox::ProgressBox(const std::string& title, ProgressBoxCallback callback, ProgressBoxDoneCallback done, int cpuid, int prio, int stack_size) {
-    SetAction(Button::B, Action{"Back", [this](){
-        App::Push(std::make_shared<OptionBox>("Are you sure you wish to cancel?", "No", "Yes", 1, [this](auto op_index){
+    SetAction(Button::B, Action{"Back"_i18n, [this](){
+        App::Push(std::make_shared<OptionBox>("Are you sure you wish to cancel?"_i18n, "No"_i18n, "Yes"_i18n, 1, [this](auto op_index){
             if (op_index && *op_index) {
                 RequestExit();
                 SetPop();

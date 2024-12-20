@@ -1,6 +1,7 @@
 #include "ui/popup_list.hpp"
 #include "ui/nvg_util.hpp"
 #include "app.hpp"
+#include "i18n.hpp"
 
 namespace sphaira::ui {
 
@@ -68,13 +69,13 @@ PopupList::PopupList(std::string title, Items items, Callback cb, std::size_t in
     m_scrollbar.Setup(Vec4{1220.f, m_line_top, 1.f, m_line_bottom - m_line_top}, m_block.h, m_items.size());
 
     SetActions(
-        std::make_pair(Button::A, Action{"Select", [this](){
+        std::make_pair(Button::A, Action{"Select"_i18n, [this](){
             if (m_callback) {
                 m_callback(m_index);
             }
             SetPop();
         }}),
-        std::make_pair(Button::B, Action{"Back", [this](){
+        std::make_pair(Button::B, Action{"Back"_i18n, [this](){
             if (m_callback) {
                 m_callback(std::nullopt);
             }

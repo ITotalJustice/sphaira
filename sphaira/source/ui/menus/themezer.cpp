@@ -508,7 +508,7 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
 
             options->Add(std::make_shared<SidebarEntryCallback>("Page"_i18n, [this](){
                 s64 out;
-                if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number", nullptr, -1, 3))) {
+                if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number"_i18n.c_str(), nullptr, -1, 3))) {
                     if (out < m_page_index_max) {
                         m_page_index = out;
                         PackListDownload();
@@ -569,7 +569,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     MenuBase::Draw(vg, theme);
 
     if (m_pages.empty()) {
-        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Empty!");
+        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Empty!"_i18n.c_str());
         return;
     }
 
@@ -577,15 +577,15 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
     switch (page.m_ready) {
         case PageLoadState::None:
-            gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Not Ready...");
+            gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Not Ready..."_i18n.c_str());
             return;
         case PageLoadState::Loading:
-            gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Loading");
+            gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Loading"_i18n.c_str());
             return;
         case PageLoadState::Done:
             break;
         case PageLoadState::Error:
-            gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Error loading page!");
+            gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Error loading page!"_i18n.c_str());
             return;
     }
 
@@ -687,7 +687,7 @@ void Menu::InvalidateAllPages() {
 void Menu::PackListDownload() {
     const auto page_index = m_page_index + 1;
     char subheading[128];
-    std::snprintf(subheading, sizeof(subheading), "Page %zu / %zu", m_page_index+1, m_page_index_max);
+    std::snprintf(subheading, sizeof(subheading), "Page %zu / %zu"_i18n.c_str(), m_page_index+1, m_page_index_max);
     SetSubHeading(subheading);
 
     m_index = 0;
@@ -733,7 +733,7 @@ void Menu::PackListDownload() {
         m_page_index_max = a.pagination.page_count;
 
         char subheading[128];
-        std::snprintf(subheading, sizeof(subheading), "Page %zu / %zu", m_page_index+1, m_page_index_max);
+        std::snprintf(subheading, sizeof(subheading), "Page %zu / %zu"_i18n.c_str(), m_page_index+1, m_page_index_max);
         SetSubHeading(subheading);
 
         log_write("a.pagination.page: %u\n", a.pagination.page);

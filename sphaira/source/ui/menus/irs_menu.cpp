@@ -242,7 +242,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const auto rc = irsGetImageTransferProcessorState(m_entries[m_index].m_handle, m_irs_buffer.data(), m_irs_buffer.size(), &state);
     if (R_SUCCEEDED(rc) && state.sampling_number != m_prev_state.sampling_number) {
         m_prev_state = state;
-        SetSubHeading("Ambient Noise Level: " + std::to_string(m_prev_state.ambient_noise_level));
+        SetSubHeading("Ambient Noise Level: "_i18n + std::to_string(m_prev_state.ambient_noise_level));
         updateColourArray();
     }
 

@@ -370,7 +370,7 @@ auto UninstallApp(ProgressBox* pbox, const Entry& entry) -> bool {
 
     // remove directory, this will also delete manifest and info
     const auto dir = BuildPackageCachePath(entry);
-    pbox->NewTransfer("Removing " + dir);
+    pbox->NewTransfer("Removing "_i18n + dir);
     if (R_FAILED(fs.DeleteDirectoryRecursively(dir))) {
         log_write("failed to delete folder: %s\n", dir);
     } else {
@@ -394,7 +394,7 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> bool {
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading " + entry.title);
+        pbox->NewTransfer("Downloading "_i18n + entry.title);
         log_write("starting download\n");
 
         const auto url = BuildZipUrl(entry);
@@ -416,7 +416,7 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> bool {
 
     // 2. md5 check the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Checking MD5");
+        pbox->NewTransfer("Checking MD5"_i18n);
         log_write("starting md5 check\n");
 
         FsFile f;
@@ -792,11 +792,11 @@ void EntryMenu::Draw(NVGcontext* vg, Theme* theme) {
 
     // gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "author: %s", m_entry.author.c_str());
     // text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "version: %s", m_entry.version.c_str());
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "version: %s"_i18n.c_str(), m_entry.version.c_str());
     text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "updated: %s", m_entry.updated.c_str());
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "updated: %s"_i18n.c_str(), m_entry.updated.c_str());
     text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "category: %s", m_entry.category.c_str());
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "category: %s"_i18n.c_str(), m_entry.category.c_str());
     text_start_y += text_inc_y;
     // gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "license: %s", m_entry.license.c_str());
     // text_start_y += text_inc_y;
@@ -804,9 +804,9 @@ void EntryMenu::Draw(NVGcontext* vg, Theme* theme) {
     // text_start_y += text_inc_y;
     // gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "filesize: %.2f MiB", (double)m_entry.filesize / 1024.0);
     // text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "extracted: %.2f MiB", (double)m_entry.extracted / 1024.0);
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "extracted: %.2f MiB"_i18n.c_str(), (double)m_entry.extracted / 1024.0);
     text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "app_dls: %s", AppDlToStr(m_entry.app_dls).c_str());
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "app_dls: %s"_i18n.c_str(), AppDlToStr(m_entry.app_dls).c_str());
     text_start_y += text_inc_y;
 
     // for (const auto& option : m_options) {
@@ -935,7 +935,7 @@ auto toLower(const std::string& str) -> std::string {
 	return lower;
 }
 
-Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"}, m_nro_entries{nro_entries} {
+Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"_i18n}, m_nro_entries{nro_entries} {
     fs::FsNativeSd fs;
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/icons");
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/banners");
@@ -1136,12 +1136,12 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     MenuBase::Draw(vg, theme);
 
     if (m_entries.empty()) {
-        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Loading...");
+        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Loading..."_i18n.c_str());
         return;
     }
 
     if (m_entries_current.empty()) {
-        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Empty!");
+        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::YELLOW, "Empty!"_i18n.c_str());
         return;
     }
 
@@ -1431,7 +1431,7 @@ void Menu::Sort() {
 
 
     char subheader[128]{};
-    std::snprintf(subheader, sizeof(subheader), "Sort: %s | Filter: %s | Order: %s", i18n::get(SORT_STR[m_sort]).c_str(), i18n::get(FILTER_STR[m_filter]).c_str(), i18n::get(ORDER_STR[m_order]).c_str());
+    std::snprintf(subheader, sizeof(subheader), "Filter: %s | Sort: %s | Order: %s"_i18n.c_str(), i18n::get(FILTER_STR[m_filter]).c_str(), i18n::get(SORT_STR[m_sort]).c_str(), i18n::get(ORDER_STR[m_order]).c_str());
     SetTitleSubHeading(subheader);
 
     std::sort(m_entries_current.begin(), m_entries_current.end(), sorter);

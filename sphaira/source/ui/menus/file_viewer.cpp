@@ -1,4 +1,5 @@
 #include "ui/menus/file_viewer.hpp"
+#include "i18n.hpp"
 
 namespace sphaira::ui::menu::fileview {
 namespace {
@@ -6,7 +7,7 @@ namespace {
 } // namespace
 
 Menu::Menu(const fs::FsPath& path) : MenuBase{path}, m_path{path} {
-    SetAction(Button::B, Action{"Back", [this](){
+    SetAction(Button::B, Action{"Back"_i18n, [this](){
         SetPop();
     }});
 

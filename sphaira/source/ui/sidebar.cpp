@@ -2,6 +2,7 @@
 #include "app.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/nvg_util.hpp"
+#include "i18n.hpp"
 
 namespace sphaira::ui {
 namespace {
@@ -42,7 +43,7 @@ SidebarEntryBool::SidebarEntryBool(std::string title, bool option, Callback cb, 
 , m_true_str{std::move(true_str)}
 , m_false_str{std::move(false_str)} {
 
-    SetAction(Button::A, Action{"OK", [this](){
+    SetAction(Button::A, Action{"OK"_i18n, [this](){
             m_option ^= 1;
             m_callback(m_option);
         }
@@ -77,7 +78,7 @@ SidebarEntryCallback::SidebarEntryCallback(std::string title, Callback cb, bool 
 : SidebarEntryBase{std::move(title)}
 , m_callback{cb}
 , m_pop_on_click{pop_on_click} {
-    SetAction(Button::A, Action{"OK", [this](){
+    SetAction(Button::A, Action{"OK"_i18n, [this](){
             m_callback();
             if (m_pop_on_click) {
                 SetPop();
@@ -143,7 +144,7 @@ SidebarEntryArray::SidebarEntryArray(std::string title, Items items, Callback cb
         ));
     };
 
-    SetAction(Button::A, Action{"OK", [this](){
+    SetAction(Button::A, Action{"OK"_i18n, [this](){
             // m_callback(m_index);
             m_list_callback();
         }
@@ -191,7 +192,7 @@ Sidebar::Sidebar(std::string title, std::string sub, Side side, Items&& items)
     m_base_pos = Vec4{GetX() + 30.f, GetY() + 170.f, m_pos.w - (30.f * 2.f), 70.f};
 
     // each item has it's own Action, but we take over B
-    SetAction(Button::B, Action{"Back", [this](){
+    SetAction(Button::B, Action{"Back"_i18n, [this](){
         SetPop();
     }});
 
