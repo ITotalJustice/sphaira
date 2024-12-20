@@ -47,6 +47,8 @@ void userAppInit(void) {
 
     const auto socket_config = is_application ? socket_config_application : socket_config_applet;
 
+    if (R_FAILED(rc = setInitialize()))
+        diagAbortWithResult(rc);
     if (R_FAILED(rc = appletLockExit()))
         diagAbortWithResult(rc);
     if (R_FAILED(rc = socketInitialize(&socket_config)))
@@ -64,6 +66,7 @@ void userAppInit(void) {
 }
 
 void userAppExit(void) {
+    setExit();
     log_nxlink_exit();
 
     accountExit();
