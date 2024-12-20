@@ -47,8 +47,6 @@ void userAppInit(void) {
 
     const auto socket_config = is_application ? socket_config_application : socket_config_applet;
 
-    if (R_FAILED(rc = setInitialize()))
-        diagAbortWithResult(rc);
     if (R_FAILED(rc = appletLockExit()))
         diagAbortWithResult(rc);
     if (R_FAILED(rc = socketInitialize(&socket_config)))
@@ -61,14 +59,16 @@ void userAppInit(void) {
         diagAbortWithResult(rc);
     if (R_FAILED(rc = accountInitialize(is_application ? AccountServiceType_Application : AccountServiceType_System)))
         diagAbortWithResult(rc);
+    if (R_FAILED(rc = setInitialize()))
+        diagAbortWithResult(rc);
 
     log_nxlink_init();
 }
 
 void userAppExit(void) {
-    setExit();
     log_nxlink_exit();
 
+    setExit();
     accountExit();
     nifmExit();
     psmExit();
