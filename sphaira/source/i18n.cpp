@@ -41,6 +41,7 @@ bool init(long index) {
 
     u64 languageCode;
     SetLanguage setLanguage = SetLanguage_ENGB;
+    std::string lang_name = "en";
 
     switch (index) {
         case 0: // auto
@@ -60,9 +61,9 @@ bool init(long index) {
         case 9: setLanguage = SetLanguage_NL; break; // "Dutch"
         case 10: setLanguage = SetLanguage_PT; break; // "Portuguese"
         case 11: setLanguage = SetLanguage_RU; break; // "Russian"
+        case 12: lang_name = "se"; break; // "Swedish"
     }
 
-    std::string lang_name;
     switch (setLanguage) {
         case SetLanguage_JA: lang_name = "ja"; break;
         case SetLanguage_FR: lang_name = "fr"; break;
@@ -75,7 +76,6 @@ bool init(long index) {
         case SetLanguage_PT: lang_name = "pt"; break;
         case SetLanguage_RU: lang_name = "ru"; break;
         case SetLanguage_ZHTW: lang_name = "zh"; break;
-        default: lang_name = "en"; break;
     }
 
     const fs::FsPath sdmc_path = "/config/sphaira/i18n/" + lang_name + ".json";

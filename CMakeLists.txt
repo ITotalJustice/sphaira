@@ -42,5 +42,12 @@ function(dkp_fatal_if_not_found var package)
     endif()
 endfunction(dkp_fatal_if_not_found var package)
 
+# disable exceptions and rtti in order to shrink final binary size.
+add_compile_options(
+  "$<$<COMPILE_LANGUAGE:C>:-fno-exceptions>"
+  "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>"
+  "$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>"
+)
+
 add_subdirectory(hbl)
 add_subdirectory(sphaira)

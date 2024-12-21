@@ -14,6 +14,8 @@ enum class UpdateState {
     None,
     // update available!
     Update,
+    // there was an error whilst checking for updates.
+    Error,
 };
 
 // this holds 2 menus and allows for switching between them

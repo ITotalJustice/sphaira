@@ -224,7 +224,7 @@ void loop(void* args) {
     };
 
     while (!g_quit) {
-        svcSleepThread(1000000);
+        svcSleepThread(1e+8);
 
         if (poll_network_change()) {
             continue;
@@ -267,7 +267,7 @@ void loop(void* args) {
         sockaddr_in sa_remote{};
 
         while (!g_quit) {
-            svcSleepThread(10000);
+            svcSleepThread(1e+8);
 
             if (poll_network_change()) {
                 break;

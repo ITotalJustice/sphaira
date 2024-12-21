@@ -102,9 +102,15 @@ auto OptionBox::OnLayoutChange() -> void {
 }
 
 auto OptionBox::Draw(NVGcontext* vg, Theme* theme) -> void {
+    const float padding = 15;
     gfx::dimBackground(vg);
     gfx::drawRect(vg, m_pos, theme->elements[ThemeEntryID_SELECTED].colour);
-    gfx::drawText(vg, {m_pos.x + (m_pos.w / 2.f), m_pos.y + 110.f}, 26.f, theme->elements[ThemeEntryID_TEXT].colour, m_message.c_str(), NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
+
+    nvgSave(vg);
+    nvgTextLineHeight(vg, 1.5);
+    gfx::drawTextBox(vg, m_pos.x + padding, m_pos.y + 110.f, 26.f, m_pos.w - padding*2, theme->elements[ThemeEntryID_TEXT].colour, m_message.c_str(), NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+    nvgRestore(vg);
+
     gfx::drawRect(vg, m_spacer_line, theme->elements[ThemeEntryID_TEXT].colour);
 
     for (auto&p: m_entries) {

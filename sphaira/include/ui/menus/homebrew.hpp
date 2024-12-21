@@ -9,8 +9,11 @@ namespace sphaira::ui::menu::homebrew {
 
 enum SortType {
     SortType_Updated,
-    SortType_Size,
     SortType_Alphabetical,
+    SortType_Size,
+    SortType_UpdatedStar,
+    SortType_AlphabeticalStar,
+    SortType_SizeStar,
 };
 
 enum OrderType {
@@ -36,6 +39,10 @@ struct Menu final : MenuBase {
         return m_entries;
     }
 
+    auto IsStarEnabled() -> bool {
+        return m_sort.Get() >= SortType_UpdatedStar;
+    }
+
     static Result InstallHomebrew(const fs::FsPath& path, const NacpStruct& nacp, const std::vector<u8>& icon);
     static Result InstallHomebrewFromPath(const fs::FsPath& path);
 
@@ -46,9 +53,9 @@ private:
     std::size_t m_start{};
     std::size_t m_index{}; // where i am in the array
 
-    option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_Updated};
+    option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_AlphabeticalStar};
     option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Decending};
-    option::OptionBool m_hide_sphaira{INI_SECTION, "hide_sphaira", false};}
-;
+    option::OptionBool m_hide_sphaira{INI_SECTION, "hide_sphaira", false};
+};
 
 } // namespace sphaira::ui::menu::homebrew

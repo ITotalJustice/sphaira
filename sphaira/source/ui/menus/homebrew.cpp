@@ -17,6 +17,12 @@
 namespace sphaira::ui::menu::homebrew {
 namespace {
 
+auto GenerateStarPath(const fs::FsPath& nro_path) -> fs::FsPath {
+    fs::FsPath out{};
+    const auto dilem = std::strrchr(nro_path.s, '/');
+    std::snprintf(out, sizeof(out), "%.*s.%s.star", dilem - nro_path.s + 1, nro_path.s, dilem + 1);
+    return out;
+}
 
 } // namespace
 
@@ -74,8 +80,11 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
 
                     SidebarEntryArray::Items sort_items;
                     sort_items.push_back("Updated"_i18n);
-                    sort_items.push_back("Size"_i18n);
                     sort_items.push_back("Alphabetical"_i18n);
+                    sort_items.push_back("Size"_i18n);
+                    sort_items.push_back("Updated (Star)"_i18n);
+                    sort_items.push_back("Alphabetical (Star)"_i18n);
+                    sort_items.push_back("Size (Star)"_i18n);
 
                     SidebarEntryArray::Items order_items;
                     order_items.push_back("Decending"_i18n);
@@ -90,6 +99,10 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                         m_order.Set(index_out);
                         SortAndFindLastFile();
                     }, m_order.Get()));
+
+                    options->Add(std::make_shared<SidebarEntryBool>("Hide Sphaira"_i18n, m_hide_sphaira.Get(), [this](bool& enable){
+                        m_hide_sphaira.Set(enable);
+                    }, "Enabled"_i18n, "Disabled"_i18n));
                 }));
 
                 #if 0
@@ -112,10 +125,6 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                         }
                     ));
                 }, true));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Hide Sphaira"_i18n, m_hide_sphaira.Get(), [this](bool& enable){
-                    m_hide_sphaira.Set(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){
                     App::Push(std::make_shared<OptionBox>(
@@ -151,6 +160,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const u64 max_entry_display = 9;
     const u64 nro_total = m_entries.size();
     const u64 cursor_pos = m_index;
+    fs::FsNativeSd fs;
 
     // only draw scrollbar if needed
     if (nro_total > max_entry_display) {
@@ -187,18 +197,18 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             nvgSave(vg);
             nvgScissor(vg, x, y, w - 30.f, h); // clip
             {
+                bool has_star = false;
+                if (IsStarEnabled()) {
+                    if (!e.has_star.has_value()) {
+                        e.has_star = fs.FileExists(GenerateStarPath(e.path));
+                    }
+                    has_star = e.has_star.value();
+                }
+
                 const float font_size = 18;
-                const float diff = 32;
-                #if 1
-                gfx::drawTextArgs(vg, x + 148, y + 45, font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, "%s", e.GetName());
+                gfx::drawTextArgs(vg, x + 148, y + 45, font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, "%s%s", has_star ? "\u2605 " : "", e.GetName());
                 gfx::drawTextArgs(vg, x + 148, y + 80, font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, e.GetAuthor());
                 gfx::drawTextArgs(vg, x + 148, y + 115, font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, e.GetDisplayVersion());
-                #else
-                gfx::drawTextArgs(vg, x + 148, y + 35, font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, "%s", e.GetName());
-                gfx::drawTextArgs(vg, x + 148, y + 35 + (diff * 1), font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, e.GetAuthor());
-                gfx::drawTextArgs(vg, x + 148, y + 35 + (diff * 2), font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, e.GetDisplayVersion());
-                // gfx::drawTextArgs(vg, x + 148, y + 110, font_size, NVG_ALIGN_LEFT, theme->elements[text_id].colour, "PlayCount: %u", e.hbini.launch_count);
-                #endif
             }
             nvgRestore(vg);
         }
@@ -219,6 +229,26 @@ void Menu::SetIndex(std::size_t index) {
     }
 
     const auto& e = m_entries[m_index];
+
+    if (IsStarEnabled()) {
+        const auto star_path = GenerateStarPath(m_entries[m_index].path);
+        if (fs::FsNativeSd().FileExists(star_path)) {
+            SetAction(Button::R3, Action{"Unstar"_i18n, [this](){
+                fs::FsNativeSd().DeleteFile(GenerateStarPath(m_entries[m_index].path));
+                App::Notify("Unstarred "_i18n + m_entries[m_index].GetName());
+                SortAndFindLastFile();
+            }});
+        } else {
+            SetAction(Button::R3, Action{"Star"_i18n, [this](){
+                fs::FsNativeSd().CreateFile(GenerateStarPath(m_entries[m_index].path));
+                App::Notify("Starred "_i18n + m_entries[m_index].GetName());
+                SortAndFindLastFile();
+            }});
+        }
+    } else {
+        RemoveAction(Button::R3);
+    }
+
     // TimeCalendarTime caltime;
     // timeToCalendarTimeWithMyRule()
     // todo: fix GetFileTimeStampRaw being different to timeGetCurrentTime
@@ -276,12 +306,31 @@ void Menu::ScanHomebrew() {
 }
 
 void Menu::Sort() {
+    if (IsStarEnabled()) {
+        fs::FsNativeSd fs;
+        fs::FsPath star_path;
+        for (auto& p : m_entries) {
+            p.has_star = fs.FileExists(GenerateStarPath(p.path));
+            if (p.has_star) {
+                log_write("found star: %s\n", p.path.s);
+            } else {
+                log_write("no star: %s\n", p.path.s);
+            }
+        }
+    }
+
     // returns true if lhs should be before rhs
     const auto sort = m_sort.Get();
     const auto order = m_order.Get();
 
     const auto sorter = [this, sort, order](const NroEntry& lhs, const NroEntry& rhs) -> bool {
         switch (sort) {
+            case SortType_UpdatedStar:
+                if (lhs.has_star.value() && !rhs.has_star.value()) {
+                    return true;
+                } else if (!lhs.has_star.value() && rhs.has_star.value()) {
+                    return false;
+                }
             case SortType_Updated: {
                 auto lhs_timestamp = lhs.hbini.timestamp;
                 auto rhs_timestamp = rhs.hbini.timestamp;
@@ -300,6 +349,13 @@ void Menu::Sort() {
                     return lhs_timestamp < rhs_timestamp;
                 }
             } break;
+
+            case SortType_SizeStar:
+                if (lhs.has_star.value() && !rhs.has_star.value()) {
+                    return true;
+                } else if (!lhs.has_star.value() && rhs.has_star.value()) {
+                    return false;
+                }
             case SortType_Size: {
                 if (lhs.size == rhs.size) {
                     return strcasecmp(lhs.GetName(), rhs.GetName()) < 0;
@@ -309,6 +365,13 @@ void Menu::Sort() {
                     return lhs.size < rhs.size;
                 }
             } break;
+
+            case SortType_AlphabeticalStar:
+                if (lhs.has_star.value() && !rhs.has_star.value()) {
+                    return true;
+                } else if (!lhs.has_star.value() && rhs.has_star.value()) {
+                    return false;
+                }
             case SortType_Alphabetical: {
                 if (order == OrderType_Decending) {
                     return strcasecmp(lhs.GetName(), rhs.GetName()) < 0;
@@ -325,7 +388,27 @@ void Menu::Sort() {
 }
 
 void Menu::SortAndFindLastFile() {
+    const auto path = m_entries[m_index].path;
     Sort();
+    SetIndex(0);
+
+    s64 index = -1;
+    for (u64 i = 0; i < m_entries.size(); i++) {
+        if (path == m_entries[i].path) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index >= 0) {
+        // guesstimate where the position is
+        if (index >= 9) {
+            m_start = (index - 9) / 3 * 3 + 3;
+        } else {
+            m_start = 0;
+        }
+        SetIndex(index);
+    }
 }
 
 Result Menu::InstallHomebrew(const fs::FsPath& path, const NacpStruct& nacp, const std::vector<u8>& icon) {

@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <span>
+#include <optional>
 #include "fs.hpp"
 
 namespace sphaira {
@@ -28,6 +29,7 @@ struct NroEntry {
     int image{}; // nvg image
     int x,y,w,h{}; // image
     bool is_nacp_valid{};
+    std::optional<bool> has_star{std::nullopt};
 
     auto GetName() const -> const char* {
         return nacp.lang[0].name;
