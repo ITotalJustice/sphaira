@@ -849,8 +849,10 @@ App::App(const char* argv0) {
     // set if we are hbmenu
     if (IsHbmenu()) {
         __nx_applet_exit_mode = 1;
+        g_app->m_replace_hbmenu.Set(true);
+    } else {
+        g_app->m_replace_hbmenu.Set(false);
     }
-
     fs::FsNativeSd fs;
     fs.CreateDirectoryRecursively("/config/sphaira/assoc");
     fs.CreateDirectoryRecursively("/config/sphaira/themes");
@@ -1052,10 +1054,10 @@ App::~App() {
     if (App::GetReplaceHbmenuEnable() && !IsHbmenu()) {
         NacpStruct nacp;
         fs::FsNativeSd fs;
-        if (R_SUCCEEDED(nro_get_nacp("/hbmenu.nro", nacp)) && std::strcmp(nacp.lang[0].name, "sphaira")) {
+        if (R_SUCCEEDED(nro_get_nacp("/hbmenu.nro", nacp)) && std::strcmp(nacp.lang[0].name, "nx-hbmenu") == 0) {
             log_write("backing up hbmenu\n");
             if (R_FAILED(fs.copy_entire_file("/switch/hbmenu.nro", "/hbmenu.nro", true))) {
-                log_write("failed to copy sphaire.nro to hbmenu.nro\n");
+                log_write("failed to copy hbmenu.nro\n");
             }
         } else {
             log_write("not backing up\n");
@@ -1068,25 +1070,43 @@ App::~App() {
             log_write("success with copying over root file!\n");
         }
     } else if (IsHbmenu()) {
-        // check we have a version that's newer than current.
         fs::FsNativeSd fs;
-        NacpStruct sphaira_nacp;
-        fs::FsPath sphaira_path = "/switch/sphaira/sphaira.nro";
-        Result rc;
-
-        rc = nro_get_nacp(sphaira_path, sphaira_nacp);
-        if (R_FAILED(rc) || std::strcmp(sphaira_nacp.lang[0].name, "sphaira")) {
-            sphaira_path = "/switch/sphaira.nro";
-            rc = nro_get_nacp(sphaira_path, sphaira_nacp);
-        }
-
-        // found sphaira, now lets get compare version
-        if (R_SUCCEEDED(rc) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira")) {
-            if (std::strcmp(APP_VERSION, sphaira_nacp.display_version) < 0) {
-                if (R_FAILED(rc = fs.copy_entire_file(GetExePath(), sphaira_path, true))) {
-                    log_write("failed to copy entire file: %s 0x%X module: %u desc: %u\n", sphaira_path, rc, R_MODULE(rc), R_DESCRIPTION(rc));
+        if (!App::GetReplaceHbmenuEnable()) {
+            log_write("Restoring Sphaira\n");
+            if (R_FAILED(fs.copy_entire_file("/switch/sphaira/sphaira.nro", GetExePath(), true))) {
+                log_write("failed to restore Sphaira\n");
+            } else {
+                log_write("success with restoring Sphaira!\n");
+                NacpStruct nacp;
+                if (R_SUCCEEDED(nro_get_nacp("/switch/hbmenu.nro", nacp)) && std::strcmp(nacp.lang[0].name, "nx-hbmenu") == 0) {
+                    log_write("Restoring HBMenu\n");
+                    if (R_FAILED(fs.copy_entire_file("/hbmenu.nro", "/switch/hbmenu.nro", true))) {
+                        log_write("failed to restore hbmenu.nro\n");
+                    }
                 } else {
-                    log_write("success with updating hbmenu!\n");
+                    log_write("not restoring HBMenu\n");
+                }
+            }
+        } else {
+            // check we have a version that's newer than current.
+            NacpStruct sphaira_nacp;
+            fs::FsPath sphaira_path = "/switch/sphaira/sphaira.nro";
+            Result rc;
+
+            rc = nro_get_nacp(sphaira_path, sphaira_nacp);
+            if (R_FAILED(rc) || std::strcmp(sphaira_nacp.lang[0].name, "sphaira") != 0) {
+                sphaira_path = "/switch/sphaira.nro";
+                rc = nro_get_nacp(sphaira_path, sphaira_nacp);
+            }
+
+            // found sphaira, now lets get compare version
+            if (R_SUCCEEDED(rc) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira") == 0) {
+                if (std::strcmp(APP_VERSION, sphaira_nacp.display_version) < 0) {
+                    if (R_FAILED(rc = fs.copy_entire_file(GetExePath(), sphaira_path, true))) {
+                        log_write("failed to copy entire file: %s 0x%X module: %u desc: %u\n", sphaira_path, rc, R_MODULE(rc), R_DESCRIPTION(rc));
+                    } else {
+                        log_write("success with updating hbmenu!\n");
+                    }
                 }
             }
         }

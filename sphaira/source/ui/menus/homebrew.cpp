@@ -317,7 +317,7 @@ void Menu::Sort() {
         fs::FsPath star_path;
         for (auto& p : m_entries) {
             p.has_star = fs.FileExists(GenerateStarPath(p.path));
-            if (p.has_star) {
+            if (p.has_star == true) {
                 log_write("found star: %s\n", p.path.s);
             } else {
                 log_write("no star: %s\n", p.path.s);

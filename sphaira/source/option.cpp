@@ -37,4 +37,18 @@ template struct OptionBase<bool>;
 template struct OptionBase<long>;
 template struct OptionBase<std::string>;
 
+template<typename T>
+auto OptionBaseNoIni<T>::Get() -> T {
+    return m_value.value();
+}
+
+template<typename T>
+void OptionBaseNoIni<T>::Set(T value) {
+    m_value = value;
+}
+
+template struct OptionBaseNoIni<bool>;
+template struct OptionBaseNoIni<long>;
+template struct OptionBaseNoIni<std::string>;
+
 } //  namespace sphaira::option

@@ -312,7 +312,7 @@ MainMenu::MainMenu() {
                     App::SetLogEnable(enable);
                 }, "Enabled"_i18n, "Disabled"_i18n));
 
-                options->Add(std::make_shared<SidebarEntryBool>("Replace hbmenu on exit"_i18n, App::GetReplaceHbmenuEnable(), [this](bool& enable){
+                options->Add(std::make_shared<SidebarEntryBool>("Sphaira replace HBMenu"_i18n, App::GetReplaceHbmenuEnable(), [this](bool& enable){
                     App::SetReplaceHbmenuEnable(enable);
                 }, "Enabled"_i18n, "Disabled"_i18n));
 

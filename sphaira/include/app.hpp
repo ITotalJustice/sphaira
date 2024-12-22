@@ -139,7 +139,7 @@ public:
 
     option::OptionBool m_nxlink_enabled{INI_SECTION, "nxlink_enabled", true};
     option::OptionBool m_log_enabled{INI_SECTION, "log_enabled", false};
-    option::OptionBool m_replace_hbmenu{INI_SECTION, "replace_hbmenu", false};
+    option::OptionNoIniBool m_replace_hbmenu{"replace_hbmenu", false};
     option::OptionBool m_install{INI_SECTION, "install", false};
     option::OptionBool m_install_sd{INI_SECTION, "install_sd", true};
     option::OptionLong m_install_prompt{INI_SECTION, "install_prompt", true};
