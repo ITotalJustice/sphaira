@@ -13,7 +13,7 @@ static char g_nextNroPath[FS_MAX_PATH] = {0};
 static char g_defaultArgv[2048] = {0};
 static char g_defaultNroPath[FS_MAX_PATH] = {0};
 
-static const char g_noticeText[] = { "sphaira " VERSION };
+static const char g_noticeText[] = { "sphaira v" VERSION };
 
 static u64 g_nroSize = 0;
 static NroHeader g_nroHeader = {0};
