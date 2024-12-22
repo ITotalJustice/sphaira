@@ -17,7 +17,7 @@
   "Changelog": "更新日志",
   "Details": "详情",
   "Update": "更新",
-  "Remove": "移动",
+  "Remove": "删除",
   "Download": "下载",
   "Next Page": "下一页",
   "Prev Page": "上一页",
@@ -101,7 +101,7 @@
   "Empty...": "空...",
   "Open with DayBreak?": "使用DayBreak打开？",
   "Launch option for: ": "启动选项：",
-  "Star": "星标",
+  
   "Homebrew": "应用列表",
   "Homebrew Options": "应用选项",
   "Hide Sphaira": "在应用列表中隐藏Sphaira",
@@ -186,7 +186,7 @@
   "Deleting": "正在删除",
   "Pasting ": "正在粘贴 ",
   "Pasting": "正在粘贴",
-  "Removing ": "正在移动 ",
+  "Removing ": "正在移除 ",
   "Scanning ": "正在扫描 ",
   "Creating ": "正在创建 ",
   "Copying ": "正在复制 ",
@@ -203,5 +203,10 @@
   "Delete Selected files?": "删除选中的文件？",
   "Completely remove ": "彻底删除 ",
   "Are you sure you want to delete ": "您确定要删除吗 ",
-  "Are you sure you wish to cancel?": "您确定要取消吗？"
+  "Are you sure you wish to cancel?": "您确定要取消吗？",
+  "Install forwarders": "允许安装前端应用",
+  "Install location": "安装位置",
+  "System memory": "主机内存",
+  "microSD card": "SD卡",
+  "Star": "星标"
 }
