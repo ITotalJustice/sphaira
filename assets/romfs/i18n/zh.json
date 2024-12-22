@@ -34,7 +34,7 @@
   "Search": "搜索",
   "Updated": "最近使用",
   "Downloads": "下载",
-  "Size": "大小",
+  "Size": "按大小",
   "Alphabetical": "按字母顺序",
   "Likes": "点赞量",
   "ID": "ID",
@@ -209,5 +209,10 @@
   "Show install warning": "显示安装警告",
   "System memory": "主机内存",
   "microSD card": "SD卡",
-  "Star": "星标"
+  "Updated (Star)": "最近更新（星标优先）",
+  "Alphabetical (Star)": "按字母顺序（星标优先）",
+  "Size (Star)": "按大小（星标优先）",
+  "Star": "星标",
+  "Unstar": "取消星标"，
+  "Are you sure you want to delete": "您确定要删除吗"
 }
