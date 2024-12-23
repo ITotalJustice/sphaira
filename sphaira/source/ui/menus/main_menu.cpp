@@ -90,6 +90,14 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
             }
 
             Result rc;
+            if (strcmp(file_path.s, "/switch/sphaira/sphaira.nro") != 0 && strcmp(strrchr(file_path.s, '/'), "/sphaira.nro") == 0) {
+                if (R_FAILED(rc = fs.CreateDirectoryRecursively("/switch/sphaira")) && rc != FsError_ResultPathAlreadyExists) {
+                    log_write("failed to create folder: %s 0x%04X\n", file_path, rc);
+                    return false;
+                }
+                file_path = "/switch/sphaira/sphaira.nro";
+            }
+
             if (file_path[strlen(file_path) -1] == '/') {
                 if (R_FAILED(rc = fs.CreateDirectoryRecursively(file_path)) && rc != FsError_ResultPathAlreadyExists) {
                     log_write("failed to create folder: %s 0x%04X\n", file_path, rc);
