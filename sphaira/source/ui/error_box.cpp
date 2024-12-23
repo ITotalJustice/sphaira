@@ -1,7 +1,6 @@
 #include "ui/error_box.hpp"
 #include "ui/nvg_util.hpp"
 #include "app.hpp"
-#include "i18n.hpp"
 
 namespace sphaira::ui {
 namespace {
@@ -1146,12 +1145,12 @@ auto ErrorBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     const auto center_x = m_pos.x + m_pos.w/2;
 
     gfx::drawTextArgs(vg, center_x, 180, 63, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, gfx::Colour::RED, "\uE140");
-    gfx::drawTextArgs(vg, center_x, 270, 25, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "Error code: 0x%X Module: %s Description: %s"_i18n.c_str(), m_code, m_module_str.c_str(), m_description_str.c_str());
+    gfx::drawTextArgs(vg, center_x, 270, 25, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "Error code: 0x%X Module: %s Description: %s", m_code, m_module_str.c_str(), m_description_str.c_str());
     gfx::drawTextArgs(vg, center_x, 325, 23, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->elements[ThemeEntryID_TEXT].colour, "%s", m_message.c_str());
-    gfx::drawTextArgs(vg, center_x, 380, 20, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, gfx::Colour::SILVER, "If this message appears repeatedly, please open an issue."_i18n.c_str());
+    gfx::drawTextArgs(vg, center_x, 380, 20, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, gfx::Colour::SILVER, "If this message appears repeatedly, please open an issue.");
     gfx::drawTextArgs(vg, center_x, 415, 20, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, gfx::Colour::SILVER, "https://github.com/ITotalJustice/sphaira/issues");
     gfx::drawRectOutline(vg, 4.f, theme->elements[ThemeEntryID_SELECTED_OVERLAY].colour, box, theme->elements[ThemeEntryID_SELECTED].colour);
-    gfx::drawTextArgs(vg, center_x, box.y + box.h/2, 23, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::WHITE, "OK"_i18n.c_str());
+    gfx::drawTextArgs(vg, center_x, box.y + box.h/2, 23, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, gfx::Colour::WHITE, "OK");
 }
 
 } // namespace sphaira::ui
