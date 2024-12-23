@@ -142,6 +142,7 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
 } // namespace
 
 MainMenu::MainMenu() {
+    App::VerifyLaunch();
     DownloadMemoryAsync("https://api.github.com/repos/ITotalJustice/sphaira/releases/latest", "", [this](std::vector<u8>& data, bool success){
         m_update_state = UpdateState::Error;
         ON_SCOPE_EXIT( log_write("update status: %u\n", (u8)m_update_state) );

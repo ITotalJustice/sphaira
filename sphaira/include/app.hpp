@@ -43,6 +43,7 @@ public:
 
     static void Exit();
     static void ExitRestart();
+static void VerifyLaunch();
     static auto GetVg() -> NVGcontext*;
     static void Push(std::shared_ptr<ui::Widget>);
 

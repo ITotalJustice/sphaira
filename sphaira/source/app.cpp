@@ -510,6 +510,30 @@ void App::ExitRestart() {
     Exit();
 }
 
+void App::VerifyLaunch() {
+    log_write("Verifying launch path...\n");
+    log_write("Launched from: %s\n", GetExePath().s);
+    fs::FsNativeSd fs;
+    fs::FsPath sphaira_path = "/switch/sphaira/sphaira.nro";
+    if (std::strcmp(GetExePath().s, "/hbmenu.nro") != 0 && std::strcmp(GetExePath().s, sphaira_path.s) != 0) {
+        log_write("Sphaira not launched from correct path, trying to fix...\n");
+        if (R_FAILED(fs.copy_entire_file(sphaira_path, GetExePath(), true))) {
+            log_write("Failed to copy sphaira to the correct path.\n");
+        } else {
+            log_write("Sphaira copied, deleting actual and rebooting new...\n");
+            if (R_FAILED(fs.DeleteFile(GetExePath(), true))) {
+                log_write("Failed to delete actual.\n");
+            } else {
+                log_write("Delete actual success.\n");
+                nro_launch(sphaira_path);
+                Exit();
+            }
+        }
+    } else {
+        log_write("Sphaira  launched from correct path.\n");
+    }
+}
+
 void App::Poll() {
     m_controller.Reset();
 
@@ -1001,6 +1025,7 @@ App::App(const char* argv0) {
     }
 
     App::Push(std::make_shared<ui::menu::main::MainMenu>());
+
     log_write("finished app constructor\n");
 }
 
@@ -1093,14 +1118,8 @@ App::~App() {
             fs::FsPath sphaira_path = "/switch/sphaira/sphaira.nro";
             Result rc;
 
-            rc = nro_get_nacp(sphaira_path, sphaira_nacp);
-            if (R_FAILED(rc) || std::strcmp(sphaira_nacp.lang[0].name, "sphaira") != 0) {
-                sphaira_path = "/switch/sphaira.nro";
-                rc = nro_get_nacp(sphaira_path, sphaira_nacp);
-            }
-
             // found sphaira, now lets get compare version
-            if (R_SUCCEEDED(rc) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira") == 0) {
+            if (R_SUCCEEDED(rc = nro_get_nacp(sphaira_path, sphaira_nacp)) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira") == 0) {
                 if (std::strcmp(APP_VERSION, sphaira_nacp.display_version) < 0) {
                     if (R_FAILED(rc = fs.copy_entire_file(GetExePath(), sphaira_path, true))) {
                         log_write("failed to copy entire file: %s 0x%X module: %u desc: %u\n", sphaira_path, rc, R_MODULE(rc), R_DESCRIPTION(rc));
