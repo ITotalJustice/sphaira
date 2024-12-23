@@ -66,6 +66,8 @@
   "Nxlink Connected": "Nxlink 接続",
   "Nxlink Upload": "Nxlink アップロード",
   "Nxlink Finished": "Nxlink 終了",
+  "Switch-Handheld!": "ハンドヘルド!",
+  "Switch-Docked!": "ドック接続!",
   "Language": "言語",
   "Auto": "自動",
   "English": "English",
@@ -114,6 +116,7 @@
   "Open with DayBreak?": "DayBreakで開きますか?",
   "Launch ": "起動しますか",
   "Launch option for: ": "起動設定: ",
+  "Select launcher for: ": "起動ランチャーを選ぶ: ",
 
   "Homebrew": "Homebrew",
   "Homebrew Options": "Homebrew設定",
@@ -206,6 +209,7 @@
   "Scanning ": "スキャン中 ",
   "Creating ": "作成中 ",
   "Copying ": "コピー中 ",
+  "Trying to load ": "サムネイルを取得中 ",
   "Downloading ": "ダウンロード中 ",
   "Checking MD5": "MD5を確認中 ",
   "Loading...": "ロード中",
@@ -223,5 +227,5 @@
   "Are you sure you want to delete ": "消去してもよろしいですか ",
   "Are you sure you wish to cancel?": "本当に取り消しますか?",
   "Error code: 0x%X Module: %s Description: %s": "エラーコード: 0x%X モデュール: %s 詳細: %s",
-  "If this message appears repeatedly, please open an issue.": "このメッセージが繰り返し表示される場合は、問題を開きます。"
+  "If this message appears repeatedly, please open an issue.": "このメッセージが繰り返し表示される場合は、問題を開いてください。"
 }

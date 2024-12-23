@@ -215,7 +215,7 @@ auto GetRomIcon(ProgressBox* pbox, std::string filename, std::string extension, 
     log_write("starting image convert on: %s\n", ra_thumbnail_path.c_str());
     // try and find icon locally
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Trying to load " + ra_thumbnail_path);
+        pbox->NewTransfer("Trying to load "_i18n + ra_thumbnail_path);
         std::vector<u8> image_file;
         if (R_SUCCEEDED(fs::FsNativeSd().read_entire_file(ra_thumbnail_path.c_str(), image_file))) {
             return image_file;
@@ -839,7 +839,7 @@ void Menu::InstallForwarder() {
         items.emplace_back(p.name);
     }
 
-    const auto title = std::string{"Select launcher for: "} + GetEntry().name;
+    const auto title = std::string{"Select launcher for: "_i18n} + GetEntry().name;
     App::Push(std::make_shared<PopupList>(
         title, items, [this, assoc_list](auto op_index){
             if (op_index) {
