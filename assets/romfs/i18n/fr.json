@@ -14,7 +14,11 @@
   "Info": "Info.",
   "Install": "Installer",
   "Delete": "Supprimer",
+<<<<<<< HEAD
+  "Restart": "Redémarrer",
+=======
   "Restart": "",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
   "Changelog": "Changelog",
   "Details": "Détails",
   "Update": "Mise à jour",
@@ -38,6 +42,15 @@
   "Order": "Ordre",
   "Search": "Recherche",
   "Updated": "Mis à jour",
+<<<<<<< HEAD
+  "Updated (Star)": "Mis à jour (Favories)",
+  "Downloads": "Téléchargements",
+  "Size": "Taille",
+  "Size (Star)": "Taille (Favories)",
+  "Alphabetical": "Alphabétique",
+  "Alphabetical (Star)": "Alphabétique (Favories)",
+  "Likes": "Likes",
+=======
   "Updated (Star)": "",
   "Downloads": "Téléchargements",
   "Size": "Taille",
@@ -45,6 +58,7 @@
   "Alphabetical": "Alphabétique",
   "Alphabetical (Star)": "",
   "Likes": "Favoris",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
   "ID": "ID",
   "Decending": "Décroissant",
   "Descending (down)": "Décroissant",
@@ -66,8 +80,13 @@
   "Nxlink Connected": "Nxlink Connecté",
   "Nxlink Upload": "Nxlink téléversement",
   "Nxlink Finished": "Nxlink terminé",
+<<<<<<< HEAD
+  "Switch-Handheld!": "Switch-Portable",
+  "Switch-Docked!": "Switch-Dockée",
+=======
   "Switch-Handheld!": "",
   "Switch-Docked!": "",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
   "Language": "Langue",
   "Auto": "Auto",
   "English": "English",
@@ -114,9 +133,15 @@
   "View as text (unfinished)": "Afficher sous forme de texte (inachevé)",
   "Empty...": "Vide...",
   "Open with DayBreak?": "Ouvrir avec DayBreak?",
+<<<<<<< HEAD
+  "Launch ": "Lancer ",
+  "Launch option for: ": "Option de lancement pour: ",
+  "Select launcher for: ": "Sélectionner le lanceur pour: ",
+=======
   "Launch ": "",
   "Launch option for: ": "Option de lancement pour: ",
   "Select launcher for: ": "",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
 
   "Homebrew": "Homebrew",
   "Homebrew Options": "Options Homebrew",
@@ -157,7 +182,11 @@
   "Controller": "Contrôleur",
   "Pad ": "Manette ",
   " (Available)": " (Disponible)",
+<<<<<<< HEAD
+  " (Unsupported)": "Non supporté",
+=======
   " (Unsupported)": "",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
   " (Unconnected)": " (Non connectée)",
   "HandHeld": "Portable",
   "Rotation": "Rotation",
@@ -209,7 +238,11 @@
   "Scanning ": "Scan ",
   "Creating ": "Création ",
   "Copying ": "Copie ",
+<<<<<<< HEAD
+  "Trying to load ": "Tente de charger ",
+=======
   "Trying to load ": "",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
   "Downloading ": "Téléchargement ",
   "Checking MD5": "Vérification MD5",
   "Loading...": "Chargement...",
@@ -219,12 +252,21 @@
   "Error loading page!": "Erreur du chargement de la page!",
   "Update avaliable: ": "Mise à jour disponible: ",
   "Download update: ": "Télécharger la mise à jour: ",
+<<<<<<< HEAD
+  "Updated to ": "Mis à jour vers ",
+  "Restart Sphaira?": "Redémarrer Sphaira?",
+=======
   "Updated to ": "",
   "Restart Sphaira?": "",
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
   "Failed to download update": "Echec du téléchargement de la mise à jour",
   "Delete Selected files?": "Supprimer les fichiers sélectionnés?",
   "Completely remove ": "Supprimer totalement ",
   "Are you sure you want to delete ": "Êtes-vous sûr de vouloir supprimer ",
   "Are you sure you wish to cancel?": "Souhaitez-vous vraiment annuler?",
+<<<<<<< HEAD
+  "If this message appears repeatedly, please open an issue.": "Si ce message apparait en boucle veuillez ouvrir une issue."
+=======
   "If this message appears repeatedly, please open an issue.": ""
+>>>>>>> 3df676df0f432112aa14fbeae26943c91690e829
 }
