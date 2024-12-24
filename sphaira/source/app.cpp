@@ -107,12 +107,12 @@ void on_applet_operation_mode(App* app) {
     switch (appletGetOperationMode()) {
         case AppletOperationMode_Handheld:
             log_write("[APPLET] AppletOperationMode_Handheld\n");
-            App::Notify("Switch-Handheld!");
+            App::Notify("Switch-Handheld!"_i18n);
             break;
 
         case AppletOperationMode_Console:
             log_write("[APPLET] AppletOperationMode_Console\n");
-            App::Notify("Switch-Docked!");
+            App::Notify("Switch-Docked!"_i18n);
             break;
     }
 }
