@@ -1052,10 +1052,10 @@ App::~App() {
     if (App::GetReplaceHbmenuEnable() && !IsHbmenu()) {
         NacpStruct nacp;
         fs::FsNativeSd fs;
-        if (R_SUCCEEDED(nro_get_nacp("/hbmenu.nro", nacp)) && std::strcmp(nacp.lang[0].name, "nx-hbmenu") == 0) {
-            log_write("backing up hbmenu\n");
+        if (R_SUCCEEDED(nro_get_nacp("/hbmenu.nro", nacp)) && std::strcmp(nacp.lang[0].name, "sphaira") != 0) {
+            log_write("backing up hbmenu.nro\n");
             if (R_FAILED(fs.copy_entire_file("/switch/hbmenu.nro", "/hbmenu.nro", true))) {
-                log_write("failed to backup  hbmenu\n");
+                log_write("failed to backup  hbmenu.nro\n");
             }
         } else {
             log_write("not backing up\n");
@@ -1081,7 +1081,7 @@ App::~App() {
         }
 
         // found sphaira, now lets get compare version
-        if (R_SUCCEEDED(rc) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira") == 0) {
+        if (R_SUCCEEDED(rc) && std::strcmp(sphaira_nacp.lang[0].name, "sphaira") == 0) {
             if (std::strcmp(APP_VERSION, sphaira_nacp.display_version) < 0) {
                 if (R_FAILED(rc = fs.copy_entire_file(GetExePath(), sphaira_path, true))) {
                     log_write("failed to copy entire file: %s 0x%X module: %u desc: %u\n", sphaira_path, rc, R_MODULE(rc), R_DESCRIPTION(rc));
