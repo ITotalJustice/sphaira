@@ -105,7 +105,7 @@ constexpr RomDatabaseEntry PATHS[]{
     { "wonderswancolor", "Bandai - WonderSwan Color"},
 };
 
-constexpr fs::FsPath DAYBREAK_PATH{"/switch/daybreak.nro"};
+NroEntry DAYBREAKENTRY = SearchHomebrew("Daybreak");
 
 constexpr const char* SORT_STR[] = {
     "Size",
@@ -257,7 +257,12 @@ auto CheckIfUpdateFolder(const fs::FsPath& path, std::span<FileEntry> entries) -
     R_TRY(fs.GetFsOpenResult());
 
     // check that we have daybreak installed
-    R_UNLESS(fs.FileExists(DAYBREAK_PATH), FsError_FileNotFound);
+    NacpStruct nacp;
+    Result rc = nro_get_nacp(DAYBREAKENTRY.path, nacp);
+    if ((R_SUCCEEDED(rc) && std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak")) || R_FAILED(rc)) {
+        DAYBREAKENTRY = SearchHomebrew("daybreak");
+    }
+	R_UNLESS(fs.FileExists(DAYBREAKENTRY.path) && !std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak"), 0x1);
 
     FsDir d;
     R_TRY(fs.OpenDirectory(path, FsDirOpenMode_ReadDirs, &d));
@@ -384,7 +389,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                     if (op_index && *op_index) {
                         // daybreak uses native fs so do not use nro_add_arg_file
                         // otherwise it'll fail to open the folder...
-                        nro_launch(DAYBREAK_PATH, nro_add_arg(m_path));
+                        nro_launch(DAYBREAKENTRY.path, nro_add_arg(m_path));
                     }
                 }));
                 return;
