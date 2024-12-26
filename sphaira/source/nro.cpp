@@ -309,7 +309,7 @@ auto nro_normalise_path(const std::string& p) -> std::string {
     return p;
 }
 
-auto SearchHomebrew(const char* name) -> NroEntry {
+auto search_homebrew(const char* name) -> NroEntry {
     std::vector<NroEntry> m_entries;
     nro_scan("/switch", m_entries, false);
     for (auto& p : m_entries) {

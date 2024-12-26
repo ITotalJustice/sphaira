@@ -105,7 +105,7 @@ constexpr RomDatabaseEntry PATHS[]{
     { "wonderswancolor", "Bandai - WonderSwan Color"},
 };
 
-NroEntry DAYBREAKENTRY = SearchHomebrew("Daybreak");
+NroEntry DAYBREAKENTRY = search_homebrew("Daybreak");
 
 constexpr const char* SORT_STR[] = {
     "Size",
@@ -260,7 +260,7 @@ auto CheckIfUpdateFolder(const fs::FsPath& path, std::span<FileEntry> entries) -
     NacpStruct nacp;
     Result rc = nro_get_nacp(DAYBREAKENTRY.path, nacp);
     if ((R_SUCCEEDED(rc) && std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak")) || R_FAILED(rc)) {
-        DAYBREAKENTRY = SearchHomebrew("daybreak");
+        DAYBREAKENTRY = search_homebrew("daybreak");
     }
 	R_UNLESS(fs.FileExists(DAYBREAKENTRY.path) && !std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak"), 0x1);
 
