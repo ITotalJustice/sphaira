@@ -76,6 +76,6 @@ auto nro_add_arg_file(std::string arg) -> std::string;
 // strips sdmc:
 auto nro_normalise_path(const std::string& p) -> std::string;
 
-auto search_homebrew(const char* name) -> NroEntry;
+auto search_homebrew(const std::vector<NroEntry> m_entries, const char* name, const fs::FsPath path = "") -> NroEntry;
 
 } // namespace sphaira

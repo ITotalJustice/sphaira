@@ -105,7 +105,7 @@ constexpr RomDatabaseEntry PATHS[]{
     { "wonderswancolor", "Bandai - WonderSwan Color"},
 };
 
-NroEntry DAYBREAKENTRY = search_homebrew("Daybreak");
+NroEntry DAYBREAKENTRY = {};
 
 constexpr const char* SORT_STR[] = {
     "Size",
@@ -252,7 +252,7 @@ auto GetRomIcon(ProgressBox* pbox, std::string filename, std::string extension, 
 }
 
 // returns 0 if true
-auto CheckIfUpdateFolder(const fs::FsPath& path, std::span<FileEntry> entries) -> Result {
+auto CheckIfUpdateFolder(const fs::FsPath& path, std::span<FileEntry> entries, const std::vector<NroEntry> nros) -> Result {
     fs::FsNativeSd fs;
     R_TRY(fs.GetFsOpenResult());
 
@@ -260,7 +260,11 @@ auto CheckIfUpdateFolder(const fs::FsPath& path, std::span<FileEntry> entries) -
     NacpStruct nacp;
     Result rc = nro_get_nacp(DAYBREAKENTRY.path, nacp);
     if ((R_SUCCEEDED(rc) && std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak")) || R_FAILED(rc)) {
-        DAYBREAKENTRY = search_homebrew("daybreak");
+        DAYBREAKENTRY = search_homebrew(nros, "Daybreak", "/switch/daybreak.nro");
+        rc = nro_get_nacp(DAYBREAKENTRY.path, nacp);
+        if ((R_SUCCEEDED(rc) && std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak")) || R_FAILED(rc)) {
+            DAYBREAKENTRY = search_homebrew(nros, "Daybreak");
+        }
     }
 	R_UNLESS(fs.FileExists(DAYBREAKENTRY.path) && !std::strcmp(DAYBREAKENTRY.nacp.lang[0].name, "Daybreak"), 0x1);
 
@@ -964,7 +968,7 @@ auto Menu::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
     Sort();
 
     // quick check to see if this is an update folder
-    m_is_update_folder = R_SUCCEEDED(CheckIfUpdateFolder(new_path, m_entries));
+    m_is_update_folder = R_SUCCEEDED(CheckIfUpdateFolder(new_path, m_entries, m_nro_entries));
 
     SetIndex(0);
 

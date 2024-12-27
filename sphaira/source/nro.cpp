@@ -309,12 +309,16 @@ auto nro_normalise_path(const std::string& p) -> std::string {
     return p;
 }
 
-auto search_homebrew(const char* name) -> NroEntry {
-    std::vector<NroEntry> m_entries;
-    nro_scan("/switch", m_entries, false);
+auto search_homebrew(const std::vector<NroEntry> m_entries, const char* name, const fs::FsPath path) -> NroEntry {
     for (auto& p : m_entries) {
-        if (!std::strcmp(p.nacp.lang[0].name, name)) {
-            return p;
+        if (path == "") {
+            if (!std::strcmp(p.nacp.lang[0].name, name)) {
+                return p;
+            }
+        } else {
+            if (!std::strcmp(p.path.s, path.s) && !std::strcmp(p.nacp.lang[0].name, name)) {
+                return p;
+            }
         }
     }
     return {};
