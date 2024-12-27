@@ -308,7 +308,7 @@ Menu::Menu() : MenuBase{"GitHub"_i18n} {
                                 return DownloadApp(pbox, asset_entry);
                             }, [this](bool success){
                                 if (success) {
-                                    App::Notify("Downloaded " + GetEntry().name);
+                                    App::Notify("Downloaded "_i18n + GetEntry().name);
                                 }
                             }, 2));
                         }));
@@ -331,7 +331,7 @@ Menu::Menu() : MenuBase{"GitHub"_i18n} {
                         return DownloadApp(pbox, GetEntry().url, asset_entry);
                     }, [this](bool success){
                         if (success) {
-                            App::Notify("Downloaded " + GetEntry().name);
+                            App::Notify("Downloaded "_i18n + GetEntry().name);
                         }
                     }, 2));
                 }));

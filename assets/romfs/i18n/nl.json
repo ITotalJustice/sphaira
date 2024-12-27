@@ -201,6 +201,10 @@
   "Bad Page": "",
   "Download theme?": "",
 
+  "GitHub": "",
+  "Downloading json": "",
+  "Select asset to download for ": "",
+
   "Installing ": "",
   "Uninstalling ": "",
   "Deleting ": "",
@@ -213,6 +217,7 @@
   "Copying ": "",
   "Trying to load ": "",
   "Downloading ": "",
+  "Downloaded ": "",
   "Checking MD5": "",
   "Loading...": "",
   "Loading": "",

@@ -201,6 +201,10 @@
   "Bad Page": "错误的页面",
   "Download theme?": "下载该主题？",
 
+  "GitHub": "",
+  "Downloading json": "",
+  "Select asset to download for ": "",
+
   "Installing ": "正在安装 ",
   "Uninstalling ": "正在卸载 ",
   "Deleting ": "正在删除 ",
@@ -213,6 +217,7 @@
   "Copying ": "正在复制 ",
   "Trying to load ": "",
   "Downloading ": "正在下载 ",
+  "Downloaded ": "",
   "Checking MD5": "正在校验 MD5",
   "Loading...": "加载中...",
   "Loading": "加载中",

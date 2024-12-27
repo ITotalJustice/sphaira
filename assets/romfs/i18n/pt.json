@@ -201,6 +201,10 @@
   "Bad Page": "Página inválida",
   "Download theme?": "Baixar tema?",
 
+  "GitHub": "",
+  "Downloading json": "",
+  "Select asset to download for ": "",
+
   "Installing ": "Instalando ",
   "Uninstalling ": "Desinstalando ",
   "Deleting ": "Deletando ",
@@ -213,6 +217,7 @@
   "Copying ": "Copiando ",
   "Trying to load ": "Tentando carregar ",
   "Downloading ": "Baixando ",
+  "Downloaded ": "",
   "Checking MD5": "Checando MD5",
   "Loading...": "Carregando...",
   "Loading": "Carregando",

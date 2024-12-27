@@ -201,6 +201,10 @@
   "Bad Page": "ページが見つかりません",
   "Download theme?": "テーマをインストールしますか?",
 
+  "GitHub": "GitHub",
+  "Downloading json": "JSONからダウンロード",
+  "Select asset to download for ": "ダウンロードアイテムを選択 ",
+
   "Installing ": "インストール中 ",
   "Uninstalling ": "アンインストール中 ",
   "Deleting ": "削除中 ",
@@ -213,6 +217,7 @@
   "Copying ": "コピー中 ",
   "Trying to load ": "サムネイルを取得中 ",
   "Downloading ": "ダウンロード中 ",
+  "Downloaded ": "ダウンロード完了 ",
   "Checking MD5": "MD5を確認中 ",
   "Loading...": "ロード中",
   "Loading": "ロード中",

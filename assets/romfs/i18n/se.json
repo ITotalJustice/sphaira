@@ -200,7 +200,11 @@
   "Enter Page Number": "Ange sidnummer",
   "Bad Page": "Ogiltig sida",
   "Download theme?": "Ladda ner tema?",
-  
+
+  "GitHub": "",
+  "Downloading json": "",
+  "Select asset to download for ": "",
+
   "Installing ": "Installerar ",
   "Uninstalling ": "Avinstallerar ",
   "Deleting ": "Raderar ",
@@ -213,6 +217,7 @@
   "Copying ": "Kopierar ",
   "Trying to load ": "",
   "Downloading ": "Laddar ner ",
+  "Downloaded ": "",
   "Checking MD5": "Kontrollerar MD5",
   "Loading...": "Laddar...",
   "Loading": "Laddar",

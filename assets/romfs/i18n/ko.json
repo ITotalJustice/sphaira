@@ -201,6 +201,10 @@
   "Bad Page": "잘못된 페이지",
   "Download theme?": "테마를 다운로드할까요?",
 
+  "GitHub": "GitHub",
+  "Downloading json": "JSON 에서 다운로드",
+  "Select asset to download for ": "다운로드할 아이템을 선택 ",
+
   "Installing ": "설치 ",
   "Uninstalling ": "설치 제거 ",
   "Deleting ": "삭제 ",
@@ -213,6 +217,7 @@
   "Copying ": "복사 ",
   "Trying to load ": "썸네일 받아오는 중... ",
   "Downloading ": "다운로드 ",
+  "Downloaded ": "다운로드 완료: ",
   "Checking MD5": "MD5 확인",
   "Loading...": "로딩 중...",
   "Loading": "로딩 중...",

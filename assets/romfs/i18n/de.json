@@ -201,6 +201,10 @@
   "Bad Page": "Ungültige Seite",
   "Download theme?": "Theme herunterladen?",
 
+  "GitHub": "",
+  "Downloading json": "",
+  "Select asset to download for ": "",
+
   "Installing ": "Installiere ",
   "Uninstalling ": "Deinstalliere ",
   "Deleting ": "Lösche ",
@@ -213,6 +217,7 @@
   "Copying ": "Kopiere ",
   "Trying to load ": "Lade ",
   "Downloading ": "Lade herunter ",
+  "Downloaded ": "",
   "Checking MD5": "Prüfe MD5",
   "Loading...": "Lade...",
   "Loading": "Lade",

@@ -201,6 +201,10 @@
   "Bad Page": "Página Errónea",
   "Download theme?": "¿Descargar Tema?",
 
+  "GitHub": "",
+  "Downloading json": "",
+  "Select asset to download for ": "",
+
   "Installing ": "Instalando ",
   "Uninstalling ": "Desinstalando ",
   "Deleting ": "Borrando ",
@@ -213,6 +217,7 @@
   "Copying ": "Copiando ",
   "Trying to load ": "Intentando cargar",
   "Downloading ": "Descargando ",
+  "Downloaded ": "",
   "Checking MD5": "Chequeando MD5",
   "Loading...": "Cargando...",
   "Loading": "Cargando",
