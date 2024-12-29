@@ -76,4 +76,10 @@ auto nro_add_arg_file(std::string arg) -> std::string;
 // strips sdmc:
 auto nro_normalise_path(const std::string& p) -> std::string;
 
+// helpers to find nro entry, will be made methods soon once i convert vector into a struct.
+auto nro_find(std::span<const NroEntry> array, std::string_view name, std::string_view author, const fs::FsPath& path) -> std::optional<NroEntry>;
+auto nro_find_name(std::span<const NroEntry> array, std::string_view name) -> std::optional<NroEntry>;
+auto nro_find_author(std::span<const NroEntry> array, std::string_view author) -> std::optional<NroEntry>;
+auto nro_find_path(std::span<const NroEntry> array, const fs::FsPath& path) -> std::optional<NroEntry>;
+
 } // namespace sphaira

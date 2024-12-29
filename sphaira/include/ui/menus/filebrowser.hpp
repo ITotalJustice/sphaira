@@ -203,6 +203,7 @@ private:
     void OnDeleteCallback();
     void OnPasteCallback();
     void OnRenameCallback();
+    auto CheckIfUpdateFolder() -> Result;
 
 private:
     static constexpr inline const char* INI_SECTION = "filebrowser";
@@ -214,6 +215,8 @@ private:
     std::vector<u32> m_entries_index_hidden; // includes hidden files
     std::vector<u32> m_entries_index_search; // files found via search
     std::span<u32> m_entries_current;
+
+    std::optional<fs::FsPath> m_daybreak_path;
 
     // search options
     // show files [X]

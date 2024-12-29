@@ -248,36 +248,6 @@ auto GetRomIcon(ProgressBox* pbox, std::string filename, std::string extension, 
     return nro_get_icon(nro.path, nro.icon_size, nro.icon_offset);
 }
 
-// returns 0 if true
-auto CheckIfUpdateFolder(const fs::FsPath& path, std::span<FileEntry> entries) -> Result {
-    fs::FsNativeSd fs;
-    R_TRY(fs.GetFsOpenResult());
-
-    // check that we have daybreak installed
-    R_UNLESS(fs.FileExists(DAYBREAK_PATH), FsError_FileNotFound);
-
-    FsDir d;
-    R_TRY(fs.OpenDirectory(path, FsDirOpenMode_ReadDirs, &d));
-    ON_SCOPE_EXIT(fs.DirClose(&d));
-
-    s64 count;
-    R_TRY(fs.DirGetEntryCount(&d, &count));
-
-    // check that we are at the bottom level
-    R_UNLESS(count == 0, 0x1);
-    // check that we have enough ncas and not too many
-    R_UNLESS(entries.size() > 150 && entries.size() < 300, 0x1);
-
-    // check that all entries end in .nca
-    const auto nca_ext = std::string_view{".nca"};
-    for (auto& e : entries) {
-        const auto ext = std::strrchr(e.name, '.');
-        R_UNLESS(ext && ext == nca_ext, 0x1);
-    }
-
-    R_SUCCEED();
-}
-
 auto get_collection(fs::FsNative& fs, const fs::FsPath& path, const fs::FsPath& parent_name, FsDirCollection& out, bool inc_file, bool inc_dir, bool inc_size) -> Result {
     out.path = path;
     out.parent_name = parent_name;
@@ -376,12 +346,12 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 return;
             }
 
-            if (m_is_update_folder) {
+            if (m_is_update_folder && m_daybreak_path.has_value()) {
                 App::Push(std::make_shared<OptionBox>("Open with DayBreak?"_i18n, "No"_i18n, "Yes"_i18n, 1, [this](auto op_index){
                     if (op_index && *op_index) {
                         // daybreak uses native fs so do not use nro_add_arg_file
                         // otherwise it'll fail to open the folder...
-                        nro_launch(DAYBREAK_PATH, nro_add_arg(m_path));
+                        nro_launch(m_daybreak_path.value(), nro_add_arg(m_path));
                     }
                 }));
                 return;
@@ -956,7 +926,7 @@ auto Menu::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
     Sort();
 
     // quick check to see if this is an update folder
-    m_is_update_folder = R_SUCCEEDED(CheckIfUpdateFolder(new_path, m_entries));
+    m_is_update_folder = R_SUCCEEDED(CheckIfUpdateFolder());
 
     SetIndex(0);
 
@@ -1460,6 +1430,53 @@ void Menu::OnPasteCallback() {
 
 void Menu::OnRenameCallback() {
 
+}
+
+auto Menu::CheckIfUpdateFolder() -> Result {
+    // check if we have already tried to find daybreak
+    if (m_daybreak_path.has_value() && m_daybreak_path.value().empty()) {
+        return FsError_FileNotFound;
+    }
+
+    fs::FsNativeSd fs;
+    R_TRY(fs.GetFsOpenResult());
+
+    // check that we have daybreak installed
+    if (!m_daybreak_path.has_value()) {
+        auto daybreak_path = DAYBREAK_PATH;
+        if (!fs.FileExists(DAYBREAK_PATH)) {
+            if (auto e = nro_find(m_nro_entries, "Daybreak", "Atmosphere-NX", {}); e.has_value()) {
+                daybreak_path = e.value().path;
+            } else {
+                log_write("failed to find daybreak\n");
+                m_daybreak_path = "";
+                return FsError_FileNotFound;
+            }
+        }
+        m_daybreak_path = daybreak_path;
+        log_write("found daybreak in: %s\n", m_daybreak_path.value().s);
+    }
+
+    FsDir d;
+    R_TRY(fs.OpenDirectory(m_path, FsDirOpenMode_ReadDirs, &d));
+    ON_SCOPE_EXIT(fs.DirClose(&d));
+
+    s64 count;
+    R_TRY(fs.DirGetEntryCount(&d, &count));
+
+    // check that we are at the bottom level
+    R_UNLESS(count == 0, 0x1);
+    // check that we have enough ncas and not too many
+    R_UNLESS(m_entries.size() > 150 && m_entries.size() < 300, 0x1);
+
+    // check that all entries end in .nca
+    const auto nca_ext = std::string_view{".nca"};
+    for (auto& e : m_entries) {
+        const auto ext = std::strrchr(e.name, '.');
+        R_UNLESS(ext && ext == nca_ext, 0x1);
+    }
+
+    R_SUCCEED();
 }
 
 } // namespace sphaira::ui::menu::filebrowser

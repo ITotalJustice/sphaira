@@ -309,4 +309,37 @@ auto nro_normalise_path(const std::string& p) -> std::string {
     return p;
 }
 
+auto nro_find(std::span<const NroEntry> array, std::string_view name, std::string_view author, const fs::FsPath& path) -> std::optional<NroEntry> {
+    const auto it = std::find_if(array.cbegin(), array.cend(), [name, author, path](auto& e){
+        if (!name.empty() && !author.empty() && !path.empty()) {
+            return e.GetName() == name && e.GetAuthor() == author && e.path == path;
+        } else if (!name.empty()) {
+            return e.GetName() == name;
+        } else if (!author.empty()) {
+            return e.GetAuthor() == author;
+        } else if (!path.empty()) {
+            return e.path == path;
+        }
+        return false;
+    });
+
+    if (it == array.cend()) {
+        return std::nullopt;
+    }
+
+    return *it;
+}
+
+auto nro_find_name(std::span<const NroEntry> array, std::string_view name) -> std::optional<NroEntry> {
+    return nro_find(array, name, {}, {});
+}
+
+auto nro_find_author(std::span<const NroEntry> array, std::string_view author) -> std::optional<NroEntry> {
+    return nro_find(array, {}, author, {});
+}
+
+auto nro_find_path(std::span<const NroEntry> array, const fs::FsPath& path) -> std::optional<NroEntry> {
+    return nro_find(array, {}, {}, path);
+}
+
 } // namespace sphaira
