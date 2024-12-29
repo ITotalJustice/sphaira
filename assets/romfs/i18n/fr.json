@@ -201,9 +201,9 @@
   "Bad Page": "Page inexistante",
   "Download theme?": "Télécharger le thème?",
 
-  "GitHub": "",
-  "Downloading json": "",
-  "Select asset to download for ": "",
+  "GitHub": "GitHub",
+  "Downloading json": "Téléchargement du json",
+  "Select asset to download for ": "Sélectionner l'asset pour télécharger ",
 
   "Installing ": "Installation ",
   "Uninstalling ": "Désinstallation ",
@@ -217,7 +217,7 @@
   "Copying ": "Copie ",
   "Trying to load ": "Tente de charger ",
   "Downloading ": "Téléchargement ",
-  "Downloaded ": "",
+  "Downloaded ": "Téléchargé",
   "Checking MD5": "Vérification MD5",
   "Loading...": "Chargement...",
   "Loading": "Chargement",
