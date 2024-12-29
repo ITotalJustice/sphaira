@@ -12,6 +12,11 @@ struct MenuBase : Widget {
 
     virtual void Update(Controller* controller, TouchInfo* touch);
     virtual void Draw(NVGcontext* vg, Theme* theme);
+
+    auto IsMenu() const -> bool override {
+        return true;
+    }
+
     void SetTitle(std::string title);
     void SetTitleSubHeading(std::string sub_heading);
     void SetSubHeading(std::string sub_heading);

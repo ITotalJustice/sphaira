@@ -26,6 +26,10 @@ struct Widget : public Object {
         return m_focus;
     }
 
+    virtual auto IsMenu() const -> bool {
+        return false;
+    }
+
     auto HasAction(Button button) const -> bool;
     void SetAction(Button button, Action action);
     void SetActions(std::same_as<std::pair<Button, Action>> auto ...args) {

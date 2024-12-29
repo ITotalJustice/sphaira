@@ -233,13 +233,13 @@ auto GetRomIcon(ProgressBox* pbox, std::string filename, std::string extension, 
     // try and download icon
     if (!pbox->ShouldExit()) {
         pbox->NewTransfer("Downloading "_i18n + gh_thumbnail_url);
-        auto png_image = curl::Api().ToMemory(
+        const auto result = curl::Api().ToMemory(
             curl::Url{gh_thumbnail_url},
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
         );
 
-        if (!png_image.empty()) {
-            return png_image;
+        if (result.success && !result.data.empty()) {
+            return result.data;
         }
     }
 

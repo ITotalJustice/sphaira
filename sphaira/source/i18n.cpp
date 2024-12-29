@@ -21,7 +21,7 @@ std::string get_internal(const char* str, size_t len) {
     }
 
     // add default entry
-    g_tr_cache.emplace(kkey, kkey);
+    const auto it = g_tr_cache.emplace(kkey, kkey).first;
 
     if (!json || !root) {
         log_write("no json or root\n");
@@ -43,7 +43,7 @@ std::string get_internal(const char* str, size_t len) {
 
     // update entry in cache
     const std::string ret = {val, val_len};
-    g_tr_cache.insert_or_assign(kkey, ret);
+    g_tr_cache.insert_or_assign(it, kkey, ret);
     return ret;
 }
 

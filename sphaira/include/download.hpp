@@ -5,7 +5,7 @@
 #include <string>
 #include <functional>
 #include <unordered_map>
-#include <type_traits>
+#include <algorithm>
 #include <switch.h>
 
 namespace sphaira::curl {
@@ -15,9 +15,11 @@ enum class Priority {
     High, // gets pushed to the front of the queue
 };
 
+struct Api;
+struct ApiResult;
+
 using Path = fs::FsPath;
-using Header = std::unordered_map<std::string, std::string>;
-using OnComplete = std::function<void(std::vector<u8>& data, bool success, long code)>;
+using OnComplete = std::function<void(ApiResult& result)>;
 using OnProgress = std::function<bool(u32 dltotal, u32 dlnow, u32 ultotal, u32 ulnow)>;
 
 struct Url {
@@ -32,28 +34,41 @@ struct Fields {
     std::string m_str;
 };
 
-struct Api;
+struct Header {
+    Header() = default;
+    Header(std::initializer_list<std::pair<const std::string, std::string>> p) : m_map{p} {}
+    std::unordered_map<std::string, std::string> m_map;
+
+    auto Find(const std::string& key) const {
+        return std::find_if(m_map.cbegin(), m_map.cend(), [&key](auto& e) {
+            return !strcasecmp(key.c_str(), e.first.c_str());
+        });
+    }
+};
+
+struct ApiResult {
+    bool success;
+    long code;
+    Header header; // returned headers in request
+    std::vector<u8> data; // empty if downloaded a file
+    fs::FsPath path; // empty if downloaded memory
+};
 
 struct DownloadEventData {
     OnComplete callback;
-    std::vector<u8> data;
-    long code;
-    bool result;
+    ApiResult result;
 };
 
 auto Init() -> bool;
 void Exit();
 
 // sync functions
-auto ToMemory(const Api& e) -> std::vector<u8>;
-auto ToFile(const Api& e) -> bool;
+auto ToMemory(const Api& e) -> ApiResult;
+auto ToFile(const Api& e) -> ApiResult;
 
 // async functions
 auto ToMemoryAsync(const Api& e) -> bool;
 auto ToFileAsync(const Api& e) -> bool;
-
-// removes url from cache (todo: deprecate this)
-void ClearCache(const Url& url);
 
 struct Api {
     Api() = default;
@@ -119,7 +134,7 @@ struct Api {
     Path m_path{};
     OnComplete m_on_complete = nullptr;
     OnProgress m_on_progress = nullptr;
-    Priority m_prio = Priority::Normal;
+    Priority m_prio = Priority::High;
 
 private:
     void SetOption(Url&& v) {
@@ -156,4 +171,18 @@ private:
     }
 };
 
+namespace cache {
+
+bool init();
+void exit();
+
+auto etag_get(const fs::FsPath& path) -> std::string;
+void etag_set(const fs::FsPath& path, const std::string& value);
+void etag_set(const fs::FsPath& path, const Header& value);
+
+auto lmt_get(const fs::FsPath& path) -> std::string;
+void lmt_set(const fs::FsPath& path, const std::string& value);
+void lmt_set(const fs::FsPath& path, const Header& value);
+
+} // namespace cache
 } // namespace sphaira::curl

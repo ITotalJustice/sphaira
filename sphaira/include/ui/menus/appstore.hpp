@@ -27,6 +27,8 @@ struct LazyImage {
     ~LazyImage();
     int image{};
     int w{}, h{};
+    bool tried_cache{};
+    bool cached{};
     ImageDownloadState state{ImageDownloadState::None};
     u8 first_pixel[4]{};
 };

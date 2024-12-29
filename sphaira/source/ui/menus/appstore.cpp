@@ -206,17 +206,17 @@ auto LoadAndParseManifest(const Entry& e) -> ManifestEntries {
     return ParseManifest(std::span{(const char*)data.data(), data.size()});
 }
 
-void EntryLoadImageFile(fs::Fs& fs, const fs::FsPath& path, LazyImage& image) {
+auto EntryLoadImageFile(fs::Fs& fs, const fs::FsPath& path, LazyImage& image) -> bool {
     // already have the image
     if (image.image) {
-        log_write("warning, tried to load image: %s when already loaded\n", path);
-        return;
+        // log_write("warning, tried to load image: %s when already loaded\n", path);
+        return true;
     }
     auto vg = App::GetVg();
 
     std::vector<u8> image_buf;
     if (R_FAILED(fs.read_entire_file(path, image_buf))) {
-        image.state = ImageDownloadState::Failed;
+        log_write("failed to load image from file: %s\n", path.s);
     } else {
         int channels_in_file;
         auto buf = stbi_load_from_memory(image_buf.data(), image_buf.size(), &image.w, &image.h, &channels_in_file, 4);
@@ -228,20 +228,21 @@ void EntryLoadImageFile(fs::Fs& fs, const fs::FsPath& path, LazyImage& image) {
     }
 
     if (!image.image) {
-        image.state = ImageDownloadState::Failed;
-        log_write("failed to load image from file: %s\n", path);
+        log_write("failed to load image from file: %s\n", path.s);
+        return false;
     } else {
         // log_write("loaded image from file: %s\n", path);
+        return true;
     }
 }
 
-void EntryLoadImageFile(const fs::FsPath& path, LazyImage& image) {
+auto EntryLoadImageFile(const fs::FsPath& path, LazyImage& image) -> bool {
     if (!strncasecmp("romfs:/", path, 7)) {
         fs::FsStdio fs;
-        EntryLoadImageFile(fs, path, image);
+        return EntryLoadImageFile(fs, path, image);
     } else {
         fs::FsNativeSd fs;
-        EntryLoadImageFile(fs, path, image);
+        return EntryLoadImageFile(fs, path, image);
     }
 }
 
@@ -402,7 +403,7 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> bool {
             curl::Url{url},
             curl::Path{zip_out},
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
-        )) {
+        ).success) {
             log_write("error with download\n");
             return false;
         }
@@ -682,8 +683,8 @@ EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
                         curl::Url{URL_POST_FEEDBACK},
                         curl::Path{file},
                         curl::Fields{post},
-                        curl::OnComplete{[](std::vector<u8>& data, bool success, long code){
-                            if (success) {
+                        curl::OnComplete{[](auto& result){
+                            if (result.success) {
                                 log_write("got feedback!\n");
                             } else {
                                 log_write("failed to send feedback :(");
@@ -709,24 +710,29 @@ EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
 
     const auto path = BuildBannerCachePath(m_entry);
     const auto url = BuildBannerUrl(m_entry);
-
-    if (fs::FsNativeSd().FileExists(path)) {
-        EntryLoadImageFile(path, m_banner);
-    }
+    m_banner.cached = EntryLoadImageFile(path, m_banner);
 
     // race condition if we pop the widget before the download completes
-    if (!m_banner.image) {
-        curl::Api().ToFileAsync(
-            curl::Url{url},
-            curl::Path{path},
-            curl::Priority::High,
-            curl::OnComplete{[this, path](std::vector<u8>& data, bool success, long code){
-                if (success) {
+    curl::Api().ToFileAsync(
+        curl::Url{url},
+        curl::Path{path},
+        curl::Header{
+            { "if-none-match", curl::cache::etag_get(path) },
+            { "if-modified-since", curl::cache::lmt_get(path) },
+        },
+        curl::OnComplete{[this, path](auto& result){
+            if (result.success) {
+                curl::cache::etag_set(result.path, result.header);
+                curl::cache::lmt_set(result.path, result.header);
+
+                if (result.code == 304) {
+                    m_banner.cached = false;
+                } else {
                     EntryLoadImageFile(path, m_banner);
                 }
             }
-        });
-    }
+        }
+    });
 
     SetSubHeading(m_entry.binary);
     SetSubHeading(m_entry.description);
@@ -1021,53 +1027,33 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"_i18n}
     );
 
     m_repo_download_state = ImageDownloadState::Progress;
-    FsTimeStampRaw time_stamp{};
-    u64 current_time{};
-    bool download_file = false;
-    if (R_SUCCEEDED(fs.GetFsOpenResult())) {
-        fs.GetFileTimeStampRaw(REPO_PATH, &time_stamp);
-        timeGetCurrentTime(TimeType_Default, &current_time);
-    }
+    curl::Api().ToFileAsync(
+        curl::Url{URL_JSON},
+        curl::Path{REPO_PATH},
+        curl::Header{
+            { "if-none-match", curl::cache::etag_get(REPO_PATH) },
+            { "if-modified-since", curl::cache::lmt_get(REPO_PATH) },
+        },
+        curl::OnComplete{[this](auto& result){
+            if (result.success) {
+                curl::cache::etag_set(result.path, result.header);
+                curl::cache::lmt_set(result.path, result.header);
 
-    // this fails if we don't have the file or on fw < 3.0.0
-    if (!time_stamp.is_valid) {
-        download_file = true;
-    } else {
-        // check the date, if older than 1hour, then fetch new file
-        // this relaxes the spam to their server, don't want to fetch repo
-        // every time the user opens the app!
-        const auto time_file = time_stamp.created;
-        const auto time_cur = current_time;
-        const auto day = 60 * 60;
-        if (time_file > time_cur || time_cur - time_file >= day) {
-            log_write("repo.json expired, downloading new! time_file: %zu time_cur: %zu\n", time_file, time_cur);
-            download_file = true;
-        } else {
-            log_write("repo.json not expired! time_file: %zu time_cur: %zu\n", time_file, time_cur);
-        }
-    }
-
-    // todo: remove me soon
-    // download_file = true;
-
-    if (download_file) {
-        curl::Api().ToFileAsync(
-            curl::Url{URL_JSON},
-            curl::Path{REPO_PATH},
-            curl::OnComplete{[this](std::vector<u8>& data, bool success, long code){
-                if (success) {
-                    m_repo_download_state = ImageDownloadState::Done;
-                    if (HasFocus()) {
-                        ScanHomebrew();
-                    }
+                if (result.code == 304) {
+                    log_write("appstore json not updated\n");
                 } else {
-                    m_repo_download_state = ImageDownloadState::Failed;
+                    log_write("appstore json updated\n");
                 }
+
+                m_repo_download_state = ImageDownloadState::Done;
+                if (HasFocus()) {
+                    ScanHomebrew();
+                }
+            } else {
+                m_repo_download_state = ImageDownloadState::Failed;
             }
-        });
-    } else {
-        m_repo_download_state = ImageDownloadState::Done;
-    }
+        }
+    });
 
     m_filter = (Filter)ini_getl(INI_SECTION, "filter", m_filter, App::CONFIG_PATH);
     m_sort = (SortType)ini_getl(INI_SECTION, "sort", m_sort, App::CONFIG_PATH);
@@ -1111,41 +1097,69 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         gfx::drawRect(vg, SCREEN_WIDTH - 50+2, 102 + sb_h * sb_y, 10-4, sb_h + (sb_h * 2) - 4, theme->elements[ThemeEntryID_TEXT_SELECTED].colour);
     }
 
+    // max images per frame, in order to not hit io / gpu too hard.
+    const int image_load_max = 2;
+    int image_load_count = 0;
+
     for (u64 i = 0, pos = SCROLL, y = 110, w = 370, h = 155; pos < nro_total && i < max_entry_display; y += h + 10) {
         for (u64 j = 0, x = 75; j < 3 && pos < nro_total && i < max_entry_display; j++, i++, pos++, x += w + 10) {
             const auto index = m_entries_current[pos];
             auto& e = m_entries[index];
+            auto& image = e.image;
+
+            // try and load cached image.
+            if (image_load_count < image_load_max && !image.image && !image.tried_cache) {
+                image.tried_cache = true;
+                image.cached = EntryLoadImageFile(BuildIconCachePath(e), image);
+                if (image.cached) {
+                    image_load_count++;
+                }
+            }
 
             // lazy load image
-            if (!e.image.image) {
-                switch (e.image.state) {
+            if (!image.image || image.cached) {
+                switch (image.state) {
                     case ImageDownloadState::None: {
                         const auto path = BuildIconCachePath(e);
-                        if (fs::FsNativeSd().FileExists(path)) {
-                            EntryLoadImageFile(path, e.image);
-                        } else {
-                            const auto url = BuildIconUrl(e);
-                            e.image.state = ImageDownloadState::Progress;
-                            curl::Api().ToFileAsync(
-                                curl::Url{url},
-                                curl::Path{path},
-                                curl::Priority::High,
-                                curl::OnComplete{[this, index](std::vector<u8>& data, bool success, long code) {
-                                    if (success) {
-                                        m_entries[index].image.state = ImageDownloadState::Done;
-                                    } else {
-                                        m_entries[index].image.state = ImageDownloadState::Failed;
-                                        log_write("failed to download image\n");
+                        const auto url = BuildIconUrl(e);
+                        image.state = ImageDownloadState::Progress;
+                        curl::Api().ToFileAsync(
+                            curl::Url{url},
+                            curl::Path{path},
+                            curl::Header{
+                                { "if-none-match", curl::cache::etag_get(path) },
+                                { "if-modified-since", curl::cache::lmt_get(path) },
+                            },
+                            curl::OnComplete{[this, &image](auto& result) {
+                                if (result.success) {
+                                    curl::cache::etag_set(result.path, result.header);
+                                    curl::cache::lmt_set(result.path, result.header);
+
+                                    image.state = ImageDownloadState::Done;
+                                    // data hasn't changed
+                                    if (result.code == 304) {
+                                        log_write("downloaded appstore image, was cached\n");
+                                        image.cached = false;
                                     }
+                                } else {
+                                    image.state = ImageDownloadState::Failed;
+                                    log_write("failed to download image\n");
                                 }
-                            });
-                        }
+                            }
+                        });
                     }   break;
                     case ImageDownloadState::Progress: {
 
                     }   break;
                     case ImageDownloadState::Done: {
-                        EntryLoadImageFile(BuildIconCachePath(e), e.image);
+                        if (image_load_count < image_load_max) {
+                            image.cached = false;
+                            if (!EntryLoadImageFile(BuildIconCachePath(e), e.image)) {
+                                image.state = ImageDownloadState::Failed;
+                            } else {
+                                image_load_count++;
+                            }
+                        }
                     }   break;
                     case ImageDownloadState::Failed: {
                     }   break;
@@ -1164,7 +1178,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             // const float image_size = 256 / image_scale;
             // const float image_size_h = 150 / image_scale;
             DrawIcon(vg, e.image, m_default_image, x + 20, y + 20, 115, 115, true, image_scale);
-            // gfx::drawImage(vg, x + 20, y + 20, image_size, image_size_h, e.image.image ? e.image.image : m_default_image);
+            // gfx::drawImage(vg, x + 20, y + 20, image_size, image_size_h, image.image ? image.image : m_default_image);
 
             nvgSave(vg);
             nvgScissor(vg, x, y, w - 30.f, h); // clip

@@ -1,9 +1,4 @@
 {
-    "name": "sphaira",
-    "url": "https://github.com/ITotalJustice/sphaira",
-    "assets":[
-        {
-            "name": "sphaira.zip"
-        }
-    ]
+    "owner": "ITotalJustice",
+    "repo": "sphaira"
 }

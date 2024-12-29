@@ -15,8 +15,8 @@ struct AssetEntry {
 
 struct Entry {
     fs::FsPath json_path;
-    std::string name;
-    std::string url;
+    std::string owner;
+    std::string repo;
     std::vector<AssetEntry> assets;
 };
 

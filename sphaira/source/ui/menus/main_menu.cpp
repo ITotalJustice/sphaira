@@ -23,6 +23,9 @@
 namespace sphaira::ui::menu::main {
 namespace {
 
+constexpr const char* GITHUB_URL{"https://api.github.com/repos/ITotalJustice/sphaira/releases/latest"};
+constexpr fs::FsPath CACHE_PATH{"/switch/sphaira/cache/sphaira_latest.json"};
+
 auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string version) -> bool {
     static fs::FsPath zip_out{"/switch/sphaira/cache/update.zip"};
     constexpr auto chunk_size = 1024 * 512; // 512KiB
@@ -35,12 +38,11 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
         pbox->NewTransfer("Downloading "_i18n + version);
         log_write("starting download: %s\n", url.c_str());
 
-        curl::ClearCache(url);
         if (!curl::Api().ToFile(
             curl::Url{url},
             curl::Path{zip_out},
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
-        )) {
+        ).success) {
             log_write("error with download\n");
             return false;
         }
@@ -140,17 +142,33 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
 } // namespace
 
 MainMenu::MainMenu() {
-    curl::Api().ToMemoryAsync(
-        curl::Url{"https://api.github.com/repos/ITotalJustice/sphaira/releases/latest"},
-        curl::OnComplete{[this](std::vector<u8>& data, bool success, long code){
+    curl::Api().ToFileAsync(
+        curl::Url{GITHUB_URL},
+        curl::Path{CACHE_PATH},
+        curl::Header{
+            { "Accept", "application/vnd.github+json" },
+            { "if-none-match", curl::cache::etag_get(CACHE_PATH) },
+            { "if-modified-since", curl::cache::lmt_get(CACHE_PATH) },
+        },
+        curl::OnComplete{[this](auto& result){
+            log_write("inside github download\n");
             m_update_state = UpdateState::Error;
             ON_SCOPE_EXIT( log_write("update status: %u\n", (u8)m_update_state) );
 
-            if (!success) {
+            if (!result.success) {
                 return false;
             }
 
-            auto json = yyjson_read((const char*)data.data(), data.size(), 0);
+            if (result.code == 304) {
+                log_write("data hasn't changed\n");
+            } else {
+                log_write("etag changed\n");
+            }
+
+            curl::cache::etag_set(result.path, result.header);
+            curl::cache::lmt_set(result.path, result.header);
+
+            auto json = yyjson_read_file(CACHE_PATH, YYJSON_READ_NOFLAG, nullptr, nullptr);
             R_UNLESS(json, false);
             ON_SCOPE_EXIT(yyjson_doc_free(json));
 
@@ -368,11 +386,11 @@ void MainMenu::Draw(NVGcontext* vg, Theme* theme) {
 
 void MainMenu::OnFocusGained() {
     Widget::OnFocusGained();
-    this->SetHidden(false);
     m_current_menu->OnFocusGained();
 }
 
 void MainMenu::OnFocusLost() {
+    Widget::OnFocusLost();
     m_current_menu->OnFocusLost();
 }
 

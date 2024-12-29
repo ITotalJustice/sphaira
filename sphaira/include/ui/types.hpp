@@ -117,12 +117,27 @@ struct TimeStamp {
         start = armGetSystemTick();
     }
 
-    auto GetNs() -> u64 {
+    auto GetNs() const -> u64 {
         const auto end_ticks = armGetSystemTick();
         return armTicksToNs(end_ticks) - armTicksToNs(start);
     }
 
-    auto GetSeconds() -> double {
+    auto GetMs() const -> u64 {
+        const auto ns = GetNs();
+        return ns/1000/1000;
+    }
+
+    auto GetSeconds() const -> u64 {
+        const auto ns = GetNs();
+        return ns/1000/1000/1000;
+    }
+
+    auto GetMsD() const -> double {
+        const double ns = GetNs();
+        return ns/1000.0/1000.0;
+    }
+
+    auto GetSecondsD() const -> double {
         const double ns = GetNs();
         return ns/1000.0/1000.0/1000.0;
     }

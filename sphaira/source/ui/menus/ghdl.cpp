@@ -24,11 +24,16 @@
 namespace sphaira::ui::menu::gh {
 namespace {
 
-auto GenerateApiUrl(const std::string& url) {
-    if (url.starts_with("https://api.github.com/repos/")) {
-        return url;
-    }
-    return "https://api.github.com/repos/" + url.substr(std::strlen("https://github.com/")) + "/releases/latest";
+constexpr auto CACHE_PATH = "/switch/sphaira/cache/github";
+
+auto GenerateApiUrl(const Entry& e) {
+    return "https://api.github.com/repos/" + e.owner + "/" + e.repo + "/releases/latest";
+}
+
+auto apiBuildAssetCache(const std::string& url) -> fs::FsPath {
+    fs::FsPath path;
+    std::snprintf(path, sizeof(path), "%s/%u.json", CACHE_PATH, crc32Calculate(url.data(), url.size()));
+    return path;
 }
 
 void from_json(yyjson_val* json, AssetEntry& e) {
@@ -39,11 +44,10 @@ void from_json(yyjson_val* json, AssetEntry& e) {
 }
 
 void from_json(const fs::FsPath& path, Entry& e) {
-    yyjson_read_err err;
-    JSON_INIT_VEC_FILE(path, nullptr, &err);
+    JSON_INIT_VEC_FILE(path, nullptr, nullptr);
     JSON_OBJ_ITR(
-        JSON_SET_STR(name);
-        JSON_SET_STR(url);
+        JSON_SET_STR(owner);
+        JSON_SET_STR(repo);
         JSON_SET_ARR_OBJ(assets);
     );
 }
@@ -58,8 +62,8 @@ void from_json(yyjson_val* json, GhApiAsset& e) {
     );
 }
 
-void from_json(const std::vector<u8>& data, GhApiEntry& e) {
-    JSON_INIT_VEC(data, nullptr);
+void from_json(const fs::FsPath& path, GhApiEntry& e) {
+    JSON_INIT_VEC_FILE(path, nullptr, nullptr);
     JSON_OBJ_ITR(
         JSON_SET_STR(tag_name);
         JSON_SET_STR(name);
@@ -67,12 +71,13 @@ void from_json(const std::vector<u8>& data, GhApiEntry& e) {
     );
 }
 
-auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry& entry = {}) -> bool {
-    static const fs::FsPath temp_file{"/switch/sphaira/cache/ghdl.temp"};
+auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry* entry) -> bool {
+    static const fs::FsPath temp_file{"/switch/sphaira/cache/github/ghdl.temp"};
     constexpr auto chunk_size = 1024 * 512; // 512KiB
 
     fs::FsNativeSd fs;
     R_TRY_RESULT(fs.GetFsOpenResult(), false);
+    ON_SCOPE_EXIT(fs.DeleteFile(temp_file));
 
     if (gh_asset.browser_download_url.empty()) {
         log_write("failed to find asset\n");
@@ -84,22 +89,19 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
         pbox->NewTransfer("Downloading "_i18n + gh_asset.name);
         log_write("starting download: %s\n", gh_asset.browser_download_url.c_str());
 
-        curl::ClearCache(gh_asset.browser_download_url);
         if (!curl::Api().ToFile(
             curl::Url{gh_asset.browser_download_url},
             curl::Path{temp_file},
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
-        )){
+        ).success){
             log_write("error with download\n");
             return false;
         }
     }
 
-    ON_SCOPE_EXIT(fs.DeleteFile(temp_file));
-
     fs::FsPath root_path{"/"};
-    if (!entry.path.empty()) {
-        root_path = entry.path;
+    if (entry && !entry->path.empty()) {
+        root_path = entry->path;
     }
 
     // 3. extract the zip / file
@@ -185,7 +187,6 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
             }
         }
     } else {
-        fs::FsNativeSd fs;
         fs.CreateDirectoryRecursivelyWithPath(root_path, true);
         fs.DeleteFile(root_path);
         if (R_FAILED(fs.RenameFile(temp_file, root_path, true))) {
@@ -197,60 +198,43 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
     return true;
 }
 
-auto DownloadAssets(ProgressBox* pbox, const std::string& url, GhApiEntry& out) -> bool {
+auto DownloadAssetJson(ProgressBox* pbox, const std::string& url, GhApiEntry& out) -> bool {
     // 1. download the json
     if (!pbox->ShouldExit()) {
         pbox->NewTransfer("Downloading json"_i18n);
         log_write("starting download\n");
 
-        curl::ClearCache(url);
-        const auto json = curl::Api().ToMemory(
+        const auto path = apiBuildAssetCache(url);
+
+        const auto result = curl::Api().ToFile(
             curl::Url{url},
-            curl::OnProgress{pbox->OnDownloadProgressCallback()}
+            curl::Path{path},
+            curl::OnProgress{pbox->OnDownloadProgressCallback()},
+            curl::Header{
+                { "Accept", "application/vnd.github+json" },
+                { "if-none-match", curl::cache::etag_get(path) },
+                { "if-modified-since", curl::cache::lmt_get(path) },
+            }
         );
 
-        if (json.empty()) {
-            log_write("error with download\n");
+        if (!result.success) {
+            log_write("json empty\n");
             return false;
         }
 
-        from_json(json, out);
+        curl::cache::etag_set(result.path, result.header);
+        curl::cache::lmt_set(result.path, result.header);
+        from_json(result.path, out);
     }
-
-    log_write("got: %s tag: %s\n", out.name.c_str(), out.tag_name.c_str());
 
     return !out.assets.empty();
-}
-
-auto DownloadApp(ProgressBox* pbox, const std::string& url, const AssetEntry& entry) -> bool {
-    // 1. download the json
-    GhApiEntry gh_entry{};
-    if (!DownloadAssets(pbox, url, gh_entry)) {
-        return false;
-    }
-
-    if (gh_entry.assets.empty()) {
-        log_write("no assets\n");
-        return false;
-    }
-
-    const auto it = std::find_if(
-        gh_entry.assets.cbegin(), gh_entry.assets.cend(), [&entry](auto& e) {
-            return entry.name == e.name;
-        }
-    );
-
-    if (it == gh_entry.assets.cend() || it->browser_download_url.empty()) {
-        log_write("failed to find asset\n");
-        return false;
-    }
-
-    return DownloadApp(pbox, *it, entry);
 }
 
 } // namespace
 
 Menu::Menu() : MenuBase{"GitHub"_i18n} {
+    fs::FsNativeSd().CreateDirectoryRecursively(CACHE_PATH);
+
     this->SetActions(
         std::make_pair(Button::R2, Action{[this](){
         }}),
@@ -282,60 +266,63 @@ Menu::Menu() : MenuBase{"GitHub"_i18n} {
                 return;
             }
 
-            // fetch all assets from github and present them to the user.
-            if (GetEntry().assets.empty()) {
-                // hack
-                static GhApiEntry gh_entry;
-                gh_entry = {};
+            // hack
+            static GhApiEntry gh_entry;
+            gh_entry = {};
 
-                App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().name, [this](auto pbox){
-                    return DownloadAssets(pbox, GetEntry().url, gh_entry);
-                }, [this](bool success){
-                    if (success) {
-                        PopupList::Items asset_items;
-                        for (auto&p : gh_entry.assets) {
-                            asset_items.emplace_back(p.name);
-                        }
+            App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().repo, [this](auto pbox){
+                return DownloadAssetJson(pbox, GenerateApiUrl(GetEntry()), gh_entry);
+            }, [this](bool success){
+                if (success) {
+                    const auto& assets = GetEntry().assets;
+                    PopupList::Items asset_items;
+                    std::vector<const AssetEntry*> asset_ptr;
+                    std::vector<GhApiAsset> api_assets;
+                    bool using_name = false;
 
-                        App::Push(std::make_shared<PopupList>("Select asset to download for "_i18n + GetEntry().name, asset_items, [this](auto op_index){
-                            if (!op_index) {
-                                return;
+                    for (auto&p : gh_entry.assets) {
+                        bool found = false;
+
+                        for (auto& e : assets) {
+                            if (!e.name.empty()) {
+                                using_name = true;
                             }
 
-                            const auto index = *op_index;
-                            const auto& asset_entry = gh_entry.assets[index];
-                            App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().name, [this, &asset_entry](auto pbox){
-                                return DownloadApp(pbox, asset_entry);
-                            }, [this](bool success){
-                                if (success) {
-                                    App::Notify("Downloaded "_i18n + GetEntry().name);
-                                }
-                            }, 2));
-                        }));
-                    }
-                }, 2));
-            } else {
-                PopupList::Items asset_items;
-                for (auto&p : GetEntry().assets) {
-                    asset_items.emplace_back(p.name);
-                }
-
-                App::Push(std::make_shared<PopupList>("Select asset to download for "_i18n + GetEntry().name, asset_items, [this](auto op_index){
-                    if (!op_index) {
-                        return;
-                    }
-
-                    const auto index = *op_index;
-                    const auto& asset_entry = GetEntry().assets[index];
-                    App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().name, [this, &asset_entry](auto pbox){
-                        return DownloadApp(pbox, GetEntry().url, asset_entry);
-                    }, [this](bool success){
-                        if (success) {
-                            App::Notify("Downloaded "_i18n + GetEntry().name);
+                            if (p.name.find(e.name) != p.name.npos) {
+                                found = true;
+                                asset_ptr.emplace_back(&e);
+                                break;
+                            }
                         }
-                    }, 2));
-                }));
-            }
+
+                        if (!using_name || found) {
+                            asset_items.emplace_back(p.name);
+                            api_assets.emplace_back(p);
+                        }
+                    }
+
+                    App::Push(std::make_shared<PopupList>("Select asset to download for "_i18n + GetEntry().repo, asset_items, [this, api_assets, asset_ptr](auto op_index){
+                        if (!op_index) {
+                            return;
+                        }
+
+                        const auto index = *op_index;
+                        const auto& asset_entry = api_assets[index];
+                        const AssetEntry* ptr{};
+                        if (asset_ptr.size()) {
+                            ptr = asset_ptr[index];
+                        }
+
+                        App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().repo, [this, &asset_entry, ptr](auto pbox){
+                            return DownloadApp(pbox, asset_entry, ptr);
+                        }, [this](bool success){
+                            if (success) {
+                                App::Notify("Downloaded "_i18n + GetEntry().name);
+                            }
+                        }, 2));
+                    }));
+                }
+            }, 2));
         }}),
 
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
@@ -406,10 +393,10 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         nvgSave(vg);
         const auto txt_clip = std::min(GetY() + GetH(), y + h) - y;
         nvgScissor(vg, x + text_xoffset, y, w-(x+text_xoffset+50), txt_clip);
-            gfx::drawText(vg, x + text_xoffset, y + (h / 2.f), 20.f, e.name.c_str(), NULL, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->elements[text_id].colour);
+            gfx::drawTextArgs(vg, x + text_xoffset, y + (h / 2.f), 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->elements[text_id].colour, "%s By %s", e.repo.c_str(), e.owner.c_str());
         nvgRestore(vg);
 
-        gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f), 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->elements[text_id].colour, e.url.c_str());
+        gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f), 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->elements[text_id].colour, GenerateApiUrl(e).c_str());
 
         y += h;
         if (!InYBounds(y)) {
@@ -479,17 +466,11 @@ void Menu::LoadEntriesFromPath(const fs::FsPath& path) {
         const auto full_path = fs::AppendPath(path, d->d_name);
         from_json(full_path, entry);
 
-        // check that we have a name and url
-        if (entry.name.empty() || entry.url.empty()) {
+        // check that we have a owner and repo
+        if (entry.owner.empty() || entry.repo.empty()) {
             continue;
         }
 
-        // ensure this url is for github
-        if (!entry.url.starts_with("https://github.com/") && !entry.url.starts_with("https://api.github.com/repos/")) {
-            continue;
-        }
-
-        entry.url = GenerateApiUrl(entry.url);
         entry.json_path = full_path;
         m_entries.emplace_back(entry);
     }
@@ -497,7 +478,18 @@ void Menu::LoadEntriesFromPath(const fs::FsPath& path) {
 
 void Menu::Sort() {
     const auto sorter = [this](Entry& lhs, Entry& rhs) -> bool {
-        return strcmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
+        // handle fallback if multiple entries are added with the same name
+        // used for forks of a project.
+        // in the rare case of the user adding the same owner and repo,
+        // fallback to the filepath, which *is* unqiue
+        auto r = strcasecmp(lhs.repo.c_str(), rhs.repo.c_str());
+        if (!r) {
+            r = strcasecmp(lhs.owner.c_str(), rhs.owner.c_str());
+            if (!r) {
+                r = strcasecmp(lhs.json_path, rhs.json_path);
+            }
+        }
+        return r < 0;
     };
 
     std::sort(m_entries.begin(), m_entries.end(), sorter);

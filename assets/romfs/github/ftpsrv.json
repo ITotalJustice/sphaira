@@ -1,6 +1,6 @@
 {
-    "name": "ftpsrv",
-    "url": "https://github.com/ITotalJustice/ftpsrv",
+    "owner": "ITotalJustice",
+    "repo": "ftpsrv",
     "assets": [
         {
             "name": "switch_application.zip"

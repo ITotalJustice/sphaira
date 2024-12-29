@@ -53,9 +53,11 @@ constexpr const char* REQUEST_ORDER[]{
 // https://api.themezer.net/?query=query($nsfw:Boolean,$page:Int,$limit:Int,$sort:String,$order:String,$query:String,$creators:[String!]){packList(nsfw:$nsfw,page:$page,limit:$limit,sort:$sort,order:$order,query:$query,creators:$creators){id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count,themes{id,creator{display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}}}&variables={"nsfw":false,"page":1,"limit":10,"sort":"updated","order":"desc","query":null,"creators":["695065006068334622"]}
 
 // i know, this is cursed
+// todo: send actual POST request rather than GET.
 auto apiBuildUrlListInternal(const Config& e, bool is_pack) -> std::string {
     std::string api = "https://api.themezer.net/?query=query";
-    std::string fields = "{id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count";
+    // std::string fields = "{id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count";
+    std::string fields = "{id,creator{id,display_name},details{name}";
     const char* boolarr[2] = { "false", "true" };
 
     std::string cmd;
@@ -65,7 +67,8 @@ auto apiBuildUrlListInternal(const Config& e, bool is_pack) -> std::string {
 
     if (is_pack) {
         cmd = "packList";
-        fields += ",themes{id,creator{display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}";
+        // fields += ",themes{id,creator{display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}";
+        fields += ",themes{id, preview{thumb}}";
     } else {
         cmd = "themeList";
         p0 += ",$target:String";
@@ -113,11 +116,13 @@ auto apiBuildFilePack(const PackListEntry& e) -> fs::FsPath {
     return path;
 }
 
+#if 0
 auto apiBuildUrlPack(const PackListEntry& e) -> std::string {
     char url[2048];
     std::snprintf(url, sizeof(url), "https://api.themezer.net/?query=query($id:String!){pack(id:$id){id,creator{display_name},details{name,description},last_updated,categories,dl_count,like_count,themes{id,details{name},layout{id,details{name}},categories,target,preview{original,thumb},last_updated,dl_count,like_count}}}&variables={\"id\":\"%s\"}", e.id.c_str());
     return url;
 }
+#endif
 
 auto apiBuildUrlThemeList(const Config& e) -> std::string {
     return apiBuildUrlListInternal(e, false);
@@ -127,19 +132,25 @@ auto apiBuildUrlListPacks(const Config& e) -> std::string {
     return apiBuildUrlListInternal(e, true);
 }
 
+auto apiBuildListPacksCache(const Config& e) -> fs::FsPath {
+    fs::FsPath path;
+    std::snprintf(path, sizeof(path), "%s/%u_page.json", CACHE_PATH, e.page);
+    return path;
+}
+
 auto apiBuildIconCache(const ThemeEntry& e) -> fs::FsPath {
     fs::FsPath path;
     std::snprintf(path, sizeof(path), "%s/%s_thumb.jpg", CACHE_PATH, e.id.c_str());
     return path;
 }
 
-auto loadThemeImage(ThemeEntry& e) -> void {
+auto loadThemeImage(ThemeEntry& e) -> bool {
     auto& image = e.preview.lazy_image;
 
     // already have the image
     if (e.preview.lazy_image.image) {
         // log_write("warning, tried to load image: %s when already loaded\n", path.c_str());
-        return;
+        return true;
     }
     auto vg = App::GetVg();
 
@@ -148,22 +159,23 @@ auto loadThemeImage(ThemeEntry& e) -> void {
 
     const auto path = apiBuildIconCache(e);
     if (R_FAILED(fs.read_entire_file(path, image_buf))) {
-        e.preview.lazy_image.state = ImageDownloadState::Failed;
+        log_write("failed to load image from file: %s\n", path.s);
     } else {
         int channels_in_file;
         auto buf = stbi_load_from_memory(image_buf.data(), image_buf.size(), &image.w, &image.h, &channels_in_file, 4);
         if (buf) {
             ON_SCOPE_EXIT(stbi_image_free(buf));
-            std::memcpy(image.first_pixel, buf, sizeof(image.first_pixel));
             image.image = nvgCreateImageRGBA(vg, image.w, image.h, 0, buf);
         }
     }
 
     if (!image.image) {
-        image.state = ImageDownloadState::Failed;
+        log_write("failed to load image from file: %s\n", path.s);
         log_write("failed to load image from file: %s\n", path);
+        return false;
     } else {
         // log_write("loaded image from file: %s\n", path);
+        return true;
     }
 }
 
@@ -197,13 +209,13 @@ void from_json(yyjson_val* json, Creator& e) {
 void from_json(yyjson_val* json, Details& e) {
     JSON_OBJ_ITR(
         JSON_SET_STR(name);
-        JSON_SET_STR(description);
+        // JSON_SET_STR(description);
     );
 }
 
 void from_json(yyjson_val* json, Preview& e) {
     JSON_OBJ_ITR(
-        JSON_SET_STR(original);
+        // JSON_SET_STR(original);
         JSON_SET_STR(thumb);
     );
 }
@@ -219,13 +231,13 @@ void from_json(yyjson_val* json, DownloadPack& e) {
 void from_json(yyjson_val* json, ThemeEntry& e) {
     JSON_OBJ_ITR(
         JSON_SET_STR(id);
-        JSON_SET_OBJ(creator);
-        JSON_SET_OBJ(details);
-        JSON_SET_STR(last_updated);
-        JSON_SET_UINT(dl_count);
-        JSON_SET_UINT(like_count);
-        JSON_SET_ARR_STR(categories);
-        JSON_SET_STR(target);
+        // JSON_SET_OBJ(creator);
+        // JSON_SET_OBJ(details);
+        // JSON_SET_STR(last_updated);
+        // JSON_SET_UINT(dl_count);
+        // JSON_SET_UINT(like_count);
+        // JSON_SET_ARR_STR(categories);
+        // JSON_SET_STR(target);
         JSON_SET_OBJ(preview);
     );
 }
@@ -235,10 +247,10 @@ void from_json(yyjson_val* json, PackListEntry& e) {
         JSON_SET_STR(id);
         JSON_SET_OBJ(creator);
         JSON_SET_OBJ(details);
-        JSON_SET_STR(last_updated);
-        JSON_SET_ARR_STR(categories);
-        JSON_SET_UINT(dl_count);
-        JSON_SET_UINT(like_count);
+        // JSON_SET_STR(last_updated);
+        // JSON_SET_ARR_STR(categories);
+        // JSON_SET_UINT(dl_count);
+        // JSON_SET_UINT(like_count);
         JSON_SET_ARR_OBJ(themes);
     );
 }
@@ -263,8 +275,8 @@ void from_json(const std::vector<u8>& data, DownloadPack& e) {
     );
 }
 
-void from_json(const std::vector<u8>& data, PackList& e) {
-    JSON_INIT_VEC(data, "data");
+void from_json(const fs::FsPath& path, PackList& e) {
+    JSON_INIT_VEC_FILE(path, "data", nullptr);
     JSON_OBJ_ITR(
         JSON_SET_ARR_OBJ(packList);
         JSON_SET_OBJ(pagination);
@@ -287,19 +299,17 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> bool {
 
         const auto url = apiBuildUrlDownloadPack(entry);
         log_write("using url: %s\n", url.c_str());
-        curl::ClearCache(url);
-        const auto data = curl::Api().ToMemory(
+        const auto result = curl::Api().ToMemory(
             curl::Url{url},
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
         );
 
-        if (data.empty()) {
+        if (!result.success || result.data.empty()) {
             log_write("error with download: %s\n", url.c_str());
-
             return false;
         }
 
-        from_json(data, download_pack);
+        from_json(result.data, download_pack);
     }
 
     // 2. download the zip
@@ -307,18 +317,10 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> bool {
         pbox->NewTransfer("Downloading "_i18n + entry.details.name);
         log_write("starting download: %s\n", download_pack.url.c_str());
 
-        curl::ClearCache(download_pack.url);
         if (!curl::Api().ToFile(
             curl::Url{download_pack.url},
             curl::Path{zip_out},
-            curl::OnProgress{[pbox](u32 dltotal, u32 dlnow, u32 ultotal, u32 ulnow){
-                if (pbox->ShouldExit()) {
-                    return false;
-                }
-                pbox->UpdateTransfer(dlnow, dltotal);
-                return true;
-            }
-        })) {
+            curl::OnProgress{pbox->OnDownloadProgressCallback()}).success) {
             log_write("error with download\n");
             return false;
         }
@@ -423,6 +425,8 @@ LazyImage::~LazyImage() {
 }
 
 Menu::Menu() : MenuBase{"Themezer"_i18n} {
+    fs::FsNativeSd().CreateDirectoryRecursively(CACHE_PATH);
+
     SetAction(Button::B, Action{"Back"_i18n, [this]{
         SetPop();
     }});
@@ -603,6 +607,10 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         gfx::drawRect(vg, SCREEN_WIDTH - 50+2, 102 + sb_h * sb_y, 10-4, sb_h + (sb_h * 2) - 4, theme->elements[ThemeEntryID_TEXT_SELECTED].colour);
     }
 
+    // max images per frame, in order to not hit io / gpu too hard.
+    const int image_load_max = 2;
+    int image_load_count = 0;
+
     nvgSave(vg);
     nvgScissor(vg, 30, 87, 1220 - 30, 646 - 87); // clip
 
@@ -626,44 +634,69 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             if (e.themes.size()) {
                 auto& theme = e.themes[0];
                 auto& image = e.themes[0].preview.lazy_image;
-                if (!image.image) {
+
+                // try and load cached image.
+                if (image_load_count < image_load_max && !image.image && !image.tried_cache) {
+                    image.tried_cache = true;
+                    image.cached = loadThemeImage(theme);
+                    if (image.cached) {
+                        image_load_count++;
+                    }
+                }
+
+                if (!image.image || image.cached) {
                     switch (image.state) {
                         case ImageDownloadState::None: {
                             const auto path = apiBuildIconCache(theme);
                             log_write("downloading theme!: %s\n", path);
 
-                            if (fs::FsNativeSd().FileExists(path)) {
-                                loadThemeImage(theme);
-                            } else {
-                                const auto url = theme.preview.thumb;
-                                log_write("downloading url: %s\n", url.c_str());
-                                image.state = ImageDownloadState::Progress;
-                                curl::Api().ToFileAsync(
-                                    curl::Url{url},
-                                    curl::Path{path},
-                                    curl::Priority::High,
-                                    curl::OnComplete{[this, index, &image](std::vector<u8>& data, bool success, long code) {
-                                        if (success) {
-                                            image.state = ImageDownloadState::Done;
-                                            log_write("downloaded themezer image\n");
+                            const auto url = theme.preview.thumb;
+                            log_write("downloading url: %s\n", url.c_str());
+                            image.state = ImageDownloadState::Progress;
+                            curl::Api().ToFileAsync(
+                                curl::Url{url},
+                                curl::Path{path},
+                                curl::Header{
+                                    { "if-none-match", curl::cache::etag_get(path) },
+                                    { "if-modified-since", curl::cache::lmt_get(path) },
+                                },
+                                curl::OnComplete{[this, &image](auto& result) {
+                                    if (result.success) {
+                                        curl::cache::etag_set(result.path, result.header);
+                                        curl::cache::lmt_set(result.path, result.header);
+
+                                        image.state = ImageDownloadState::Done;
+                                        // data hasn't changed
+                                        if (result.code == 304) {
+                                            log_write("downloaded themezer image, was cached\n");
+                                            image.cached = false;
                                         } else {
-                                            image.state = ImageDownloadState::Failed;
-                                            log_write("failed to download image\n");
+                                            log_write("downloaded new themezer image\n");
                                         }
+                                    } else {
+                                        image.state = ImageDownloadState::Failed;
+                                        log_write("failed to download image\n");
                                     }
-                                });
-                            }
+                                }
+                            });
                         }   break;
                         case ImageDownloadState::Progress: {
 
                         }   break;
                         case ImageDownloadState::Done: {
-                            loadThemeImage(theme);
+                            image.cached = false;
+                            if (!loadThemeImage(theme)) {
+                                image.state = ImageDownloadState::Failed;
+                            } else {
+                                image_load_count++;
+                            }
                         }   break;
                         case ImageDownloadState::Failed: {
                         }   break;
                     }
-                } else {
+                }
+
+                if (image.image) {
                     gfx::drawImageRounded(vg, x + xoff, y, 320, 180, image.image);
                 }
             }
@@ -711,26 +744,31 @@ void Menu::PackListDownload() {
     config.order_index = m_order.Get();
     config.nsfw = m_nsfw.Get();
     const auto packList_url = apiBuildUrlListPacks(config);
-    const auto themeList_url = apiBuildUrlThemeList(config);
+    const auto packlist_path = apiBuildListPacksCache(config);
 
     log_write("\npackList_url: %s\n\n", packList_url.c_str());
-    log_write("\nthemeList_url: %s\n\n", themeList_url.c_str());
 
-    curl::ClearCache(packList_url);
-    curl::Api().ToMemoryAsync(
+    curl::Api().ToFileAsync(
         curl::Url{packList_url},
-        curl::Priority::High,
-        curl::OnComplete{[this, page_index](std::vector<u8>& data, bool success, long code){
+        curl::Path{packlist_path},
+        curl::Header{
+            { "if-none-match", curl::cache::etag_get(packlist_path) },
+            { "if-modified-since", curl::cache::lmt_get(packlist_path) },
+        },
+        curl::OnComplete{[this, page_index](auto& result){
             log_write("got themezer data\n");
-            if (!success) {
+            if (!result.success) {
                 auto& page = m_pages[page_index-1];
                 page.m_ready = PageLoadState::Error;
                 log_write("failed to get themezer data...\n");
                 return;
             }
 
+            curl::cache::etag_set(result.path, result.header);
+            curl::cache::lmt_set(result.path, result.header);
+
             PackList a;
-            from_json(data, a);
+            from_json(result.path, a);
 
             m_pages.resize(a.pagination.page_count);
             auto& page = m_pages[page_index-1];

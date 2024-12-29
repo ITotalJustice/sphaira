@@ -228,9 +228,22 @@ void App::Loop() {
 
         ui::gfx::updateHighlightAnimation();
 
-        auto events = evman::popall();
-        // while (auto e = evman::pop()) {
-        for (auto& e : events) {
+        // fire all events in in a 3ms timeslice
+        TimeStamp ts_event;
+        const u64 event_timeout = 3;
+
+        // limit events to a max per frame in order to not block for too long.
+        while (true) {
+            if (ts_event.GetMs() >= event_timeout) {
+                log_write("event loop timed-out\n");
+                break;
+            }
+
+            auto event = evman::pop();
+            if (!event.has_value()) {
+                break;
+            }
+
             std::visit([this](auto&& arg){
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr(std::is_same_v<T, evman::LaunchNroEventData>) {
@@ -278,11 +291,11 @@ void App::Loop() {
                     }
                 } else if constexpr(std::is_same_v<T, curl::DownloadEventData>) {
                     log_write("[DownloadEventData] got event\n");
-                    arg.callback(arg.data, arg.result, arg.code);
+                    arg.callback(arg.result);
                 } else {
                     static_assert(false, "non-exhaustive visitor!");
                 }
-            }, e);
+            }, event.value());
         }
 
         u32 w{},h{};
@@ -663,10 +676,29 @@ void App::Draw() {
     nvgBeginFrame(this->vg, s_width, s_height, 1.f);
     nvgScale(vg, m_scale.x, m_scale.y);
 
-    // NOTE: widgets should never pop themselves from drawing!
-    for (auto& p : m_widgets) {
-        if (!p->IsHidden()) {
-            p->Draw(vg, &m_theme);
+    // find the last menu in the list, start drawing from there
+    auto menu_it = m_widgets.rend();
+    for (auto it = m_widgets.rbegin(); it != m_widgets.rend(); it++) {
+        const auto& p = *it;
+        if (!p->IsHidden() && p->IsMenu()) {
+            menu_it = it;
+            break;
+        }
+    }
+
+    // reverse itr so loop backwards to go forwarders.
+    if (menu_it != m_widgets.rend()) {
+        for (auto it = menu_it; ; it--) {
+            const auto& p = *it;
+
+            // draw everything not hidden on top of the menu.
+            if (!p->IsHidden()) {
+                p->Draw(vg, &m_theme);
+            }
+
+            if (it == m_widgets.rbegin()) {
+                break;
+            }
         }
     }
 
@@ -942,6 +974,7 @@ App::App(const char* argv0) {
     }
 
     curl::Init();
+    curl::cache::init();
 
     // Create the deko3d device
     this->device = dk::DeviceMaker{}
@@ -1097,6 +1130,7 @@ App::~App() {
 
     i18n::exit();
     curl::Exit();
+    curl::cache::exit();
 
     // this has to be called before any cleanup to ensure the lifetime of
     // nvg is still active as some widgets may need to free images.

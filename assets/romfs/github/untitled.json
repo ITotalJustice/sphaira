@@ -1,9 +1,4 @@
 {
-    "name": "untitled",
-    "url": "https://github.com/ITotalJustice/untitled",
-    "assets":[
-        {
-            "name": "untitled.zip"
-        }
-    ]
+    "owner": "ITotalJustice",
+    "repo": "untitled"
 }

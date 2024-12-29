@@ -10,11 +10,10 @@
 #include <deque>
 #include <mutex>
 #include <curl/curl.h>
+#include <yyjson.h>
 
 namespace sphaira::curl {
 namespace {
-
-using DownloadResult = std::pair<bool, long>;
 
 #define CURL_EASY_SETOPT_LOG(handle, opt, v) \
     if (auto r = curl_easy_setopt(handle, opt, v); r != CURLE_OK) { \
@@ -40,48 +39,134 @@ std::atomic_bool g_running{};
 CURLSH* g_curl_share{};
 Mutex g_mutex_share[CURL_LOCK_DATA_LAST]{};
 
-struct UrlCache {
-    auto AddToCache(const Url& url, bool force = false) {
-        mutexLock(&mutex);
-        ON_SCOPE_EXIT(mutexUnlock(&mutex));
-        auto it = std::find_if(cache.cbegin(), cache.cend(), [&url](const auto& e){
-            return e.m_str == url.m_str;
-        });
+struct DataStruct {
+    std::vector<u8> data;
+    u64 offset{};
+    FsFile f{};
+    s64 file_offset{};
+};
 
-        if (it == cache.cend()) {
-            cache.emplace_back(url);
+auto generate_key_from_path(const fs::FsPath& path) -> std::string {
+    const auto key = crc32Calculate(path.s, path.size());
+    return std::to_string(key);
+}
+
+struct CacheEntry {
+    constexpr CacheEntry(const fs::FsPath& _path, const char* _header_key)
+    : json_path{_path}
+    , header_key{_header_key} {
+
+    }
+
+    bool init() {
+        if (m_json) {
             return true;
+        }
+
+        // enable for testing etag is working.
+        // fs::FsNativeSd().DeleteFile(json_path);
+
+        auto json_in = yyjson_read_file(json_path, YYJSON_READ_NOFLAG, nullptr, nullptr);
+        if (json_in) {
+            log_write("loading old json doc\n");
+            m_json = yyjson_doc_mut_copy(json_in, nullptr);
+            yyjson_doc_free(json_in);
+            m_root = yyjson_mut_doc_get_root(m_json);
         } else {
-            if (force) {
-                return true;
-            } else {
-                return false;
+            log_write("creating new json doc\n");
+            m_json = yyjson_mut_doc_new(nullptr);
+            m_root = yyjson_mut_obj(m_json);
+            yyjson_mut_doc_set_root(m_json, m_root);
+        }
+
+        return m_json && m_root;
+    }
+
+    void exit() {
+        if (!m_json) {
+            return;
+        }
+
+        if (!yyjson_mut_write_file(json_path, m_json, YYJSON_WRITE_NOFLAG, nullptr, nullptr)) {
+            log_write("failed to write etag json: %s\n", json_path.s);
+        }
+
+        yyjson_mut_doc_free(m_json);
+        m_json = nullptr;
+        m_root = nullptr;
+    }
+
+    void set_internal(const fs::FsPath& path, const std::string& value) {
+        const auto kkey = generate_key_from_path(path);
+
+        // check if we already have this entry
+        const auto it = m_cache.find(kkey);
+        if (it != m_cache.end() && it->second == value) {
+            log_write("already has etag, not updating, path: %s key: %s value: %s\n", path.s, kkey.c_str(), value.c_str());
+            return;
+        }
+
+        if (it != m_cache.end()) {
+            log_write("updating etag, path: %s old: %s new: %s\n", path.s, it->first.c_str(), it->second.c_str(), value.c_str());
+        } else {
+            log_write("setting new etag, path: %s key: %s value: %s\n", path.s, kkey.c_str(), value.c_str());
+        }
+
+        // insert new entry into cache, this will never fail.
+        const auto& [jkey, jvalue] = *m_cache.insert_or_assign(it, kkey, value);
+
+        // check if we need to add a new entry to root or simply update the value.
+        auto etag_key = yyjson_mut_obj_getn(m_root, kkey.c_str(), kkey.length());
+        if (!etag_key) {
+            if (!yyjson_mut_obj_add_str(m_json, m_root, jkey.c_str(), jvalue.c_str())) {
+                log_write("failed to set new etag key: %s\n", jkey.c_str());
+            }
+        } else {
+            if (!yyjson_mut_set_strn(etag_key, jvalue.c_str(), jvalue.length())) {
+                log_write("failed to update etag key: %s\n", jkey.c_str());
             }
         }
     }
 
-    void RemoveFromCache(const Url& url) {
-        mutexLock(&mutex);
-        ON_SCOPE_EXIT(mutexUnlock(&mutex));
-        auto it = std::find_if(cache.cbegin(), cache.cend(), [&url](const auto& e){
-            return e.m_str == url.m_str;
-        });
+    auto get(const fs::FsPath& path) -> std::string {
+        if (!fs::FsNativeSd().FileExists(path)) {
+            return {};
+        }
 
-        if (it != cache.cend()) {
-            cache.erase(it);
+        const auto kkey = generate_key_from_path(path);
+        const auto it = m_cache.find(kkey);
+        if (it != m_cache.end()) {
+            return it->second;
+        }
+
+        auto etag_key = yyjson_mut_obj_getn(m_root, kkey.c_str(), kkey.length());
+        R_UNLESS(etag_key, {});
+
+        const auto val = yyjson_mut_get_str(etag_key);
+        const auto val_len = yyjson_mut_get_len(etag_key);
+        R_UNLESS(val && val_len, {});
+
+        const std::string ret = {val, val_len};
+        m_cache.insert_or_assign(it, kkey, ret);
+        return ret;
+    }
+
+    void set(const fs::FsPath& path, const std::string& value) {
+        set_internal(path, value);
+    }
+
+    void set(const fs::FsPath& path, const curl::Header& value) {
+        if (auto it = value.Find(header_key); it != value.m_map.end()) {
+            set_internal(path, it->second);
         }
     }
 
-    std::vector<Url> cache;
-    Mutex mutex{};
-};
+    const fs::FsPath json_path;
+    const char* header_key;
 
-struct DataStruct {
-    std::vector<u8> data;
-    u64 offset{};
-    FsFileSystem fs{};
-    FsFile f{};
-    s64 file_offset{};
+    yyjson_mut_doc* m_json{};
+    yyjson_mut_val* m_root{};
+    std::unordered_map<std::string, std::string> m_cache{};
 };
 
 struct ThreadEntry {
@@ -179,7 +264,10 @@ struct ThreadQueue {
 
 ThreadEntry g_threads[MAX_THREADS]{};
 ThreadQueue g_thread_queue;
-UrlCache g_url_cache;
+
+CacheEntry g_etag{"/switch/sphaira/cache/etag.json", "etag"};
+CacheEntry g_lmt{"/switch/sphaira/cache/lmt.json", "last-modified"};
+Mutex g_cache_mutex;
 
 void GetDownloadTempPath(fs::FsPath& buf) {
     static Mutex mutex{};
@@ -275,27 +363,45 @@ auto WriteFileCallback(void *contents, size_t size, size_t num_files, void *user
     return realsize;
 }
 
-auto DownloadInternal(CURL* curl, DataStruct& chunk, const Api& e) -> DownloadResult {
-    fs::FsPath safe_buf;
+auto header_callback(char* b, size_t size, size_t nitems, void* userdata) -> size_t {
+    auto header = static_cast<Header*>(userdata);
+    const auto numbytes = size * nitems;
+
+    if (b && numbytes) {
+        const auto dilem = (const char*)memchr(b, ':', numbytes);
+        if (dilem) {
+            const int key_len = dilem - b;
+            const int value_len = numbytes - key_len - 4; // "\r\n"
+            if (key_len > 0 && value_len > 0) {
+                const std::string key(b, key_len);
+                const std::string value(dilem + 2, value_len);
+                header->m_map.insert_or_assign(key, value);
+            }
+        }
+    }
+
+    return numbytes;
+}
+
+auto DownloadInternal(CURL* curl, const Api& e) -> ApiResult {
     fs::FsPath tmp_buf;
     const bool has_file = !e.m_path.empty() && e.m_path != "";
     const bool has_post = !e.m_fields.m_str.empty() && e.m_fields.m_str != "";
 
-    ON_SCOPE_EXIT(if (has_file) { fsFsClose(&chunk.fs); } );
+    DataStruct chunk;
+    Header header_out;
+    fs::FsNativeSd fs;
 
     if (has_file) {
-        std::strcpy(safe_buf, e.m_path);
         GetDownloadTempPath(tmp_buf);
-        R_TRY_RESULT(fsOpenSdCardFileSystem(&chunk.fs), {});
+        fs.CreateDirectoryRecursivelyWithPath(tmp_buf, true);
 
-        fs::CreateDirectoryRecursivelyWithPath(&chunk.fs, tmp_buf);
-
-        if (auto rc = fsFsCreateFile(&chunk.fs, tmp_buf, 0, 0); R_FAILED(rc) && rc != FsError_PathAlreadyExists) {
+        if (auto rc = fs.CreateFile(tmp_buf, 0, 0, true); R_FAILED(rc) && rc != FsError_PathAlreadyExists) {
             log_write("failed to create file: %s\n", tmp_buf);
             return {};
         }
 
-        if (R_FAILED(fsFsOpenFile(&chunk.fs, tmp_buf, FsOpenMode_Write|FsOpenMode_Append, &chunk.f))) {
+        if (R_FAILED(fs.OpenFile(tmp_buf, FsOpenMode_Write|FsOpenMode_Append, &chunk.f))) {
             log_write("failed to open file: %s\n", tmp_buf);
             return {};
         }
@@ -304,6 +410,7 @@ auto DownloadInternal(CURL* curl, DataStruct& chunk, const Api& e) -> DownloadRe
     // reserve the first chunk
     chunk.data.reserve(CHUNK_SIZE);
 
+    curl_easy_reset(curl);
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_URL, e.m_url.m_str.c_str());
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_USERAGENT, "TotalJustice");
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -312,6 +419,8 @@ auto DownloadInternal(CURL* curl, DataStruct& chunk, const Api& e) -> DownloadRe
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_FAILONERROR, 1L);
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_SHARE, g_curl_share);
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_BUFFERSIZE, 1024*512);
+    CURL_EASY_SETOPT_LOG(curl, CURLOPT_HEADERFUNCTION, header_callback);
+    CURL_EASY_SETOPT_LOG(curl, CURLOPT_HEADERDATA, &header_out);
 
     if (has_post) {
         CURL_EASY_SETOPT_LOG(curl, CURLOPT_POSTFIELDS, e.m_fields.m_str.c_str());
@@ -321,19 +430,21 @@ auto DownloadInternal(CURL* curl, DataStruct& chunk, const Api& e) -> DownloadRe
     struct curl_slist* list = NULL;
     ON_SCOPE_EXIT(if (list) { curl_slist_free_all(list); } );
 
-    for (auto& [key, value] : e.m_header) {
-        // append value (if any).
-        auto header_str = key;
+    for (auto& [key, value] : e.m_header.m_map) {
         if (value.empty()) {
-            header_str += ":";
-        } else {
-            header_str += ": " + value;
+            continue;
         }
+
+        // create header key value pair.
+        const auto header_str = key + ": " + value;
 
         // try to append header chunk.
         auto temp = curl_slist_append(list, header_str.c_str());
         if (temp) {
+            log_write("adding header: %s\n", header_str.c_str());
             list = temp;
+        } else {
+            log_write("failed to append header\n");
         }
     }
 
@@ -362,20 +473,21 @@ auto DownloadInternal(CURL* curl, DataStruct& chunk, const Api& e) -> DownloadRe
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
     if (has_file) {
+        ON_SCOPE_EXIT( fs.DeleteFile(tmp_buf, true) );
         if (res == CURLE_OK && chunk.offset) {
             fsFileWrite(&chunk.f, chunk.file_offset, chunk.data.data(), chunk.offset, FsWriteOption_None);
         }
+
         fsFileClose(&chunk.f);
-        if (res != CURLE_OK) {
-            fsFsDeleteFile(&chunk.fs, tmp_buf);
-        } else {
-            fsFsDeleteFile(&chunk.fs, safe_buf);
-            fs::CreateDirectoryRecursivelyWithPath(&chunk.fs, safe_buf);
-            if (R_FAILED(fsFsRenameFile(&chunk.fs, tmp_buf, safe_buf))) {
-                fsFsDeleteFile(&chunk.fs, tmp_buf);
+
+        if (res == CURLE_OK && http_code != 304) {
+            fs.DeleteFile(e.m_path, true);
+            fs.CreateDirectoryRecursivelyWithPath(e.m_path, true);
+            if (R_FAILED(fs.RenameFile(tmp_buf, e.m_path, true))) {
                 success = false;
             }
         }
+        chunk.data.clear();
     } else {
         // empty data if we failed
         if (res != CURLE_OK) {
@@ -384,17 +496,17 @@ auto DownloadInternal(CURL* curl, DataStruct& chunk, const Api& e) -> DownloadRe
     }
 
     log_write("Downloaded %s %s\n", e.m_url.m_str.c_str(), curl_easy_strerror(res));
-    return {success, http_code};
+    return {success, http_code, header_out, chunk.data, e.m_path};
 }
 
-auto DownloadInternal(DataStruct& chunk, const Api& e) -> DownloadResult {
+auto DownloadInternal(const Api& e) -> ApiResult {
     auto curl = curl_easy_init();
     if (!curl) {
         log_write("curl init failed\n");
         return {};
     }
     ON_SCOPE_EXIT(curl_easy_cleanup(curl));
-    return DownloadInternal(curl, chunk, e);
+    return DownloadInternal(curl, e);
 }
 
 void DownloadThread(void* p) {
@@ -409,11 +521,10 @@ void DownloadThread(void* p) {
             continue;
         }
 
-        DataStruct chunk;
         #if 1
-        const auto [result, code] = DownloadInternal(data->m_curl, chunk, data->m_api);
+        const auto result = DownloadInternal(data->m_curl, data->m_api);
         if (g_running) {
-            DownloadEventData event_data{data->m_api.m_on_complete, std::move(chunk.data), code, result};
+            const DownloadEventData event_data{data->m_api.m_on_complete, result};
             evman::push(std::move(event_data), false);
         } else {
             break;
@@ -549,41 +660,23 @@ void Exit() {
     curl_global_cleanup();
 }
 
-auto ToMemory(const Api& e) -> std::vector<u8> {
+auto ToMemory(const Api& e) -> ApiResult {
     if (!e.m_path.empty()) {
         return {};
     }
-
-    if (g_url_cache.AddToCache(e.m_url)) {
-        DataStruct chunk{};
-        if (DownloadInternal(chunk, e).first) {
-            return chunk.data;
-        }
-    }
-    return {};
+    return DownloadInternal(e);
 }
 
-auto ToFile(const Api& e) -> bool {
+auto ToFile(const Api& e) -> ApiResult {
     if (e.m_path.empty()) {
-        return false;
+        return {};
     }
-
-    if (g_url_cache.AddToCache(e.m_url)) {
-        DataStruct chunk{};
-        if (DownloadInternal(chunk, e).first) {
-            return true;
-        }
-    }
-    return false;
+    return DownloadInternal(e);
 }
 
 auto ToMemoryAsync(const Api& api) -> bool {
     #if USE_THREAD_QUEUE
-    if (g_url_cache.AddToCache(api.m_url)) {
-        return g_thread_queue.Add(api);
-    } else {
-        return false;
-    }
+    return g_thread_queue.Add(api);
     #else
     // mutexLock(&g_thread_queue.m_mutex);
     // ON_SCOPE_EXIT(mutexUnlock(&g_thread_queue.m_mutex));
@@ -601,11 +694,7 @@ auto ToMemoryAsync(const Api& api) -> bool {
 
 auto ToFileAsync(const Api& e) -> bool {
     #if USE_THREAD_QUEUE
-    if (g_url_cache.AddToCache(e.m_url)) {
-        return g_thread_queue.Add(e);
-    } else {
-        return false;
-    }
+    return g_thread_queue.Add(e);
     #else
     // mutexLock(&g_thread_queue.m_mutex);
     // ON_SCOPE_EXIT(mutexUnlock(&g_thread_queue.m_mutex));
@@ -621,9 +710,66 @@ auto ToFileAsync(const Api& e) -> bool {
     #endif
 }
 
-void ClearCache(const Url& url) {
-    g_url_cache.AddToCache(url);
-    g_url_cache.RemoveFromCache(url);
+namespace cache {
+
+bool init() {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+
+    if (!g_etag.m_json) {
+        R_UNLESS(g_etag.init(), false);
+    }
+
+    if (!g_lmt.m_json) {
+        R_UNLESS(g_lmt.init(), false);
+    }
+
+    return true;
 }
 
+void exit() {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+
+    g_etag.exit();
+    g_lmt.exit();
+}
+
+auto etag_get(const fs::FsPath& path) -> std::string {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+    return g_etag.get(path);
+}
+
+void etag_set(const fs::FsPath& path, const std::string& value) {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+    g_etag.set(path, value);
+}
+
+void etag_set(const fs::FsPath& path, const Header& value) {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+    g_etag.set(path, value);
+}
+
+auto lmt_get(const fs::FsPath& path) -> std::string {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+    return g_lmt.get(path);
+}
+
+void lmt_set(const fs::FsPath& path, const std::string& value) {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+    g_lmt.set(path, value);
+}
+
+void lmt_set(const fs::FsPath& path, const Header& value) {
+    mutexLock(&g_cache_mutex);
+    ON_SCOPE_EXIT(mutexUnlock(&g_cache_mutex));
+    g_lmt.set(path, value);
+}
+
+} // namespace cache
 } // namespace sphaira::curl

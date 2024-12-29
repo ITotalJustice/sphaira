@@ -28,6 +28,10 @@ struct MainMenu final : Widget {
     void OnFocusGained() override;
     void OnFocusLost() override;
 
+    auto IsMenu() const -> bool override {
+        return true;
+    }
+
 private:
     void OnLRPress(std::shared_ptr<MenuBase> menu, Button b);
     void AddOnLPress();

@@ -272,7 +272,7 @@ void Menu::InstallHomebrew() {
 void Menu::ScanHomebrew() {
     TimeStamp ts;
     nro_scan("/switch", m_entries, m_hide_sphaira.Get());
-    log_write("nros found: %zu time_taken: %.2f\n", m_entries.size(), ts.GetSeconds());
+    log_write("nros found: %zu time_taken: %.2f\n", m_entries.size(), ts.GetSecondsD());
 
     struct IniUser {
         std::vector<NroEntry>& entires;
@@ -330,6 +330,22 @@ void Menu::Sort() {
     const auto order = m_order.Get();
 
     const auto sorter = [this, sort, order](const NroEntry& lhs, const NroEntry& rhs) -> bool {
+        const auto name_cmp = [order](const NroEntry& lhs, const NroEntry& rhs) -> bool {
+            auto r = strcasecmp(lhs.GetName(), rhs.GetName());
+            if (!r) {
+                auto r = strcasecmp(lhs.GetAuthor(), rhs.GetAuthor());
+                if (!r) {
+                    auto r = strcasecmp(lhs.path, rhs.path);
+                }
+            }
+
+            if (order == OrderType_Decending) {
+                return r < 0;
+            } else {
+                return r > 0;
+            }
+        };
+
         switch (sort) {
             case SortType_UpdatedStar:
                 if (lhs.has_star.value() && !rhs.has_star.value()) {
@@ -348,7 +364,7 @@ void Menu::Sort() {
                 }
 
                 if (lhs_timestamp == rhs_timestamp) {
-                    return strcasecmp(lhs.GetName(), rhs.GetName()) < 0;
+                    return name_cmp(lhs, rhs);
                 } else if (order == OrderType_Decending) {
                     return lhs_timestamp > rhs_timestamp;
                 } else {
@@ -364,7 +380,7 @@ void Menu::Sort() {
                 }
             case SortType_Size: {
                 if (lhs.size == rhs.size) {
-                    return strcasecmp(lhs.GetName(), rhs.GetName()) < 0;
+                    return name_cmp(lhs, rhs);
                 } else if (order == OrderType_Decending) {
                     return lhs.size > rhs.size;
                 } else {
@@ -379,11 +395,7 @@ void Menu::Sort() {
                     return false;
                 }
             case SortType_Alphabetical: {
-                if (order == OrderType_Decending) {
-                    return strcasecmp(lhs.GetName(), rhs.GetName()) < 0;
-                } else {
-                    return strcasecmp(lhs.GetName(), rhs.GetName()) > 0;
-                }
+                return name_cmp(lhs, rhs);
             } break;
         }
 
