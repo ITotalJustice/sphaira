@@ -89,6 +89,10 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
                 file_path = fs::AppendPath("/", file_path);
             }
 
+            if (!strcasecmp(strrchr(file_path.s, '/'), "/sphaira.nro")) {
+                file_path = App::GetExePath();
+            }
+
             Result rc;
             if (file_path[strlen(file_path) -1] == '/') {
                 if (R_FAILED(rc = fs.CreateDirectoryRecursively(file_path)) && rc != FsError_PathAlreadyExists) {
