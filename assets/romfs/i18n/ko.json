@@ -58,7 +58,6 @@
   "Asc": "오름차순",
 
   "Menu Options": "메뉴",
-  "Header": "헤더",
   "Theme": "테마",
   "Theme Options": "테마 옵션",
   "Select Theme": "테마 선택",
@@ -130,7 +129,7 @@
   "Homebrew Options": "홈브류 옵션",
   "Hide Sphaira": "Sphaira 숨기기",
   "Install Forwarder": "바로가기 설치",
-  "WARNING: Installing forwarders will lead to a ban!": "경고: 시스낸드에서 바로가기 설치시 밴 위험이 있습니다!",
+  "WARNING: Installing forwarders will lead to a ban!": "경고: 시스낸드에 바로가기 설치 시, 밴 위험이 있습니다!",
   "Installing Forwarder": "바로가기 설치",
   "Creating Program": "프로그램 생성",
   "Creating Control": "컨트롤 생성",
