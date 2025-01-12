@@ -182,7 +182,7 @@ enum ThemeEntryID {
 
     // colour of line separators in a list.
     ThemeEntryID_LINE,
-    ThemeEntryID_LINE_SEPERATOR,
+    ThemeEntryID_LINE_SEPARATOR,
 
     // colour of the sidebar backrgound.
     ThemeEntryID_SIDEBAR,

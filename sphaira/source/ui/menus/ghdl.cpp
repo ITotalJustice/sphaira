@@ -389,7 +389,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const auto& text_col = theme->GetColour(ThemeEntryID_TEXT);
 
     if (m_entries.empty()) {
-        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, text_col, "Empty..."_i18n.c_str());
+        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "Empty..."_i18n.c_str());
         return;
     }
 
@@ -405,7 +405,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             gfx::drawRectOutline(vg, theme, 4.f, v);
         } else {
             if (i != m_entries.size() - 1) {
-                gfx::drawRect(vg, x, y + h, w, 1.f, theme->GetColour(ThemeEntryID_LINE_SEPERATOR));
+                gfx::drawRect(vg, x, y + h, w, 1.f, theme->GetColour(ThemeEntryID_LINE_SEPARATOR));
             }
         }
 

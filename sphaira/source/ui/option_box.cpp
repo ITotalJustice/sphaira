@@ -101,7 +101,7 @@ auto OptionBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     gfx::drawTextBox(vg, m_pos.x + padding, m_pos.y + 110.f, 26.f, m_pos.w - padding*2, theme->GetColour(ThemeEntryID_TEXT), m_message.c_str(), NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
     nvgRestore(vg);
 
-    gfx::drawRect(vg, m_spacer_line, theme->GetColour(ThemeEntryID_LINE));
+    gfx::drawRect(vg, m_spacer_line, theme->GetColour(ThemeEntryID_LINE_SEPARATOR));
 
     for (auto&p: m_entries) {
         p.Draw(vg, theme);

@@ -581,7 +581,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const auto& text_col = theme->GetColour(ThemeEntryID_TEXT);
 
     if (m_entries_current.empty()) {
-        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, text_col, "Empty..."_i18n.c_str());
+        gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "Empty..."_i18n.c_str());
         return;
     }
 
@@ -605,7 +605,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         if (e.IsSelected()) {
-            gfx::drawText(vg, Vec2{x, y + (h / 2.f) - (24.f / 2)}, 24.f, "\uE14B", nullptr, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_SELECTED));
+            gfx::drawText(vg, Vec2{x - 10.f, y + (h / 2.f) - (24.f / 2)}, 24.f, "\uE14B", nullptr, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_SELECTED));
         }
 
         auto text_id = ThemeEntryID_TEXT;
@@ -614,7 +614,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             gfx::drawRectOutline(vg, theme, 4.f, v);
         } else {
             if (i != m_entries_current.size() - 1) {
-                gfx::drawRect(vg, Vec4{x, y + h, w, 1.f}, theme->GetColour(ThemeEntryID_LINE_SEPERATOR));
+                gfx::drawRect(vg, Vec4{x, y + h, w, 1.f}, theme->GetColour(ThemeEntryID_LINE_SEPARATOR));
             }
         }
 
