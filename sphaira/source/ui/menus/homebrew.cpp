@@ -83,7 +83,7 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                     sort_items.push_back("Size (Star)"_i18n);
 
                     SidebarEntryArray::Items order_items;
-                    order_items.push_back("Decending"_i18n);
+                    order_items.push_back("Descending"_i18n);
                     order_items.push_back("Ascending"_i18n);
 
                     options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
@@ -337,7 +337,7 @@ void Menu::Sort() {
                 }
             }
 
-            if (order == OrderType_Decending) {
+            if (order == OrderType_Descending) {
                 return r < 0;
             } else {
                 return r > 0;
@@ -363,7 +363,7 @@ void Menu::Sort() {
 
                 if (lhs_timestamp == rhs_timestamp) {
                     return name_cmp(lhs, rhs);
-                } else if (order == OrderType_Decending) {
+                } else if (order == OrderType_Descending) {
                     return lhs_timestamp > rhs_timestamp;
                 } else {
                     return lhs_timestamp < rhs_timestamp;
@@ -379,7 +379,7 @@ void Menu::Sort() {
             case SortType_Size: {
                 if (lhs.size == rhs.size) {
                     return name_cmp(lhs, rhs);
-                } else if (order == OrderType_Decending) {
+                } else if (order == OrderType_Descending) {
                     return lhs.size > rhs.size;
                 } else {
                     return lhs.size < rhs.size;

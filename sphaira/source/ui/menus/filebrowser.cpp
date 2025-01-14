@@ -352,7 +352,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 sort_items.push_back("Alphabetical"_i18n);
 
                 SidebarEntryArray::Items order_items;
-                order_items.push_back("Decending"_i18n);
+                order_items.push_back("Descending"_i18n);
                 order_items.push_back("Ascending"_i18n);
 
                 options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this](s64& index_out){
@@ -1034,14 +1034,14 @@ void Menu::Sort() {
             case SortType_Size: {
                 if (lhs.file_size == rhs.file_size) {
                     return strncasecmp(lhs.name, rhs.name, sizeof(lhs.name)) < 0;
-                } else if (order == OrderType_Decending) {
+                } else if (order == OrderType_Descending) {
                     return lhs.file_size > rhs.file_size;
                 } else {
                     return lhs.file_size < rhs.file_size;
                 }
             } break;
             case SortType_Alphabetical: {
-                if (order == OrderType_Decending) {
+                if (order == OrderType_Descending) {
                     return strncasecmp(lhs.name, rhs.name, sizeof(lhs.name)) < 0;
                 } else {
                     return strncasecmp(lhs.name, rhs.name, sizeof(lhs.name)) > 0;

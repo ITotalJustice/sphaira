@@ -962,7 +962,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"_i18n}
             sort_items.push_back("Alphabetical"_i18n);
 
             SidebarEntryArray::Items order_items;
-            order_items.push_back("Decending"_i18n);
+            order_items.push_back("Descending"_i18n);
             order_items.push_back("Ascending"_i18n);
 
             options->Add(std::make_shared<SidebarEntryArray>("Filter"_i18n, filter_items, [this, filter_items](s64& index_out){
@@ -1298,7 +1298,7 @@ void Menu::Sort() {
                 case SortType_Updated: {
                     if (lhs.updated_num == rhs.updated_num) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
-                    } else if (m_order == OrderType_Decending) {
+                    } else if (m_order == OrderType_Descending) {
                         return lhs.updated_num > rhs.updated_num;
                     } else {
                         return lhs.updated_num < rhs.updated_num;
@@ -1307,7 +1307,7 @@ void Menu::Sort() {
                 case SortType_Downloads: {
                     if (lhs.app_dls == rhs.app_dls) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
-                    } else if (m_order == OrderType_Decending) {
+                    } else if (m_order == OrderType_Descending) {
                         return lhs.app_dls > rhs.app_dls;
                     } else {
                         return lhs.app_dls < rhs.app_dls;
@@ -1316,14 +1316,14 @@ void Menu::Sort() {
                 case SortType_Size: {
                     if (lhs.extracted == rhs.extracted) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
-                    } else if (m_order == OrderType_Decending) {
+                    } else if (m_order == OrderType_Descending) {
                         return lhs.extracted > rhs.extracted;
                     } else {
                         return lhs.extracted < rhs.extracted;
                     }
                 } break;
                 case SortType_Alphabetical: {
-                    if (m_order == OrderType_Decending) {
+                    if (m_order == OrderType_Descending) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
                     } else {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) > 0;

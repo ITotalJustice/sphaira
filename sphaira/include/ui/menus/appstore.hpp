@@ -130,7 +130,7 @@ enum SortType {
 };
 
 enum OrderType {
-    OrderType_Decending,
+    OrderType_Descending,
     OrderType_Ascending,
 };
 
@@ -199,7 +199,7 @@ private:
 
     Filter m_filter{Filter::Filter_All};
     SortType m_sort{SortType::SortType_Updated};
-    OrderType m_order{OrderType::OrderType_Decending};
+    OrderType m_order{OrderType::OrderType_Descending};
 
     s64 m_index{}; // where i am in the array
     LazyImage m_default_image;

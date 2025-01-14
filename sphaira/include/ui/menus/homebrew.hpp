@@ -18,7 +18,7 @@ enum SortType {
 };
 
 enum OrderType {
-    OrderType_Decending,
+    OrderType_Descending,
     OrderType_Ascending,
 };
 
@@ -55,7 +55,7 @@ private:
     std::unique_ptr<List> m_list;
 
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_AlphabeticalStar};
-    option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Decending};
+    option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
     option::OptionBool m_hide_sphaira{INI_SECTION, "hide_sphaira", false};
 };
 

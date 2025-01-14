@@ -29,7 +29,7 @@ enum SortType {
 };
 
 enum OrderType {
-    OrderType_Decending,
+    OrderType_Descending,
     OrderType_Ascending,
 };
 
@@ -262,7 +262,7 @@ private:
     SelectedType m_selected_type{SelectedType::None};
 
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_Alphabetical};
-    option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Decending};
+    option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
     option::OptionBool m_show_hidden{INI_SECTION, "show_hidden", false};
     option::OptionBool m_folders_first{INI_SECTION, "folders_first", true};
     option::OptionBool m_hidden_last{INI_SECTION, "hidden_last", false};
