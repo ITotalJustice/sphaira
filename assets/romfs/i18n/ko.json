@@ -251,5 +251,6 @@
   "Completely remove ": "정말 삭제할까요 ",
   "Are you sure you want to delete ": "정말 삭제할까요 ",
   "Are you sure you wish to cancel?": "정말 취소할까요?",
+  "Audio disabled due to suspended game": "게임 실행 중에는 BGM이 비활성화 됩니다",
   "If this message appears repeatedly, please open an issue.": "해당 메시지가 반복해서 나타나는 경우, 이슈를 등록하세요."
 }

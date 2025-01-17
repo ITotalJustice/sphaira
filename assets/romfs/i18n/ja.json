@@ -251,5 +251,6 @@
   "Completely remove ": "除去しますか ",
   "Are you sure you want to delete ": "消去してもよろしいですか ",
   "Are you sure you wish to cancel?": "本当に取り消しますか?",
+  "Audio disabled due to suspended game": "ゲームが一時停止状態の場合、オーディオは無効になります",
   "If this message appears repeatedly, please open an issue.": "このメッセージが繰り返し表示される場合は、問題を開いてください。"
 }

@@ -251,5 +251,6 @@
   "Completely remove ": "彻底删除 ",
   "Are you sure you want to delete ": "您确定要删除吗 ",
   "Are you sure you wish to cancel?": "您确定要取消吗？",
+  "Audio disabled due to suspended game": "",
   "If this message appears repeatedly, please open an issue.": "如果此消息反复出现，请提交一个 issue。"
 }
