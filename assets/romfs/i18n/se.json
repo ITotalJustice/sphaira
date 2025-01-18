@@ -251,5 +251,6 @@
   "Completely remove ": "Ta bort helt ",
   "Are you sure you want to delete ": "Är du säker på att du vill radera ",
   "Are you sure you wish to cancel?": "Är du säker på att du vill avbryta?",
+  "Audio disabled due to suspended game": "Ljud är avstängt på grund av bakgrundsprogram",
   "If this message appears repeatedly, please open an issue.": "Om detta meddelande visas upprepade gånger, vänligen öppna en felanmälan.",
 }
