@@ -164,7 +164,7 @@
   "More by Author": "Mais deste autor",
   "Leave Feedback": "Deixar um feedback",
 
-  "Irs": "IRS",
+  "Irs": "Sensor infravermelho",
   "Ambient Noise Level: ": "Nível de ruído ambiente: ",
   "Controller": "Controle",
   "Pad ": "Pad ",
@@ -179,7 +179,7 @@
   "270 (Upside down)": "270 (de cabeça para baixo)",
   "Colour": "Cor",
   "Grey": "Cinza",
-  "Ironbow": "Arco de ferro",
+  "Ironbow": "Ferro",
   "Green": "Verde",
   "Red": "Vermelho",
   "Blue": "Azul",
@@ -198,9 +198,9 @@
   "80x60": "80×60",
   "40x30": "40×30",
   "20x15": "20×15",
-  "Trimming Format": "Formato de corte",
+  "Trimming Format": "Formato do recorte",
   "External Light Filter": "Filtro de luz externa",
-  "Load Default": "Carregar padrão",
+  "Load Default": "Restaurar padrão",
 
   "Themezer": "Themezer",
   "Themezer Options": "Opções do Themezer",
@@ -213,7 +213,7 @@
 
   "GitHub": "GitHub",
   "Downloading json": "Baixando JSON",
-  "Select asset to download for ": "Selecione o recurso para baixar em ",
+  "Select asset to download for ": "Selecione o recurso para baixar de ",
 
   "Installing ": "Instalando ",
   "Uninstalling ": "Desinstalando ",
@@ -251,6 +251,6 @@
   "Completely remove ": "Remover completamente ",
   "Are you sure you want to delete ": "Você tem certeza que quer excluir ",
   "Are you sure you wish to cancel?": "Você tem certeza que quer cancelar?",
-  "Audio disabled due to suspended game": "",
+  "Audio disabled due to suspended game": "Áudio desativado devido ao software suspenso",
   "If this message appears repeatedly, please open an issue.": "Se esta mensagem aparecer repetidamente, abra um issue."
 }
