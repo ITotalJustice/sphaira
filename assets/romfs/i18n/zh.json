@@ -30,9 +30,9 @@
   "Sd": "SD卡",
   "Image System memory": "主机内存图像",
   "Image microSD card": "SD卡图像",
-  "Slow": "",
-  "Normal": "",
-  "Fast": "",
+  "Slow": "慢",
+  "Normal": "正常",
+  "Fast": "快",
   "Yes": "是",
   "No": "否",
   "Enabled": "启用",
@@ -99,7 +99,7 @@
   "Install forwarders": "允许安装前端应用",
   "Install location": "安装位置",
   "Show install warning": "显示安装警告",
-  "Text scroll speed": "",
+  "Text scroll speed": "文本滚动速度",
 
   "FileBrowser": "文件浏览",
   "%zd files": "%zd 个文件",
@@ -251,6 +251,6 @@
   "Completely remove ": "彻底删除 ",
   "Are you sure you want to delete ": "您确定要删除吗 ",
   "Are you sure you wish to cancel?": "您确定要取消吗？",
-  "Audio disabled due to suspended game": "",
-  "If this message appears repeatedly, please open an issue.": "如果此消息反复出现，请提交一个 issue。"
+  "Audio disabled due to suspended game": "由于游戏暂停，音频已禁用",
+  "If this message appears repeatedly, please open an issue.": "若此消息反复出现，请提交问题报告。"
 }
