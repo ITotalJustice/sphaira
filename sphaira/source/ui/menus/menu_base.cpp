@@ -46,7 +46,13 @@ void MenuBase::Draw(NVGcontext* vg, Theme* theme) {
 
     // draw("version %s", APP_VERSION);
     draw(ThemeEntryID_TEXT, "%u\uFE6A", m_battery_percetange);
-    draw(ThemeEntryID_TEXT, "%02u:%02u:%02u", m_tm.tm_hour, m_tm.tm_min, m_tm.tm_sec);
+
+    if (App::Get12HourTimeEnable()) {
+        draw(ThemeEntryID_TEXT, "%02u:%02u:%02u %s", (m_tm.tm_hour == 0 || m_tm.tm_hour == 12) ? 12 : m_tm.tm_hour % 12, m_tm.tm_min, m_tm.tm_sec, (m_tm.tm_hour < 12) ? "AM" : "PM");
+    } else {
+        draw(ThemeEntryID_TEXT, "%02u:%02u:%02u", m_tm.tm_hour, m_tm.tm_min, m_tm.tm_sec);
+    }
+
     if (m_ip) {
         draw(ThemeEntryID_TEXT, "%u.%u.%u.%u", m_ip&0xFF, (m_ip>>8)&0xFF, (m_ip>>16)&0xFF, (m_ip>>24)&0xFF);
     } else {

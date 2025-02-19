@@ -253,6 +253,10 @@ MainMenu::MainMenu() {
                 options->Add(std::make_shared<SidebarEntryBool>("Music"_i18n, App::GetThemeMusicEnable(), [this](bool& enable){
                     App::SetThemeMusicEnable(enable);
                 }, "Enabled"_i18n, "Disabled"_i18n));
+
+                options->Add(std::make_shared<SidebarEntryBool>("12 Hour Time"_i18n, App::Get12HourTimeEnable(), [this](bool& enable){
+                    App::Set12HourTimeEnable(enable);
+                }, "Enabled"_i18n, "Disabled"_i18n));
             }));
 
             options->Add(std::make_shared<SidebarEntryCallback>("Network"_i18n, [this](){

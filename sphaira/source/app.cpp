@@ -604,6 +604,10 @@ auto App::GetTextScrollSpeed() -> long {
     return g_app->m_text_scroll_speed.Get();
 }
 
+auto App::Get12HourTimeEnable() -> bool {
+    return g_app->m_12hour_time.Get();
+}
+
 void App::SetNxlinkEnable(bool enable) {
     if (App::GetNxlinkEnable() != enable) {
         g_app->m_nxlink_enabled.Set(enable);
@@ -744,6 +748,10 @@ void App::SetThemeShuffleEnable(bool enable) {
 void App::SetThemeMusicEnable(bool enable) {
     g_app->m_theme_music.Set(enable);
     PlaySoundEffect(SoundEffect::SoundEffect_Music);
+}
+
+void App::Set12HourTimeEnable(bool enable) {
+    g_app->m_12hour_time.Set(enable);
 }
 
 void App::SetMtpEnable(bool enable) {

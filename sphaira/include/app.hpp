@@ -79,6 +79,7 @@ public:
     static auto GetInstallPrompt() -> bool;
     static auto GetThemeShuffleEnable() -> bool;
     static auto GetThemeMusicEnable() -> bool;
+    static auto Get12HourTimeEnable() -> bool;
     static auto GetLanguage() -> long;
     static auto GetTextScrollSpeed() -> long;
 
@@ -92,6 +93,7 @@ public:
     static void SetInstallPrompt(bool enable);
     static void SetThemeShuffleEnable(bool enable);
     static void SetThemeMusicEnable(bool enable);
+    static void Set12HourTimeEnable(bool enable);
     static void SetLanguage(long index);
     static void SetTextScrollSpeed(long index);
 
@@ -177,6 +179,7 @@ public:
     option::OptionLong m_install_prompt{INI_SECTION, "install_prompt", true};
     option::OptionBool m_theme_shuffle{INI_SECTION, "theme_shuffle", false};
     option::OptionBool m_theme_music{INI_SECTION, "theme_music", true};
+    option::OptionBool m_12hour_time{INI_SECTION, "12hour_time", false};
     option::OptionLong m_language{INI_SECTION, "language", 0}; // auto
     // todo: move this into it's own menu
     option::OptionLong m_text_scroll_speed{"accessibility", "text_scroll_speed", 1}; // normal
