@@ -33,7 +33,7 @@ of all configs available](https://github.com/ITotalJustice/ftpsrv/blob/master/as
 
 ## MTP
 
-mtp can be enabled via the network menu.
+MTP can be enabled via the Network menu.
 
 ## File association
 
