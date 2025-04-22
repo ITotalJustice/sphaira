@@ -25,6 +25,7 @@ struct Usb final : Base {
 
     Result Init();
     Result WaitForConnection(u64 timeout, u32& speed, u32& count);
+    Result GetFileInfo(std::string& name_out, u64& size_out);
 
 private:
     enum UsbSessionEndpoint {

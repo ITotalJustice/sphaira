@@ -284,7 +284,7 @@ struct Yati {
     Yati(ui::ProgressBox*, std::shared_ptr<source::Base>);
     ~Yati();
 
-    Result Setup(container::Collections& out);
+    Result Setup();
     Result InstallNca(std::span<TikCollection> tickets, NcaCollection& nca);
     Result InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cnmt, const container::Collections& collections);
     Result InstallControlNca(std::span<TikCollection> tickets, const CnmtCollection& cnmt, NcaCollection& nca);
@@ -778,7 +778,7 @@ Yati::~Yati() {
     appletSetMediaPlaybackState(false);
 }
 
-Result Yati::Setup(container::Collections& out) {
+Result Yati::Setup() {
     config.sd_card_install = App::GetApp()->m_install_sd.Get();
     config.allow_downgrade = App::GetApp()->m_allow_downgrade.Get();
     config.skip_if_already_installed = App::GetApp()->m_skip_if_already_installed.Get();
@@ -811,19 +811,6 @@ Result Yati::Setup(container::Collections& out) {
 
     cs = ncm_cs[config.sd_card_install];
     db = ncm_db[config.sd_card_install];
-
-    if (R_SUCCEEDED(container::Nsp::Validate(source.get()))) {
-        log_write("found nsp\n");
-        container = std::make_unique<container::Nsp>(source.get());
-    } else if (R_SUCCEEDED(container::Xci::Validate(source.get()))) {
-        log_write("found xci\n");
-        container = std::make_unique<container::Xci>(source.get());
-    } else {
-        log_write("found unknown container\n");
-    }
-
-    R_UNLESS(container, Result_ContainerNotFound);
-    R_TRY(container->GetCollections(out));
 
     R_TRY(parse_keys(keys, true));
     R_SUCCEED();
@@ -1040,11 +1027,9 @@ Result Yati::InstallControlNca(std::span<TikCollection> tickets, const CnmtColle
     R_SUCCEED();
 }
 
-Result InstallInternal(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source) {
+Result InstallInternal(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections) {
     auto yati = std::make_unique<Yati>(pbox, source);
-
-    container::Collections collections{};
-    R_TRY(yati->Setup(collections));
+    R_TRY(yati->Setup());
 
     std::vector<TikCollection> tickets{};
     for (const auto& collection : collections) {
@@ -1287,31 +1272,35 @@ Result InstallInternal(ui::ProgressBox* pbox, std::shared_ptr<source::Base> sour
 
 } // namespace
 
-Result InstallFromFile(FsFileSystem* fs, const fs::FsPath& path) {
-    return InstallFromSource(std::make_shared<source::File>(fs, path));
-}
-
-Result InstallFromStdioFile(const char* path) {
-    return InstallFromSource(std::make_shared<source::Stdio>(path));
-}
-
-Result InstallFromSource(std::shared_ptr<source::Base> source) {
-    App::Push(std::make_shared<ui::ProgressBox>("Installing App"_i18n, [source](auto pbox) mutable -> bool {
-        return R_SUCCEEDED(InstallFromSource(pbox, source));
-    }));
-    R_SUCCEED();
-}
-
 Result InstallFromFile(ui::ProgressBox* pbox, FsFileSystem* fs, const fs::FsPath& path) {
-    return InstallFromSource(pbox, std::make_shared<source::File>(fs, path));
+    return InstallFromSource(pbox, std::make_shared<source::File>(fs, path), path);
 }
 
-Result InstallFromStdioFile(ui::ProgressBox* pbox, const char* path) {
-    return InstallFromSource(pbox, std::make_shared<source::Stdio>(path));
+Result InstallFromStdioFile(ui::ProgressBox* pbox, const fs::FsPath& path) {
+    return InstallFromSource(pbox, std::make_shared<source::Stdio>(path), path);
 }
 
-Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source) {
-    return InstallInternal(pbox, source);
+Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const fs::FsPath& path) {
+    if (R_SUCCEEDED(container::Nsp::Validate(source.get()))) {
+        log_write("found nsp\n");
+        return InstallFromContainer(pbox, std::make_unique<container::Nsp>(source));
+    } else if (R_SUCCEEDED(container::Xci::Validate(source.get()))) {
+        log_write("found xci\n");
+        return InstallFromContainer(pbox, std::make_unique<container::Xci>(source));
+    } else {
+        log_write("found unknown container\n");
+        R_THROW(Result_ContainerNotFound);
+    }
+}
+
+Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container) {
+    container::Collections collections;
+    R_TRY(container->GetCollections(collections));
+    return InstallFromCollections(pbox, container->GetSource(), collections);
+}
+
+Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections) {
+    return InstallInternal(pbox, source, collections);
 }
 
 } // namespace sphaira::yati

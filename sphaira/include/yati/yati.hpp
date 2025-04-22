@@ -9,6 +9,7 @@
 
 #include "fs.hpp"
 #include "source/base.hpp"
+#include "container/base.hpp"
 #include "ui/progress_box.hpp"
 #include <memory>
 
@@ -116,12 +117,10 @@ struct Config {
     bool lower_system_version{};
 };
 
-Result InstallFromFile(FsFileSystem* fs, const fs::FsPath& path);
-Result InstallFromStdioFile(const char* path);
-Result InstallFromSource(std::shared_ptr<source::Base> source);
-
 Result InstallFromFile(ui::ProgressBox* pbox, FsFileSystem* fs, const fs::FsPath& path);
-Result InstallFromStdioFile(ui::ProgressBox* pbox, const char* path);
-Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source);
+Result InstallFromStdioFile(ui::ProgressBox* pbox, const fs::FsPath& path);
+Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const fs::FsPath& path);
+Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container);
+Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections);
 
 } // namespace sphaira::yati

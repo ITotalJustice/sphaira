@@ -6,11 +6,12 @@ import usb.core
 import usb.util
 import time
 import glob
+from pathlib import Path
 
 # magic number (SPHA) for the script and switch.
 MAGIC = 0x53504841
 # version of the usb script.
-VERSION = 1
+VERSION = 2
 # list of supported extensions.
 EXTS = (".nsp", ".xci", ".nsz", ".xcz")
 
@@ -27,6 +28,15 @@ def verify_switch(bcdUSB, count, in_ep, out_ep):
 
     send_data = struct.pack('<IIII', MAGIC, VERSION, bcdUSB, count)
     out_ep.write(data=send_data, timeout=0)
+
+def send_file_info(path, in_ep, out_ep):
+    file_name = Path(path).name
+    file_size = Path(path).stat().st_size
+    file_name_len = len(file_name)
+
+    send_data = struct.pack('<QQ', file_size, file_name_len)
+    out_ep.write(data=send_data, timeout=0)
+    out_ep.write(data=file_name, timeout=0)
 
 def wait_for_input(path, in_ep, out_ep):
     buf = None
@@ -124,6 +134,7 @@ if __name__ == '__main__':
 
         for file in files:
             print("installing file: {}".format(file))
+            send_file_info(file, in_ep, out_ep)
             wait_for_input(file, in_ep, out_ep)
         dev.reset()
     except Exception as inst:

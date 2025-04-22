@@ -22,7 +22,7 @@ namespace sphaira::yati::source {
 namespace {
 
 constexpr u32 MAGIC = 0x53504841;
-constexpr u32 VERSION = 1;
+constexpr u32 VERSION = 2;
 
 struct SendHeader {
     u32 magic;
@@ -221,6 +221,28 @@ Result Usb::WaitForConnection(u64 timeout, u32& speed, u32& count) {
 
     count = recv_header.count;
     speed = recv_header.bcdUSB;
+    R_SUCCEED();
+}
+
+Result Usb::GetFileInfo(std::string& name_out, u64& size_out) {
+    struct {
+        u64 size;
+        u64 name_length;
+    } file_info_meta;
+
+    alignas(0x1000) u8 aligned[0x1000]{};
+
+    // receive meta.
+    u32 transferredSize;
+    R_TRY(TransferPacketImpl(true, aligned, sizeof(file_info_meta), &transferredSize, m_transfer_timeout));
+    std::memcpy(&file_info_meta, aligned, sizeof(file_info_meta));
+    R_UNLESS(file_info_meta.name_length < sizeof(aligned), 0x1);
+
+    R_TRY(TransferPacketImpl(true, aligned, file_info_meta.name_length, &transferredSize, m_transfer_timeout));
+    name_out.resize(file_info_meta.name_length);
+    std::memcpy(name_out.data(), aligned, name_out.size());
+
+    size_out = file_info_meta.size;
     R_SUCCEED();
 }
 

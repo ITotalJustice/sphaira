@@ -60,11 +60,29 @@ constexpr std::string_view INSTALL_EXTENSIONS[] = {
 
 
 struct RomDatabaseEntry {
-    std::string_view folder;
-    std::string_view database;
+    // uses the naming scheme from retropie.
+    std::string_view folder{};
+    // uses the naming scheme from Retroarch.
+    std::string_view database{};
+    // custom alias, to make everyone else happy.
+    std::array<std::string_view, 4> alias{};
+
+    // compares against all of the above strings.
+    auto IsDatabase(std::string_view name) const {
+        if (name == folder || name == database) {
+            return true;
+        }
+
+        for (const auto& str : alias) {
+            if (!str.empty() && name == str) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
-// using PathPair = std::pair<std::string_view, std::string_view>;
 constexpr RomDatabaseEntry PATHS[]{
     { "3do", "The 3DO Company - 3DO"},
     { "atari800", "Atari - 8-bit"},
@@ -100,6 +118,14 @@ constexpr RomDatabaseEntry PATHS[]{
     { "pico8", "Sega - PICO"},
     { "wonderswan", "Bandai - WonderSwan"},
     { "wonderswancolor", "Bandai - WonderSwan Color"},
+
+    { "mame", "MAME 2000", { "MAME", "mame-libretro", } },
+    { "mame", "MAME 2003", { "MAME", "mame-libretro", } },
+    { "mame", "MAME 2003-Plus", { "MAME", "mame-libretro", } },
+
+    { "neogeo", "SNK - Neo Geo Pocket" },
+    { "neogeo", "SNK - Neo Geo Pocket Color" },
+    { "neogeo", "SNK - Neo Geo CD" },
 };
 
 constexpr fs::FsPath DAYBREAK_PATH{"/switch/daybreak.nro"};
@@ -120,49 +146,49 @@ auto IsExtension(std::string_view ext1, std::string_view ext2) -> bool {
 // tries to find database path using folder name
 // names are taken from retropie
 // retroarch database names can also be used
-auto GetRomDatabaseFromPath(std::string_view path) -> int {
+using RomDatabaseIndexs = std::vector<size_t>;
+auto GetRomDatabaseFromPath(std::string_view path) -> RomDatabaseIndexs {
     if (path.length() <= 1) {
-        return -1;
+        return {};
     }
 
     // this won't fail :)
+    RomDatabaseIndexs indexs;
     const auto db_name = path.substr(path.find_last_of('/') + 1);
     // log_write("new path: %s\n", db_name.c_str());
 
     for (int i = 0; i < std::size(PATHS); i++) {
-        auto& p = PATHS[i];
-        if ((
-            p.folder.length() == db_name.length() && !strncasecmp(p.folder.data(), db_name.data(), p.folder.length())) ||
-            (p.database.length() == db_name.length() && !strncasecmp(p.database.data(), db_name.data(), p.database.length()))) {
+        const auto& p = PATHS[i];
+        if (p.IsDatabase(db_name)) {
             log_write("found it :) %.*s\n", (int)p.database.length(), p.database.data());
-            return i;
+            indexs.emplace_back(i);
         }
     }
 
     // if we failed, try again but with the folder about
     // "/roms/psx/scooby-doo/scooby-doo.bin", this will check psx
-    const auto last_off = path.substr(0, path.find_last_of('/'));
-    if (const auto off = last_off.find_last_of('/'); off != std::string_view::npos) {
-        const auto db_name2 = last_off.substr(off + 1);
-        // printf("got db: %s\n", db_name2.c_str());
-        for (int i = 0; i < std::size(PATHS); i++) {
-            auto& p = PATHS[i];
-            if ((
-                p.folder.length() == db_name2.length() && !strcasecmp(p.folder.data(), db_name2.data())) ||
-                (p.database.length() == db_name2.length() && !strcasecmp(p.database.data(), db_name2.data()))) {
-                log_write("found it :) %.*s\n", (int)p.database.length(), p.database.data());
-                return i;
+    if (indexs.empty()) {
+        const auto last_off = path.substr(0, path.find_last_of('/'));
+        if (const auto off = last_off.find_last_of('/'); off != std::string_view::npos) {
+            const auto db_name2 = last_off.substr(off + 1);
+            // printf("got db: %s\n", db_name2.c_str());
+            for (int i = 0; i < std::size(PATHS); i++) {
+                const auto& p = PATHS[i];
+                if (p.IsDatabase(db_name2)) {
+                    log_write("found it :) %.*s\n", (int)p.database.length(), p.database.data());
+                    indexs.emplace_back(i);
+                }
             }
         }
     }
 
-    return -1;
+    return indexs;
 }
 
 //
-auto GetRomIcon(fs::FsNative* fs, ProgressBox* pbox, std::string filename, std::string extension, int db_idx, const NroEntry& nro) {
+auto GetRomIcon(fs::FsNative* fs, ProgressBox* pbox, std::string filename, std::string extension, const RomDatabaseIndexs& db_indexs, const NroEntry& nro) {
     // if no db entries, use nro icon
-    if (db_idx < 0) {
+    if (db_indexs.empty()) {
         log_write("using nro image\n");
         return nro_get_icon(nro.path, nro.icon_size, nro.icon_offset);
     }
@@ -184,49 +210,51 @@ auto GetRomIcon(fs::FsNative* fs, ProgressBox* pbox, std::string filename, std::
     #define RA_THUMBNAIL_PATH "/retroarch/thumbnails/"
     #define RA_BOXART_EXT ".png"
 
-    const auto system_name = std::string{PATHS[db_idx].database.data(), PATHS[db_idx].database.length()};//GetDatabaseFromExt(database, extension);
-    auto system_name_gh = system_name + "/master";
-    for (auto& c : system_name_gh) {
-        if (c == ' ') {
-            c = '_';
+    for (auto db_idx : db_indexs) {
+        const auto system_name = std::string{PATHS[db_idx].database.data(), PATHS[db_idx].database.length()};//GetDatabaseFromExt(database, extension);
+        auto system_name_gh = system_name + "/master";
+        for (auto& c : system_name_gh) {
+            if (c == ' ') {
+                c = '_';
+            }
         }
-    }
 
-    std::string filename_gh;
-    filename_gh.reserve(filename.size());
-    for (auto c : filename) {
-        if (c == ' ') {
-            filename_gh += "%20";
-        } else {
-            filename_gh.push_back(c);
+        std::string filename_gh;
+        filename_gh.reserve(filename.size());
+        for (auto c : filename) {
+            if (c == ' ') {
+                filename_gh += "%20";
+            } else {
+                filename_gh.push_back(c);
+            }
         }
-    }
 
-    const std::string thumbnail_path = system_name + RA_BOXART_NAME + filename + RA_BOXART_EXT;
-    const std::string ra_thumbnail_path = RA_THUMBNAIL_PATH + thumbnail_path;
-    const std::string ra_thumbnail_url = RA_BOXART_URL + thumbnail_path;
-    const std::string gh_thumbnail_url = GH_BOXART_URL + system_name_gh + RA_BOXART_NAME + filename_gh + RA_BOXART_EXT;
+        const std::string thumbnail_path = system_name + RA_BOXART_NAME + filename + RA_BOXART_EXT;
+        const std::string ra_thumbnail_path = RA_THUMBNAIL_PATH + thumbnail_path;
+        const std::string ra_thumbnail_url = RA_BOXART_URL + thumbnail_path;
+        const std::string gh_thumbnail_url = GH_BOXART_URL + system_name_gh + RA_BOXART_NAME + filename_gh + RA_BOXART_EXT;
 
-    log_write("starting image convert on: %s\n", ra_thumbnail_path.c_str());
-    // try and find icon locally
-    if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Trying to load "_i18n + ra_thumbnail_path);
-        std::vector<u8> image_file;
-        if (R_SUCCEEDED(fs->read_entire_file(ra_thumbnail_path.c_str(), image_file))) {
-            return image_file;
+        log_write("starting image convert on: %s\n", ra_thumbnail_path.c_str());
+        // try and find icon locally
+        if (!pbox->ShouldExit()) {
+            pbox->NewTransfer("Trying to load "_i18n + ra_thumbnail_path);
+            std::vector<u8> image_file;
+            if (R_SUCCEEDED(fs->read_entire_file(ra_thumbnail_path.c_str(), image_file))) {
+                return image_file;
+            }
         }
-    }
 
-    // try and download icon
-    if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + gh_thumbnail_url);
-        const auto result = curl::Api().ToMemory(
-            curl::Url{gh_thumbnail_url},
-            curl::OnProgress{pbox->OnDownloadProgressCallback()}
-        );
+        // try and download icon
+        if (!pbox->ShouldExit()) {
+            pbox->NewTransfer("Downloading "_i18n + gh_thumbnail_url);
+            const auto result = curl::Api().ToMemory(
+                curl::Url{gh_thumbnail_url},
+                curl::OnProgress{pbox->OnDownloadProgressCallback()}
+            );
 
-        if (result.success && !result.data.empty()) {
-            return result.data;
+            if (result.success && !result.data.empty()) {
+                return result.data;
+            }
         }
     }
 
@@ -793,7 +821,7 @@ void Menu::InstallForwarder() {
                         log_write("got filename2: %s\n\n", file_name.c_str());
                     }
 
-                    const auto db_idx = GetRomDatabaseFromPath(m_path);
+                    const auto db_indexs = GetRomDatabaseFromPath(m_path);
 
                     OwoConfig config{};
                     config.nro_path = assoc.path.toString();
@@ -801,7 +829,7 @@ void Menu::InstallForwarder() {
                     config.name = nro.nacp.lang[0].name + std::string{" | "} + file_name;
                     // config.name = file_name;
                     config.nacp = nro.nacp;
-                    config.icon = GetRomIcon(m_fs.get(), pbox, file_name, extension, db_idx, nro);
+                    config.icon = GetRomIcon(m_fs.get(), pbox, file_name, extension, db_indexs, nro);
 
                     return R_SUCCEEDED(App::Install(pbox, config));
                 }));
@@ -912,7 +940,7 @@ auto Menu::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
 
 auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
     // only support roms in correctly named folders, sorry!
-    const auto db_idx = GetRomDatabaseFromPath(m_path);
+    const auto db_indexs = GetRomDatabaseFromPath(m_path);
     const auto& entry = GetEntry();
     const auto extension = entry.internal_extension.empty() ? entry.extension : entry.internal_extension;
     if (extension.empty()) {
@@ -924,16 +952,19 @@ auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
 
 
     std::vector<FileAssocEntry> out_entries;
-    if (db_idx >= 0) {
+    if (!db_indexs.empty()) {
         // if database isn't empty, then we are in a valid folder
         // search for an entry that matches the db and ext
         for (const auto& assoc : m_assoc_entries) {
             for (const auto& assoc_db : assoc.database) {
-                if (assoc_db == PATHS[db_idx].folder || assoc_db == PATHS[db_idx].database) {
-                    for (const auto& assoc_ext : assoc.ext) {
-                        if (assoc_ext == extension) {
-                            log_write("found ext: %s assoc_ext: %s assoc.ext: %s\n", assoc.path.s, assoc_ext.c_str(), extension.c_str());
-                            out_entries.emplace_back(assoc);
+                // if (assoc_db == PATHS[db_idx].folder || assoc_db == PATHS[db_idx].database) {
+                for (auto db_idx : db_indexs) {
+                    if (PATHS[db_idx].IsDatabase(assoc_db)) {
+                        for (const auto& assoc_ext : assoc.ext) {
+                            if (assoc_ext == extension) {
+                                log_write("found ext: %s assoc_ext: %s assoc.ext: %s\n", assoc.path.s, assoc_ext.c_str(), extension.c_str());
+                                out_entries.emplace_back(assoc);
+                            }
                         }
                     }
                 }
@@ -1044,7 +1075,7 @@ void Menu::LoadAssocEntriesPath(const fs::FsPath& path) {
             continue;
         }
 
-        // log_write("\tpath: %s\n", assoc.path.c_str());
+        // log_write("\tpath: %s\n", assoc.path.s);
         // log_write("\tname: %s\n", assoc.name.c_str());
         // for (const auto& ext : assoc.ext) {
         //     log_write("\t\text: %s\n", ext.c_str());

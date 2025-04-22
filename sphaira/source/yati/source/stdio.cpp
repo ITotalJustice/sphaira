@@ -2,7 +2,7 @@
 
 namespace sphaira::yati::source {
 
-Stdio::Stdio(const char* path) {
+Stdio::Stdio(const fs::FsPath& path) {
     m_file = std::fopen(path, "rb");
     if (!m_file) {
         m_open_result = fsdevGetLastResult();

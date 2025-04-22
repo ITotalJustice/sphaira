@@ -70,12 +70,12 @@ Result Xci::Validate(source::Base* source) {
 
 Result Xci::GetCollections(Collections& out) {
     Hfs0 root{};
-    R_TRY(Hfs0GetPartition(m_source, HFS0_HEADER_OFFSET, root));
+    R_TRY(Hfs0GetPartition(m_source.get(), HFS0_HEADER_OFFSET, root));
 
     for (u32 i = 0; i < root.header.total_files; i++) {
         if (root.string_table[i] == "secure") {
             Hfs0 secure{};
-            R_TRY(Hfs0GetPartition(m_source, root.data_offset + root.file_table[i].data_offset, secure));
+            R_TRY(Hfs0GetPartition(m_source.get(), root.data_offset + root.file_table[i].data_offset, secure));
 
             for (u32 i = 0; i < secure.header.total_files; i++) {
                 CollectionEntry entry;

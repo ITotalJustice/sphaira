@@ -8,7 +8,7 @@
 namespace sphaira::yati::source {
 
 struct Stdio final : Base {
-    Stdio(const char* path);
+    Stdio(const fs::FsPath& path);
     ~Stdio();
 
     Result Read(void* buf, s64 off, s64 size, u64* bytes_read) override;

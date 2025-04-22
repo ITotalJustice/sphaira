@@ -454,4 +454,10 @@ struct FsNativeContentStorage final : FsNative {
     }
 };
 
+struct FsNativeGameCard final : FsNative {
+    FsNativeGameCard(const FsGameCardHandle* handle, FsGameCardPartition partition, bool ignore_read_only = true) : FsNative{ignore_read_only} {
+        m_open_result = fsOpenGameCardFileSystem(&m_fs, handle, partition);
+    }
+};
+
 } // namespace fs

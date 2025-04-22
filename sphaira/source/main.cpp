@@ -66,6 +66,9 @@ void userAppInit(void) {
     if (R_FAILED(rc = ncmInitialize()))
         diagAbortWithResult(rc);
 
+    // it doesn't matter if this fails.
+    appletSetScreenShotPermission(AppletScreenShotPermission_Enable);
+
     log_nxlink_init();
 }
 
