@@ -34,24 +34,16 @@ constexpr std::array buttons = {
 };
 
 // NEW ---------------------
-void drawRectIntenal(NVGcontext* vg, const Vec4& v, const NVGcolor& c, bool rounded) {
+void drawRectIntenal(NVGcontext* vg, const Vec4& v, const NVGcolor& c, float rounded) {
     nvgBeginPath(vg);
-    if (rounded) {
-        nvgRoundedRect(vg, v.x, v.y, v.w, v.h, 15);
-    } else {
-        nvgRect(vg, v.x, v.y, v.w, v.h);
-    }
+    nvgRoundedRect(vg, v.x, v.y, v.w, v.h, rounded);
     nvgFillColor(vg, c);
     nvgFill(vg);
 }
 
-void drawRectIntenal(NVGcontext* vg, const Vec4& v, const NVGpaint& p, bool rounded) {
+void drawRectIntenal(NVGcontext* vg, const Vec4& v, const NVGpaint& p, float rounded) {
     nvgBeginPath(vg);
-    if (rounded) {
-        nvgRoundedRect(vg, v.x, v.y, v.w, v.h, 15);
-    } else {
-        nvgRect(vg, v.x, v.y, v.w, v.h);
-    }
+    nvgRoundedRect(vg, v.x, v.y, v.w, v.h, rounded);
     nvgFillPaint(vg, p);
     nvgFill(vg);
 }
@@ -164,25 +156,13 @@ void drawTextArgs(NVGcontext* vg, float x, float y, float size, int align, const
     drawText(vg, x, y, size, buffer, nullptr, align, c);
 }
 
-void drawImage(NVGcontext* vg, const Vec4& v, int texture) {
+void drawImage(NVGcontext* vg, const Vec4& v, int texture, float rounded) {
     const auto paint = nvgImagePattern(vg, v.x, v.y, v.w, v.h, 0, texture, 1.f);
-    drawRect(vg, v, paint, false);
+    drawRect(vg, v, paint, rounded);
 }
 
-void drawImage(NVGcontext* vg, float x, float y, float w, float h, int texture) {
-    drawImage(vg, Vec4(x, y, w, h), texture);
-}
-
-void drawImageRounded(NVGcontext* vg, const Vec4& v, int texture) {
-    const auto paint = nvgImagePattern(vg, v.x, v.y, v.w, v.h, 0, texture, 1.f);
-    nvgBeginPath(vg);
-    nvgRoundedRect(vg, v.x, v.y, v.w, v.h, 15);
-    nvgFillPaint(vg, paint);
-    nvgFill(vg);
-}
-
-void drawImageRounded(NVGcontext* vg, float x, float y, float w, float h, int texture) {
-    drawImageRounded(vg, Vec4(x, y, w, h), texture);
+void drawImage(NVGcontext* vg, float x, float y, float w, float h, int texture, float rounded) {
+    drawImage(vg, Vec4(x, y, w, h), texture, rounded);
 }
 
 void drawTextBox(NVGcontext* vg, float x, float y, float size, float bound, const NVGcolor& c, const char* str, int align, const char* end) {
@@ -208,19 +188,19 @@ void dimBackground(NVGcontext* vg) {
     drawRectIntenal(vg, {0.f,0.f,SCREEN_WIDTH,SCREEN_HEIGHT}, nvgRGBA(0, 0, 0, 180), false);
 }
 
-void drawRect(NVGcontext* vg, float x, float y, float w, float h, const NVGcolor& c, bool rounded) {
+void drawRect(NVGcontext* vg, float x, float y, float w, float h, const NVGcolor& c, float rounded) {
     drawRectIntenal(vg, {x,y,w,h}, c, rounded);
 }
 
-void drawRect(NVGcontext* vg, const Vec4& v, const NVGcolor& c, bool rounded) {
+void drawRect(NVGcontext* vg, const Vec4& v, const NVGcolor& c, float rounded) {
     drawRectIntenal(vg, v, c, rounded);
 }
 
-void drawRect(NVGcontext* vg, float x, float y, float w, float h, const NVGpaint& p, bool rounded) {
+void drawRect(NVGcontext* vg, float x, float y, float w, float h, const NVGpaint& p, float rounded) {
     drawRectIntenal(vg, {x,y,w,h}, p, rounded);
 }
 
-void drawRect(NVGcontext* vg, const Vec4& v, const NVGpaint& p, bool rounded) {
+void drawRect(NVGcontext* vg, const Vec4& v, const NVGpaint& p, float rounded) {
     drawRectIntenal(vg, v, p, rounded);
 }
 

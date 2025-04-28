@@ -151,4 +151,30 @@ Result VerifyFixedKey(const Header& header) {
     R_SUCCEED();
 }
 
+auto GetKeyGenStr(u8 key_gen) -> const char* {
+    switch (key_gen) {
+        case KeyGenerationOld_100: return "1.0.0";
+        case KeyGenerationOld_300: return "3.0.0";
+        case KeyGeneration_301: return "3.0.1";
+        case KeyGeneration_400: return "4.0.0";
+        case KeyGeneration_500: return "5.0.0";
+        case KeyGeneration_600: return "6.0.0";
+        case KeyGeneration_620: return "6.2.0";
+        case KeyGeneration_700: return "7.0.0";
+        case KeyGeneration_810: return "8.1.0";
+        case KeyGeneration_900: return "9.0.0";
+        case KeyGeneration_910: return "9.1.0";
+        case KeyGeneration_1210: return "12.1.0";
+        case KeyGeneration_1300: return "13.0.0";
+        case KeyGeneration_1400: return "14.0.0";
+        case KeyGeneration_1500: return "15.0.0";
+        case KeyGeneration_1600: return "16.0.0";
+        case KeyGeneration_1700: return "17.0.0";
+        case KeyGeneration_1800: return "18.0.0";
+        case KeyGeneration_1900: return "19.0.0";
+    }
+
+    return "Unknown";
+}
+
 } // namespace sphaira::nca

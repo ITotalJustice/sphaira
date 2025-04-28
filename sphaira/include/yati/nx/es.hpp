@@ -78,6 +78,6 @@ Result SetTicketData(std::span<u8> ticket, const es::TicketData* in);
 
 Result GetTitleKey(keys::KeyEntry& out, const TicketData& data, const keys::Keys& keys);
 Result DecryptTitleKey(keys::KeyEntry& out, u8 key_gen, const keys::Keys& keys);
-Result PatchTicket(std::span<u8> ticket, const keys::Keys& keys, bool convert_personalised);
+Result PatchTicket(std::span<u8> ticket, const keys::Keys& keys);
 
 } // namespace sphaira::es

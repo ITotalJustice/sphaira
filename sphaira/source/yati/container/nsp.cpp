@@ -24,14 +24,6 @@ struct Pfs0FileTableEntry {
 
 } // namespace
 
-Result Nsp::Validate(source::Base* source) {
-    u32 magic;
-    u64 bytes_read;
-    R_TRY(source->Read(std::addressof(magic), 0, sizeof(magic), std::addressof(bytes_read)));
-    R_UNLESS(magic == PFS0_MAGIC, 0x1);
-    R_SUCCEED();
-}
-
 Result Nsp::GetCollections(Collections& out) {
     u64 bytes_read;
     s64 off = 0;

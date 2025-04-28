@@ -106,13 +106,13 @@ Result DecryptTitleKey(keys::KeyEntry& out, u8 key_gen, const keys::Keys& keys) 
 
 // todo: i thought i already wrote the code for this??
 // todo: patch the ticket.
-Result PatchTicket(std::span<u8> ticket, const keys::Keys& keys, bool convert_personalised) {
+Result PatchTicket(std::span<u8> ticket, const keys::Keys& keys) {
     TicketData data;
     R_TRY(GetTicketData(ticket, &data));
 
     if (data.title_key_type == es::TicketTitleKeyType_Common) {
         // todo: verify common signature
-    } else if (data.title_key_type == es::TicketTitleKeyType_Personalized && convert_personalised) {
+    } else if (data.title_key_type == es::TicketTitleKeyType_Personalized) {
 
     }
 

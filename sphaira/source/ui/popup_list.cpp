@@ -62,16 +62,6 @@ PopupList::PopupList(std::string title, Items items, Callback cb, s64 index)
 , m_callback{cb}
 , m_index{index} {
     this->SetActions(
-        std::make_pair(Button::DOWN, Action{[this](){
-            if (m_list->ScrollDown(m_index, 1, m_items.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            if (m_list->ScrollUp(m_index, 1, m_items.size())) {
-                SetIndex(m_index);
-            }
-        }}),
         std::make_pair(Button::A, Action{"Select"_i18n, [this](){
             if (m_callback) {
                 m_callback(m_index);
@@ -103,9 +93,11 @@ PopupList::PopupList(std::string title, Items items, Callback cb, s64 index)
 
 auto PopupList::Update(Controller* controller, TouchInfo* touch) -> void {
     Widget::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_items.size(), [this](auto i) {
+    m_list->OnUpdate(controller, touch, m_index, m_items.size(), [this](bool touch, auto i) {
         SetIndex(i);
-        FireAction(Button::A);
+        if (touch) {
+            FireAction(Button::A);
+        }
     });
 }
 

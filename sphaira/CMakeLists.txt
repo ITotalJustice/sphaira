@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(sphaira_VERSION 0.7.0)
+set(sphaira_VERSION 0.8.0)
 
 project(sphaira
     VERSION ${sphaira_VERSION}
@@ -47,6 +47,7 @@ add_executable(sphaira
     source/ui/menus/themezer.cpp
     source/ui/menus/ghdl.cpp
     source/ui/menus/usb_menu.cpp
+    source/ui/menus/ftp_menu.cpp
     source/ui/menus/gc_menu.cpp
 
     source/ui/error_box.cpp
@@ -83,6 +84,8 @@ add_executable(sphaira
     source/yati/source/file.cpp
     source/yati/source/stdio.cpp
     source/yati/source/usb.cpp
+    source/yati/source/stream.cpp
+    source/yati/source/stream_file.cpp
 
     source/yati/nx/es.cpp
     source/yati/nx/keys.cpp
@@ -143,7 +146,8 @@ set(FETCHCONTENT_QUIET FALSE)
 
 FetchContent_Declare(ftpsrv
     GIT_REPOSITORY https://github.com/ITotalJustice/ftpsrv.git
-    GIT_TAG 1.2.2
+    # GIT_TAG 1.2.2
+    GIT_TAG f8a30fd
     SOURCE_SUBDIR NONE
 )
 

@@ -28,40 +28,6 @@ auto GenerateStarPath(const fs::FsPath& nro_path) -> fs::FsPath {
 
 Menu::Menu() : MenuBase{"Homebrew"_i18n} {
     this->SetActions(
-        std::make_pair(Button::RIGHT, Action{[this](){
-            if (m_index < (m_entries.size() - 1) && (m_index + 1) % 3 != 0) {
-                SetIndex(m_index + 1);
-                App::PlaySoundEffect(SoundEffect_Scroll);
-                log_write("moved right\n");
-            }
-        }}),
-        std::make_pair(Button::LEFT, Action{[this](){
-            if (m_index != 0 && (m_index % 3) != 0) {
-                SetIndex(m_index - 1);
-                App::PlaySoundEffect(SoundEffect_Scroll);
-                log_write("moved left\n");
-            }
-        }}),
-        std::make_pair(Button::DOWN, Action{[this](){
-            if (m_list->ScrollDown(m_index, 3, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            if (m_list->ScrollUp(m_index, 3, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::R2, Action{[this](){
-            if (m_list->ScrollDown(m_index, 9, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::L2, Action{[this](){
-            if (m_list->ScrollUp(m_index, 9, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
         std::make_pair(Button::A, Action{"Launch"_i18n, [this](){
             nro_launch(m_entries[m_index].path);
         }}),
@@ -157,8 +123,8 @@ Menu::~Menu() {
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     MenuBase::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_entries.size(), [this](auto i) {
-        if (m_index == i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries.size(), [this](bool touch, auto i) {
+        if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
             App::PlaySoundEffect(SoundEffect_Focus);
@@ -202,7 +168,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         const float image_size = 115;
-        gfx::drawImageRounded(vg, x + 20, y + 20, image_size, image_size, e.image ? e.image : App::GetDefaultImage());
+        gfx::drawImage(vg, x + 20, y + 20, image_size, image_size, e.image ? e.image : App::GetDefaultImage(), 15);
 
         nvgSave(vg);
         nvgIntersectScissor(vg, x, y, w - 30.f, h); // clip

@@ -1,7 +1,18 @@
-#include "ui/menus/main_menu.hpp"
-#include "ui/error_box.hpp"
 #include "ui/option_box.hpp"
 #include "ui/bubbles.hpp"
+#include "ui/sidebar.hpp"
+#include "ui/popup_list.hpp"
+#include "ui/option_box.hpp"
+#include "ui/progress_box.hpp"
+#include "ui/error_box.hpp"
+
+#include "ui/menus/main_menu.hpp"
+#include "ui/menus/irs_menu.hpp"
+#include "ui/menus/themezer.hpp"
+#include "ui/menus/ghdl.hpp"
+#include "ui/menus/usb_menu.hpp"
+#include "ui/menus/ftp_menu.hpp"
+#include "ui/menus/gc_menu.hpp"
 
 #include "app.hpp"
 #include "log.hpp"
@@ -15,6 +26,7 @@
 #include "defines.hpp"
 #include "i18n.hpp"
 #include "ftpsrv_helper.hpp"
+#include "web.hpp"
 
 #include <nanovg_dk.h>
 #include <minIni.h>
@@ -544,7 +556,7 @@ auto App::GetThemeIndex() -> s64 {
     return g_app->m_theme_index;
 }
 
-auto App::GetDefaultImage(int* w, int* h) -> int {
+auto App::GetDefaultImage() -> int {
     return g_app->m_default_image;
 }
 
@@ -1374,15 +1386,6 @@ App::App(const char* argv0) {
     const long old_launch_count = ini_getl(GetExePath(), "launch_count", 0, App::PLAYLOG_PATH);
     ini_putl(GetExePath(), "launch_count", old_launch_count + 1, App::PLAYLOG_PATH);
 
-    s64 sd_free_space;
-    if (R_SUCCEEDED(fs.GetFreeSpace("/", &sd_free_space))) {
-        log_write("sd_free_space: %zd\n", sd_free_space);
-    }
-    s64 sd_total_space;
-    if (R_SUCCEEDED(fs.GetTotalSpace("/", &sd_total_space))) {
-        log_write("sd_total_space: %zd\n", sd_total_space);
-    }
-
     // load default image
     if (R_SUCCEEDED(romfsInit())) {
         ON_SCOPE_EXIT(romfsExit());
@@ -1392,8 +1395,33 @@ App::App(const char* argv0) {
         }
     }
 
-    // soon (tm)
-    // ui::bubble::Init();
+    struct EventDay {
+        u8 day;
+        u8 month;
+    };
+
+    static constexpr EventDay event_days[] = {
+        { .day = 1, .month = 1 }, // New years
+
+        { .day = 3, .month = 3 }, // March 3 (switch 1)
+        { .day = 10, .month = 5 }, // June 10 (switch 2)
+        { .day = 15, .month = 5 }, // June 15
+
+        { .day = 25, .month = 12 }, // Christmas
+        { .day = 26, .month = 12 },
+        { .day = 27, .month = 12 },
+        { .day = 28, .month = 12 },
+    };
+
+    const auto time = std::time(nullptr);
+    const auto tm = std::localtime(&time);
+
+    for (auto e : event_days) {
+        if (e.day == tm->tm_mday && e.month == (tm->tm_mon + 1)) {
+            ui::bubble::Init();
+            break;
+        }
+    }
 
     App::Push(std::make_shared<ui::menu::main::MainMenu>());
     log_write("finished app constructor\n");
@@ -1410,6 +1438,179 @@ void App::PlaySoundEffect(SoundEffect effect) {
         return;
     }
     plsrPlayerPlay(id);
+}
+
+void App::DisplayThemeOptions(bool left_side) {
+    ui::SidebarEntryArray::Items theme_items{};
+    const auto theme_meta = App::GetThemeMetaList();
+    for (auto& p : theme_meta) {
+        theme_items.emplace_back(p.name);
+    }
+
+    auto options = std::make_shared<ui::Sidebar>("Theme Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
+    ON_SCOPE_EXIT(App::Push(options));
+
+    options->Add(std::make_shared<ui::SidebarEntryArray>("Select Theme"_i18n, theme_items, [theme_items](s64& index_out){
+        App::SetTheme(index_out);
+    }, App::GetThemeIndex()));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Music"_i18n, App::GetThemeMusicEnable(), [](bool& enable){
+        App::SetThemeMusicEnable(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("12 Hour Time"_i18n, App::Get12HourTimeEnable(), [](bool& enable){
+        App::Set12HourTimeEnable(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+}
+
+void App::DisplayNetworkOptions(bool left_side) {
+
+}
+
+void App::DisplayMiscOptions(bool left_side) {
+    auto options = std::make_shared<ui::Sidebar>("Misc Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
+    ON_SCOPE_EXIT(App::Push(options));
+
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("Themezer"_i18n, [](){
+        App::Push(std::make_shared<ui::menu::themezer::Menu>());
+    }));
+
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("GitHub"_i18n, [](){
+        App::Push(std::make_shared<ui::menu::gh::Menu>());
+    }));
+
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("Irs"_i18n, [](){
+        App::Push(std::make_shared<ui::menu::irs::Menu>());
+    }));
+
+    if (App::IsApplication()) {
+        options->Add(std::make_shared<ui::SidebarEntryCallback>("Web"_i18n, [](){
+            WebShow("https://lite.duckduckgo.com/lite");
+        }));
+    }
+
+    if (App::GetApp()->m_install.Get()) {
+        if (App::GetFtpEnable()) {
+            options->Add(std::make_shared<ui::SidebarEntryCallback>("Ftp Install"_i18n, [](){
+                App::Push(std::make_shared<ui::menu::ftp::Menu>());
+            }));
+        }
+
+        options->Add(std::make_shared<ui::SidebarEntryCallback>("Usb Install"_i18n, [](){
+            App::Push(std::make_shared<ui::menu::usb::Menu>());
+        }));
+
+        options->Add(std::make_shared<ui::SidebarEntryCallback>("GameCard Install"_i18n, [](){
+            App::Push(std::make_shared<ui::menu::gc::Menu>());
+        }));
+    }
+}
+
+void App::DisplayAdvancedOptions(bool left_side) {
+    auto options = std::make_shared<ui::Sidebar>("Advanced Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
+    ON_SCOPE_EXIT(App::Push(options));
+
+    ui::SidebarEntryArray::Items text_scroll_speed_items;
+    text_scroll_speed_items.push_back("Slow"_i18n);
+    text_scroll_speed_items.push_back("Normal"_i18n);
+    text_scroll_speed_items.push_back("Fast"_i18n);
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Logging"_i18n, App::GetLogEnable(), [](bool& enable){
+        App::SetLogEnable(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Replace hbmenu on exit"_i18n, App::GetReplaceHbmenuEnable(), [](bool& enable){
+        App::SetReplaceHbmenuEnable(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryArray>("Text scroll speed"_i18n, text_scroll_speed_items, [](s64& index_out){
+        App::SetTextScrollSpeed(index_out);
+    }, (s64)App::GetTextScrollSpeed()));
+
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("Install options"_i18n, [left_side](){
+        App::DisplayInstallOptions(left_side);
+    }));
+}
+
+void App::DisplayInstallOptions(bool left_side) {
+    auto options = std::make_shared<ui::Sidebar>("Install Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
+    ON_SCOPE_EXIT(App::Push(options));
+
+    ui::SidebarEntryArray::Items install_items;
+    install_items.push_back("System memory"_i18n);
+    install_items.push_back("microSD card"_i18n);
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Enable"_i18n, App::GetInstallEnable(), [](bool& enable){
+        App::SetInstallEnable(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Show install warning"_i18n, App::GetInstallPrompt(), [](bool& enable){
+        App::SetInstallPrompt(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryArray>("Install location"_i18n, install_items, [](s64& index_out){
+        App::SetInstallSdEnable(index_out);
+    }, (s64)App::GetInstallSdEnable()));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Allow downgrade"_i18n, App::GetApp()->m_allow_downgrade.Get(), [](bool& enable){
+        App::GetApp()->m_allow_downgrade.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip if already installed"_i18n, App::GetApp()->m_skip_if_already_installed.Get(), [](bool& enable){
+        App::GetApp()->m_skip_if_already_installed.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Ticket only"_i18n, App::GetApp()->m_ticket_only.Get(), [](bool& enable){
+        App::GetApp()->m_ticket_only.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip base"_i18n, App::GetApp()->m_skip_base.Get(), [](bool& enable){
+        App::GetApp()->m_skip_base.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip Patch"_i18n, App::GetApp()->m_skip_patch.Get(), [](bool& enable){
+        App::GetApp()->m_skip_patch.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip addon"_i18n, App::GetApp()->m_skip_addon.Get(), [](bool& enable){
+        App::GetApp()->m_skip_addon.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip data patch"_i18n, App::GetApp()->m_skip_data_patch.Get(), [](bool& enable){
+        App::GetApp()->m_skip_data_patch.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip ticket"_i18n, App::GetApp()->m_skip_ticket.Get(), [](bool& enable){
+        App::GetApp()->m_skip_ticket.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("skip NCA hash verify"_i18n, App::GetApp()->m_skip_nca_hash_verify.Get(), [](bool& enable){
+        App::GetApp()->m_skip_nca_hash_verify.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip RSA header verify"_i18n, App::GetApp()->m_skip_rsa_header_fixed_key_verify.Get(), [](bool& enable){
+        App::GetApp()->m_skip_rsa_header_fixed_key_verify.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip RSA NPDM verify"_i18n, App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Get(), [](bool& enable){
+        App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Ignore distribution bit"_i18n, App::GetApp()->m_ignore_distribution_bit.Get(), [](bool& enable){
+        App::GetApp()->m_ignore_distribution_bit.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Convert to standard crypto"_i18n, App::GetApp()->m_convert_to_standard_crypto.Get(), [](bool& enable){
+        App::GetApp()->m_convert_to_standard_crypto.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Lower master key"_i18n, App::GetApp()->m_lower_master_key.Get(), [](bool& enable){
+        App::GetApp()->m_lower_master_key.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Lower system version"_i18n, App::GetApp()->m_lower_system_version.Get(), [](bool& enable){
+        App::GetApp()->m_lower_system_version.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
 }
 
 App::~App() {

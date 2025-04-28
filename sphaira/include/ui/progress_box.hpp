@@ -3,6 +3,7 @@
 #include "widget.hpp"
 #include "fs.hpp"
 #include <functional>
+#include <span>
 
 namespace sphaira::ui {
 
@@ -12,6 +13,8 @@ using ProgressBoxDoneCallback = std::function<void(bool success)>;
 
 struct ProgressBox final : Widget {
     ProgressBox(
+        int image,
+        const std::string& action,
         const std::string& title,
         ProgressBoxCallback callback, ProgressBoxDoneCallback done = [](bool success){},
         int cpuid = 1, int prio = 0x2C, int stack_size = 1024*1024
@@ -24,6 +27,9 @@ struct ProgressBox final : Widget {
     auto SetTitle(const std::string& title) -> ProgressBox&;
     auto NewTransfer(const std::string& transfer) -> ProgressBox&;
     auto UpdateTransfer(s64 offset, s64 size) -> ProgressBox&;
+    // not const in order to avoid copy by using std::swap
+    auto SetImageData(std::vector<u8>& data) -> ProgressBox&;
+    auto SetImageDataConst(std::span<const u8> data) -> ProgressBox&;
     void RequestExit();
     auto ShouldExit() -> bool;
 
@@ -41,6 +47,9 @@ struct ProgressBox final : Widget {
         };
     }
 
+private:
+    void FreeImage();
+
 public:
     struct ThreadData {
         ProgressBox* pbox{};
@@ -52,12 +61,22 @@ private:
     Mutex m_mutex{};
     Thread m_thread{};
     ThreadData m_thread_data{};
-
     ProgressBoxDoneCallback m_done{};
+
+    // shared data start.
+    std::string m_action{};
     std::string m_title{};
     std::string m_transfer{};
     s64 m_size{};
     s64 m_offset{};
+    s64 m_last_offset{};
+    s64 m_speed{};
+    TimeStamp m_timestamp{};
+    std::vector<u8> m_image_data{};
+    // shared data end.
+
+    int m_image{};
+    bool m_own_image{};
 };
 
 // this is a helper function that does many things.

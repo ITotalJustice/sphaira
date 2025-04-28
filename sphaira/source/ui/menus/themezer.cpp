@@ -375,45 +375,6 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
     }});
 
     this->SetActions(
-        std::make_pair(Button::RIGHT, Action{[this](){
-            const auto& page = m_pages[m_page_index];
-            if (m_index < (page.m_packList.size() - 1) && (m_index + 1) % 3 != 0) {
-                SetIndex(m_index + 1);
-                App::PlaySoundEffect(SoundEffect_Scroll);
-                log_write("moved right\n");
-            }
-        }}),
-        std::make_pair(Button::LEFT, Action{[this](){
-            if (m_index != 0 && (m_index % 3) != 0) {
-                SetIndex(m_index - 1);
-                App::PlaySoundEffect(SoundEffect_Scroll);
-                log_write("moved left\n");
-            }
-        }}),
-        std::make_pair(Button::DOWN, Action{[this](){
-            const auto& page = m_pages[m_page_index];
-            if (m_list->ScrollDown(m_index, 3, page.m_packList.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            const auto& page = m_pages[m_page_index];
-            if (m_list->ScrollUp(m_index, 3, page.m_packList.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::R2, Action{[this](){
-            const auto& page = m_pages[m_page_index];
-            if (m_list->ScrollDown(m_index, 6, page.m_packList.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::L2, Action{[this](){
-            const auto& page = m_pages[m_page_index];
-            if (m_list->ScrollUp(m_index, 6, page.m_packList.size())) {
-                SetIndex(m_index);
-            }
-        }}),
         std::make_pair(Button::A, Action{"Download"_i18n, [this](){
             App::Push(std::make_shared<OptionBox>(
                 "Download theme?"_i18n,
@@ -424,7 +385,7 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
                             const auto& entry = page.m_packList[m_index];
                             const auto url = apiBuildUrlDownloadPack(entry);
 
-                            App::Push(std::make_shared<ProgressBox>("Installing "_i18n + entry.details.name, [this, &entry](auto pbox){
+                            App::Push(std::make_shared<ProgressBox>(entry.themes[0].preview.lazy_image.image, "Downloading "_i18n, entry.details.name, [this, &entry](auto pbox){
                                 return InstallTheme(pbox, entry);
                             }, [this, &entry](bool success){
                                 if (success) {
@@ -532,8 +493,8 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         return;
     }
 
-    m_list->OnUpdate(controller, touch, page.m_packList.size(), [this](auto i) {
-        if (m_index == i) {
+    m_list->OnUpdate(controller, touch, m_index, page.m_packList.size(), [this](bool touch, auto i) {
+        if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
             App::PlaySoundEffect(SoundEffect_Focus);
@@ -642,7 +603,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
                 }
             }
 
-            gfx::drawImageRounded(vg, x + xoff, y, 320, 180, image.image ? image.image : App::GetDefaultImage());
+            gfx::drawImage(vg, x + xoff, y, 320, 180, image.image ? image.image : App::GetDefaultImage(), 15);
         }
 
         nvgSave(vg);

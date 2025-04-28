@@ -215,4 +215,6 @@ Result DecryptKeak(const keys::Keys& keys, Header& header);
 Result EncryptKeak(const keys::Keys& keys, Header& header, u8 key_generation);
 Result VerifyFixedKey(const Header& header);
 
+auto GetKeyGenStr(u8 key_gen) -> const char*;
+
 } // namespace sphaira::nca

@@ -10,8 +10,10 @@
 #include "fs.hpp"
 #include "source/base.hpp"
 #include "container/base.hpp"
+#include "nx/ncm.hpp"
 #include "ui/progress_box.hpp"
 #include <memory>
+#include <optional>
 
 namespace sphaira::yati {
 
@@ -79,11 +81,6 @@ struct Config {
     // installs tickets only.
     bool ticket_only{};
 
-    // converts personalised tickets to common tickets, allows for offline play.
-    // this breaks ticket signature so es needs to be patched.
-    // modified common tickets are patched regardless of this setting.
-    bool patch_ticket{};
-
     // flags to enable / disable install of specific types.
     bool skip_base{};
     bool skip_patch{};
@@ -117,10 +114,25 @@ struct Config {
     bool lower_system_version{};
 };
 
-Result InstallFromFile(ui::ProgressBox* pbox, FsFileSystem* fs, const fs::FsPath& path);
-Result InstallFromStdioFile(ui::ProgressBox* pbox, const fs::FsPath& path);
-Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const fs::FsPath& path);
-Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container);
-Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections);
+// overridable options, set to avoid
+struct ConfigOverride {
+    std::optional<bool> sd_card_install{};
+    std::optional<bool> skip_nca_hash_verify{};
+    std::optional<bool> skip_rsa_header_fixed_key_verify{};
+    std::optional<bool> skip_rsa_npdm_fixed_key_verify{};
+    std::optional<bool> ignore_distribution_bit{};
+    std::optional<bool> convert_to_standard_crypto{};
+    std::optional<bool> lower_master_key{};
+    std::optional<bool> lower_system_version{};
+};
+
+Result InstallFromFile(ui::ProgressBox* pbox, FsFileSystem* fs, const fs::FsPath& path, const ConfigOverride& override = {});
+Result InstallFromStdioFile(ui::ProgressBox* pbox, const fs::FsPath& path, const ConfigOverride& override = {});
+Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const fs::FsPath& path, const ConfigOverride& override = {});
+Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container, const ConfigOverride& override = {});
+Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections, const ConfigOverride& override = {});
+
+Result ParseCnmtNca(const fs::FsPath& path,  ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos);
+Result ParseControlNca(const fs::FsPath& path, u64 id, void* nacp_out = nullptr, s64 nacp_size = 0, std::vector<u8>* icon_out = nullptr);
 
 } // namespace sphaira::yati

@@ -247,27 +247,6 @@ Menu::Menu() : MenuBase{"GitHub"_i18n} {
     fs::FsNativeSd().CreateDirectoryRecursively(CACHE_PATH);
 
     this->SetActions(
-        std::make_pair(Button::DOWN, Action{[this](){
-            if (m_list->ScrollDown(m_index, 1, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            if (m_list->ScrollUp(m_index, 1, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::DPAD_RIGHT, Action{[this](){
-            if (m_list->ScrollDown(m_index, 8, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::DPAD_LEFT, Action{[this](){
-            if (m_list->ScrollUp(m_index, 8, m_entries.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-
         std::make_pair(Button::A, Action{"Download"_i18n, [this](){
             if (m_entries.empty()) {
                 return;
@@ -277,7 +256,7 @@ Menu::Menu() : MenuBase{"GitHub"_i18n} {
             static GhApiEntry gh_entry;
             gh_entry = {};
 
-            App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().repo, [this](auto pbox){
+            App::Push(std::make_shared<ProgressBox>(0, "Downloading "_i18n, GetEntry().repo, [this](auto pbox){
                 return DownloadAssetJson(pbox, GenerateApiUrl(GetEntry()), gh_entry);
             }, [this](bool success){
                 if (success) {
@@ -325,7 +304,7 @@ Menu::Menu() : MenuBase{"GitHub"_i18n} {
                         }
 
                         const auto func = [this, &asset_entry, ptr](){
-                            App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + GetEntry().repo, [this, &asset_entry, ptr](auto pbox){
+                            App::Push(std::make_shared<ProgressBox>(0, "Downloading "_i18n, GetEntry().repo, [this, &asset_entry, ptr](auto pbox){
                                 return DownloadApp(pbox, asset_entry, ptr);
                             }, [this, ptr](bool success){
                                 if (success) {
@@ -373,8 +352,8 @@ Menu::~Menu() {
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     MenuBase::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_entries.size(), [this](auto i) {
-        if (m_index == i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries.size(), [this](bool touch, auto i) {
+        if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
             App::PlaySoundEffect(SoundEffect_Focus);

@@ -60,14 +60,6 @@ Result Hfs0GetPartition(source::Base* source, s64 off, Hfs0& out) {
 
 } // namespace
 
-Result Xci::Validate(source::Base* source) {
-    u32 magic;
-    u64 bytes_read;
-    R_TRY(source->Read(std::addressof(magic), 0x100, sizeof(magic), std::addressof(bytes_read)));
-    R_UNLESS(magic == XCI_MAGIC, 0x1);
-    R_SUCCEED();
-}
-
 Result Xci::GetCollections(Collections& out) {
     Hfs0 root{};
     R_TRY(Hfs0GetPartition(m_source.get(), HFS0_HEADER_OFFSET, root));

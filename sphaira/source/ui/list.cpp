@@ -34,8 +34,35 @@ auto List::ClampY(float y, s64 count) const -> float {
     return y;
 }
 
-void List::OnUpdate(Controller* controller, TouchInfo* touch, s64 count, TouchCallback callback) {
-    if (touch->is_clicked && touch->in_range(GetPos())) {
+void List::OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback) {
+    const auto page_up_button = m_row == 1 ? Button::DPAD_LEFT : Button::L2;
+    const auto page_down_button = m_row == 1 ? Button::DPAD_RIGHT : Button::R2;
+
+    if (controller->GotDown(Button::DOWN)) {
+        if (ScrollDown(index, m_row, count)) {
+            callback(false, index);
+        }
+    } else if (controller->GotDown(Button::UP)) {
+        if (ScrollUp(index, m_row, count)) {
+            callback(false, index);
+        }
+    } else if (controller->GotDown(page_down_button)) {
+        if (ScrollDown(index, m_page, count)) {
+            callback(false, index);
+        }
+    } else if (controller->GotDown(page_up_button)) {
+        if (ScrollUp(index, m_page, count)) {
+            callback(false, index);
+        }
+    } else if (m_row > 1 && controller->GotDown(Button::RIGHT)) {
+        if (count && index < (count - 1) && (index + 1) % m_row != 0) {
+            callback(false, index + 1);
+        }
+    } else if (m_row > 1 && controller->GotDown(Button::LEFT)) {
+        if (count && index != 0 && (index % m_row) != 0) {
+            callback(false, index - 1);
+        }
+    } else if (touch->is_clicked && touch->in_range(GetPos())) {
         auto v = m_v;
         v.y -= ClampY(m_yoff + m_y_prog, count);
 
@@ -63,7 +90,7 @@ void List::OnUpdate(Controller* controller, TouchInfo* touch, s64 count, TouchCa
                 vv.h = std::min(v.y + v.h, m_pos.y + m_pos.h) - v.y;
 
                 if (touch->in_range(vv)) {
-                    callback(i);
+                    callback(true, i);
                     return;
                 }
             }

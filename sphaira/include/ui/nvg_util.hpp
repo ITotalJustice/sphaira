@@ -5,17 +5,15 @@
 
 namespace sphaira::ui::gfx {
 
-void drawImage(NVGcontext*, float x, float y, float w, float h, int texture);
-void drawImage(NVGcontext*, const Vec4& v, int texture);
-void drawImageRounded(NVGcontext*, float x, float y, float w, float h, int texture);
-void drawImageRounded(NVGcontext*, const Vec4& v, int texture);
+void drawImage(NVGcontext*, float x, float y, float w, float h, int texture, float rounded = 0.F);
+void drawImage(NVGcontext*, const Vec4& v, int texture, float rounded = 0.F);
 
 void dimBackground(NVGcontext*);
 
-void drawRect(NVGcontext*, float x, float y, float w, float h, const NVGcolor& c, bool rounded = false);
-void drawRect(NVGcontext*, const Vec4& v, const NVGcolor& c, bool rounded = false);
-void drawRect(NVGcontext*, float x, float y, float w, float h, const NVGpaint& p, bool rounded = false);
-void drawRect(NVGcontext*, const Vec4& v, const NVGpaint& p, bool rounded = false);
+void drawRect(NVGcontext*, float x, float y, float w, float h, const NVGcolor& c, float rounding = 0.F);
+void drawRect(NVGcontext*, const Vec4& v, const NVGcolor& c, float rounding = 0.F);
+void drawRect(NVGcontext*, float x, float y, float w, float h, const NVGpaint& p, float rounding = 0.F);
+void drawRect(NVGcontext*, const Vec4& v, const NVGpaint& p, float rounding = 0.F);
 
 void drawRectOutline(NVGcontext*, const Theme*, float size, float x, float y, float w, float h);
 void drawRectOutline(NVGcontext*, const Theme*, float size, const Vec4& v);

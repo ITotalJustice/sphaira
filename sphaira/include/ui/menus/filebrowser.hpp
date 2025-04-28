@@ -89,6 +89,19 @@ struct FileAssocEntry {
     std::string name{}; // ini name
     std::vector<std::string> ext{}; // list of ext
     std::vector<std::string> database{}; // list of systems
+    bool use_base_name{}; // if set, uses base name (rom.zip) otherwise uses internal name (rom.gba)
+
+    auto IsExtension(std::string_view extension, std::string_view internal_extension) const -> bool {
+        for (const auto& assoc_ext : ext) {
+            if (extension.length() == assoc_ext.length() && !strncasecmp(assoc_ext.data(), extension.data(), assoc_ext.length())) {
+                return true;
+            }
+            if (internal_extension.length() == assoc_ext.length() && !strncasecmp(assoc_ext.data(), internal_extension.data(), assoc_ext.length())) {
+                return true;
+            }
+        }
+        return false;
+    }
 };
 
 struct LastFile {

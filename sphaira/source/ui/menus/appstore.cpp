@@ -236,18 +236,15 @@ void DrawIcon(NVGcontext* vg, const LazyImage& l, const LazyImage& d, float x, f
     bool crop = false;
     if (iw < w || ih < h) {
         rounded_image = false;
-        gfx::drawRect(vg, x, y, w, h, nvgRGB(i.first_pixel[0], i.first_pixel[1], i.first_pixel[2]), rounded);
+        gfx::drawRect(vg, x, y, w, h, nvgRGB(i.first_pixel[0], i.first_pixel[1], i.first_pixel[2]), rounded ? 15 : 0);
     }
     if (iw > w || ih > h) {
         crop = true;
         nvgSave(vg);
         nvgIntersectScissor(vg, x, y, w, h);
     }
-    if (rounded_image) {
-        gfx::drawImageRounded(vg, ix, iy, iw, ih, i.image);
-    } else {
-        gfx::drawImage(vg, ix, iy, iw, ih, i.image);
-    }
+
+    gfx::drawImage(vg, ix, iy, iw, ih, i.image, rounded_image ? 15 : 0);
     if (crop) {
         nvgRestore(vg);
     }
@@ -769,7 +766,7 @@ void EntryMenu::UpdateOptions() {
     };
 
     const auto install = [this](){
-        App::Push(std::make_shared<ProgressBox>("Installing "_i18n + m_entry.title, [this](auto pbox){
+        App::Push(std::make_shared<ProgressBox>(m_entry.image.image, "Downloading "_i18n, m_entry.title, [this](auto pbox){
             return InstallApp(pbox, m_entry);
         }, [this](bool success){
             if (success) {
@@ -782,7 +779,7 @@ void EntryMenu::UpdateOptions() {
     };
 
     const auto uninstall = [this](){
-        App::Push(std::make_shared<ProgressBox>("Uninstalling "_i18n + m_entry.title, [this](auto pbox){
+        App::Push(std::make_shared<ProgressBox>(m_entry.image.image, "Uninstalling "_i18n, m_entry.title, [this](auto pbox){
             return UninstallApp(pbox, m_entry);
         }, [this](bool success){
             if (success) {
@@ -854,48 +851,6 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"_i18n}
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/screens");
 
     this->SetActions(
-        std::make_pair(Button::RIGHT, Action{[this](){
-            if (m_entries_current.empty()) {
-                return;
-            }
-
-            if (m_index < (m_entries_current.size() - 1) && (m_index + 1) % 3 != 0) {
-                SetIndex(m_index + 1);
-                App::PlaySoundEffect(SoundEffect_Scroll);
-                log_write("moved right\n");
-            }
-        }}),
-        std::make_pair(Button::LEFT, Action{[this](){
-            if (m_entries_current.empty()) {
-                return;
-            }
-
-            if (m_index != 0 && (m_index % 3) != 0) {
-                SetIndex(m_index - 1);
-                App::PlaySoundEffect(SoundEffect_Scroll);
-                log_write("moved left\n");
-            }
-        }}),
-        std::make_pair(Button::DOWN, Action{[this](){
-            if (m_list->ScrollDown(m_index, 3, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            if (m_list->ScrollUp(m_index, 3, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::R2, Action{[this](){
-            if (m_list->ScrollDown(m_index, 9, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::L2, Action{[this](){
-            if (m_list->ScrollUp(m_index, 9, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
         std::make_pair(Button::A, Action{"Info"_i18n, [this](){
             if (m_entries_current.empty()) {
                 // log_write("pushing A when empty: size: %zu count: %zu\n", repo_json.size(), m_entries_current.size());
@@ -983,8 +938,8 @@ Menu::~Menu() {
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     MenuBase::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_entries_current.size(), [this](auto i) {
-        if (m_index == i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
+        if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
             App::PlaySoundEffect(SoundEffect_Focus);
@@ -1096,16 +1051,16 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         float i_size = 22;
         switch (e.status) {
             case EntryStatus::Get:
-                gfx::drawImageRounded(vg, x + w - 30.f, y + 110, i_size, i_size, m_get.image);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_get.image, 15);
                 break;
             case EntryStatus::Installed:
-                gfx::drawImageRounded(vg, x + w - 30.f, y + 110, i_size, i_size, m_installed.image);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_installed.image, 15);
                 break;
             case EntryStatus::Local:
-                gfx::drawImageRounded(vg, x + w - 30.f, y + 110, i_size, i_size, m_local.image);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_local.image, 15);
                 break;
             case EntryStatus::Update:
-                gfx::drawImageRounded(vg, x + w - 30.f, y + 110, i_size, i_size, m_update.image);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_update.image, 15);
                 break;
         }
     });

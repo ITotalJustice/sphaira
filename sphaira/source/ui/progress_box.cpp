@@ -5,6 +5,7 @@
 #include "defines.hpp"
 #include "log.hpp"
 #include "i18n.hpp"
+#include <cstring>
 
 namespace sphaira::ui {
 namespace {
@@ -17,7 +18,7 @@ void threadFunc(void* arg) {
 
 } // namespace
 
-ProgressBox::ProgressBox(const std::string& title, ProgressBoxCallback callback, ProgressBoxDoneCallback done, int cpuid, int prio, int stack_size) {
+ProgressBox::ProgressBox(int image, const std::string& action, const std::string& title, ProgressBoxCallback callback, ProgressBoxDoneCallback done, int cpuid, int prio, int stack_size) {
     SetAction(Button::B, Action{"Back"_i18n, [this](){
         App::Push(std::make_shared<OptionBox>("Are you sure you wish to cancel?"_i18n, "No"_i18n, "Yes"_i18n, 1, [this](auto op_index){
             if (op_index && *op_index) {
@@ -28,17 +29,14 @@ ProgressBox::ProgressBox(const std::string& title, ProgressBoxCallback callback,
     }});
 
     m_pos.w = 770.f;
-    m_pos.h = 430.f;
-    m_pos.x = 255;
-    m_pos.y = 145;
-
-    m_pos.w = 770.f;
     m_pos.h = 295.f;
     m_pos.x = (SCREEN_WIDTH / 2.f) - (m_pos.w / 2.f);
     m_pos.y = (SCREEN_HEIGHT / 2.f) - (m_pos.h / 2.f);
 
     m_done = done;
     m_title = title;
+    m_action = action;
+    m_image = image;
 
     m_thread_data.pbox = this;
     m_thread_data.callback = callback;
@@ -60,6 +58,7 @@ ProgressBox::~ProgressBox() {
         log_write("failed to close thread\n");
     }
 
+    FreeImage();
     m_done(m_thread_data.result);
 }
 
@@ -73,11 +72,27 @@ auto ProgressBox::Update(Controller* controller, TouchInfo* touch) -> void {
 
 auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     mutexLock(&m_mutex);
+    std::vector<u8> image_data{};
+    std::swap(m_image_data, image_data);
+    if (m_timestamp.GetSeconds()) {
+        m_timestamp.Update();
+        m_speed = m_offset - m_last_offset;
+        m_last_offset = m_offset;
+    }
+
     const auto title = m_title;
     const auto transfer = m_transfer;
     const auto size = m_size;
     const auto offset = m_offset;
+    const auto speed = m_speed;
+    const auto last_offset = m_last_offset;
     mutexUnlock(&m_mutex);
+
+    if (!image_data.empty()) {
+        FreeImage();
+        m_image = nvgCreateImageMem(vg, 0, image_data.data(), image_data.size());
+        m_own_image = true;
+    }
 
     gfx::dimBackground(vg);
     gfx::drawRect(vg, m_pos, theme->GetColour(ThemeEntryID_POPUP));
@@ -86,20 +101,62 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     // const Vec4 box = { 255, 145, 770, 430 };
     const auto center_x = m_pos.x + m_pos.w/2;
     const auto end_y = m_pos.y + m_pos.h;
-    const Vec4 prog_bar = { 400, end_y - 80, 480, 12 };
+    const auto progress_bar_w = m_pos.w - 230;
+    const Vec4 prog_bar = { center_x - progress_bar_w / 2, end_y - 100, progress_bar_w, 12 };
+
+    nvgSave(vg);
+    nvgIntersectScissor(vg, GetX(), GetY(), GetW(), GetH());
+
+    if (m_image) {
+        gfx::drawImage(vg, GetX() + 30, GetY() + 30, 128, 128, m_image, 10);
+    }
 
     // shapes.
     if (offset && size) {
-        gfx::drawRect(vg, prog_bar, theme->GetColour(ThemeEntryID_PROGRESSBAR_BACKGROUND));
+        const auto font_size = 18.F;
+        const auto pad = 15.F;
+        const float rounding = 5;
+
+        gfx::drawRect(vg, prog_bar, theme->GetColour(ThemeEntryID_PROGRESSBAR_BACKGROUND), rounding);
         const u32 percentage = ((double)offset / (double)size) * 100.0;
-        gfx::drawRect(vg, prog_bar.x, prog_bar.y, ((float)offset / (float)size) * prog_bar.w, prog_bar.h, theme->GetColour(ThemeEntryID_PROGRESSBAR));
-        gfx::drawTextArgs(vg, prog_bar.x + prog_bar.w + 10, prog_bar.y, 20, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%u%%", percentage);
+        gfx::drawRect(vg, prog_bar.x, prog_bar.y, ((float)offset / (float)size) * prog_bar.w, prog_bar.h, theme->GetColour(ThemeEntryID_PROGRESSBAR), rounding);
+        gfx::drawTextArgs(vg, prog_bar.x + prog_bar.w + pad, prog_bar.y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%u%%", percentage);
+
+        const double speed_mb = (double)speed / (1024.0 * 1024.0);
+        const double speed_kb = (double)speed / (1024.0);
+
+        char speed_str[32];
+        if (speed_mb >= 0.01) {
+            std::snprintf(speed_str, sizeof(speed_str), "%.2f MiB/s", speed_mb);
+        } else {
+            std::snprintf(speed_str, sizeof(speed_str), "%.2f KiB/s", speed_kb);
+        }
+
+        const auto left = size - last_offset;
+        const auto left_seconds = left / speed;
+        const auto hours = left_seconds / (60 * 60);
+        const auto minutes = left_seconds % (60 * 60) / 60;
+        const auto seconds = left_seconds % 60;
+
+        char time_str[64];
+        if (hours) {
+            std::snprintf(time_str, sizeof(time_str), "%zu hours %zu minutes remaining", hours, minutes);
+        } else if (minutes) {
+            std::snprintf(time_str, sizeof(time_str), "%zu minutes %zu seconds remaining", minutes, seconds);
+        } else {
+            std::snprintf(time_str, sizeof(time_str), "%zu seconds remaining", seconds);
+        }
+
+        gfx::drawTextArgs(vg, center_x, prog_bar.y + prog_bar.h + 30, 18, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%s (%s)", time_str, speed_str);
     }
 
-    gfx::drawTextArgs(vg, center_x, m_pos.y + 60, 25, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), title.c_str());
+    gfx::drawTextArgs(vg, center_x, m_pos.y + 40, 24, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), m_action.c_str());
+    gfx::drawTextArgs(vg, center_x, m_pos.y + 100, 22, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), title.c_str());
     if (!transfer.empty()) {
-        gfx::drawTextArgs(vg, center_x, prog_bar.y - 15 - 20 * 1.5F, 20, NVG_ALIGN_CENTER, theme->GetColour(ThemeEntryID_TEXT), "%s", transfer.c_str());
+        gfx::drawTextArgs(vg, center_x, m_pos.y + 150, 18, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_INFO), "%s", transfer.c_str());
     }
+
+    nvgRestore(vg);
 }
 
 auto ProgressBox::SetTitle(const std::string& title)  -> ProgressBox& {
@@ -115,6 +172,8 @@ auto ProgressBox::NewTransfer(const std::string& transfer)  -> ProgressBox& {
     m_transfer = transfer;
     m_size = 0;
     m_offset = 0;
+    m_last_offset = 0;
+    m_timestamp.Update();
     mutexUnlock(&m_mutex);
     Yield();
     return *this;
@@ -126,6 +185,21 @@ auto ProgressBox::UpdateTransfer(s64 offset, s64 size)  -> ProgressBox& {
     m_offset = offset;
     mutexUnlock(&m_mutex);
     Yield();
+    return *this;
+}
+
+auto ProgressBox::SetImageData(std::vector<u8>& data) -> ProgressBox& {
+    mutexLock(&m_mutex);
+    std::swap(m_image_data, data);
+    mutexUnlock(&m_mutex);
+    return *this;
+}
+
+auto ProgressBox::SetImageDataConst(std::span<const u8> data) -> ProgressBox& {
+    mutexLock(&m_mutex);
+    m_image_data.resize(data.size());
+    std::memcpy(m_image_data.data(), data.data(), m_image_data.size());
+    mutexUnlock(&m_mutex);
     return *this;
 }
 
@@ -182,6 +256,15 @@ auto ProgressBox::CopyFile(const fs::FsPath& src_path, const fs::FsPath& dst_pat
 
 void ProgressBox::Yield() {
     svcSleepThread(YieldType_WithoutCoreMigration);
+}
+
+void ProgressBox::FreeImage() {
+    if (m_image && m_own_image) {
+        nvgDeleteImage(App::GetVg(), m_image);
+    }
+
+    m_image = 0;
+    m_own_image = false;
 }
 
 } // namespace sphaira::ui

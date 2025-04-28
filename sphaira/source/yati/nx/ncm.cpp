@@ -7,14 +7,22 @@ namespace {
 
 } // namespace
 
-auto GetAppId(const NcmContentMetaKey& key) -> u64 {
-    if (key.type == NcmContentMetaType_Patch) {
-        return key.id ^ 0x800;
-    } else if (key.type == NcmContentMetaType_AddOnContent) {
-        return (key.id ^ 0x1000) & ~0xFFF;
+auto GetAppId(u8 meta_type, u64 id) -> u64 {
+    if (meta_type == NcmContentMetaType_Patch) {
+        return id ^ 0x800;
+    } else if (meta_type == NcmContentMetaType_AddOnContent) {
+        return (id ^ 0x1000) & ~0xFFF;
     } else {
-        return key.id;
+        return id;
     }
+}
+
+auto GetAppId(const NcmContentMetaKey& key) -> u64 {
+    return GetAppId(key.type, key.id);
+}
+
+auto GetAppId(const PackagedContentMeta& meta) -> u64 {
+    return GetAppId(meta.meta_type, meta.title_id);
 }
 
 Result Delete(NcmContentStorage* cs, const NcmContentId *content_id) {

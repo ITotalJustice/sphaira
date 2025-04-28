@@ -186,7 +186,7 @@ auto GetRomDatabaseFromPath(std::string_view path) -> RomDatabaseIndexs {
 }
 
 //
-auto GetRomIcon(fs::FsNative* fs, ProgressBox* pbox, std::string filename, std::string extension, const RomDatabaseIndexs& db_indexs, const NroEntry& nro) {
+auto GetRomIcon(fs::FsNative* fs, ProgressBox* pbox, std::string filename, const RomDatabaseIndexs& db_indexs, const NroEntry& nro) {
     // if no db entries, use nro icon
     if (db_indexs.empty()) {
         log_write("using nro image\n");
@@ -277,26 +277,6 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 m_selected_count++;
             } else {
                 m_selected_count--;
-            }
-        }}),
-        std::make_pair(Button::DOWN, Action{[this](){
-            if (m_list->ScrollDown(m_index, 1, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            if (m_list->ScrollUp(m_index, 1, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::DPAD_RIGHT, Action{[this](){
-            if (m_list->ScrollDown(m_index, 8, m_entries_current.size())) {
-                SetIndex(m_index);
-            }
-        }}),
-        std::make_pair(Button::DPAD_LEFT, Action{[this](){
-            if (m_list->ScrollUp(m_index, 8, m_entries_current.size())) {
-                SetIndex(m_index);
             }
         }}),
         std::make_pair(Button::A, Action{"Open"_i18n, [this](){
@@ -626,8 +606,8 @@ Menu::~Menu() {
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     MenuBase::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_entries_current.size(), [this](auto i) {
-        if (m_index == i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
+        if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
             App::PlaySoundEffect(SoundEffect_Focus);
@@ -802,7 +782,7 @@ void Menu::InstallForwarder() {
             if (op_index) {
                 const auto assoc = assoc_list[*op_index];
                 log_write("pushing it\n");
-                App::Push(std::make_shared<ProgressBox>("Installing Forwarder"_i18n, [assoc, this](auto pbox) -> bool {
+                App::Push(std::make_shared<ProgressBox>(0, "Installing Forwarder"_i18n, GetEntry().name, [assoc, this](auto pbox) -> bool {
                     log_write("inside callback\n");
 
                     NroEntry nro{};
@@ -812,8 +792,7 @@ void Menu::InstallForwarder() {
                         return false;
                     }
                     log_write("got nro data\n");
-                    std::string file_name = GetEntry().GetInternalName();
-                    std::string extension = GetEntry().GetInternalExtension();
+                    auto file_name = assoc.use_base_name ? GetEntry().GetName() : GetEntry().GetInternalName();
 
                     if (auto pos = file_name.find_last_of('.'); pos != std::string::npos) {
                         log_write("got filename\n");
@@ -829,7 +808,8 @@ void Menu::InstallForwarder() {
                     config.name = nro.nacp.lang[0].name + std::string{" | "} + file_name;
                     // config.name = file_name;
                     config.nacp = nro.nacp;
-                    config.icon = GetRomIcon(m_fs.get(), pbox, file_name, extension, db_indexs, nro);
+                    config.icon = GetRomIcon(m_fs.get(), pbox, file_name, db_indexs, nro);
+                    pbox->SetImageDataConst(config.icon);
 
                     return R_SUCCEEDED(App::Install(pbox, config));
                 }));
@@ -850,7 +830,7 @@ void Menu::InstallFiles(const std::vector<FileEntry>& targets) {
         if (op_index && *op_index) {
             App::PopToMenu();
 
-            App::Push(std::make_shared<ui::ProgressBox>("Installing App"_i18n, [this, targets](auto pbox) mutable -> bool {
+            App::Push(std::make_shared<ui::ProgressBox>(0, "Installing "_i18n, "", [this, targets](auto pbox) mutable -> bool {
                 for (auto& e : targets) {
                     const auto rc = yati::InstallFromFile(pbox, &m_fs->m_fs, GetNewPath(e));
                     if (rc == yati::Result_Cancelled) {
@@ -942,14 +922,12 @@ auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
     // only support roms in correctly named folders, sorry!
     const auto db_indexs = GetRomDatabaseFromPath(m_path);
     const auto& entry = GetEntry();
-    const auto extension = entry.internal_extension.empty() ? entry.extension : entry.internal_extension;
-    if (extension.empty()) {
+    const auto extension = entry.extension;
+    const auto internal_extension = entry.internal_extension.empty() ? entry.extension : entry.internal_extension;
+    if (extension.empty() && internal_extension.empty()) {
         // log_write("failed to get extension for db: %s path: %s\n", database_entry.c_str(), m_path);
         return {};
     }
-
-    // log_write("got extension for db: %s path: %s\n", database_entry.c_str(), m_path);
-
 
     std::vector<FileAssocEntry> out_entries;
     if (!db_indexs.empty()) {
@@ -960,15 +938,14 @@ auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
                 // if (assoc_db == PATHS[db_idx].folder || assoc_db == PATHS[db_idx].database) {
                 for (auto db_idx : db_indexs) {
                     if (PATHS[db_idx].IsDatabase(assoc_db)) {
-                        for (const auto& assoc_ext : assoc.ext) {
-                            if (assoc_ext == extension) {
-                                log_write("found ext: %s assoc_ext: %s assoc.ext: %s\n", assoc.path.s, assoc_ext.c_str(), extension.c_str());
-                                out_entries.emplace_back(assoc);
-                            }
+                        if (assoc.IsExtension(extension, internal_extension)) {
+                            out_entries.emplace_back(assoc);
+                            goto jump;
                         }
                     }
                 }
             }
+            jump:
         }
     } else {
         // otherwise, if not in a valid folder, find an entry that doesn't
@@ -979,11 +956,9 @@ auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
         // to be in the correct folder, ie psx, to know what system that .iso is for.
         for (const auto& assoc : m_assoc_entries) {
             if (assoc.database.empty()) {
-                for (const auto& assoc_ext : assoc.ext) {
-                    if (assoc_ext == extension) {
-                        log_write("found ext: %s\n", assoc.path.s);
-                        out_entries.emplace_back(assoc);
-                    }
+                if (assoc.IsExtension(extension, internal_extension)) {
+                    log_write("found ext: %s\n", assoc.path.s);
+                    out_entries.emplace_back(assoc);
                 }
             }
         }
@@ -1039,6 +1014,10 @@ void Menu::LoadAssocEntriesPath(const fs::FsPath& path) {
                             break;
                         }
                     }
+                }
+            } else if (!strcmp(Key, "use_base_name")) {
+                if (!strcmp(Value, "true") || !strcmp(Value, "1")) {
+                    assoc->use_base_name = true;
                 }
             }
             return 1;
@@ -1228,7 +1207,7 @@ void Menu::OnDeleteCallback() {
         Scan(m_path);
         log_write("did delete\n");
     } else {
-        App::Push(std::make_shared<ProgressBox>("Deleting"_i18n, [this](auto pbox){
+        App::Push(std::make_shared<ProgressBox>(0, "Deleting"_i18n, "", [this](auto pbox){
             FsDirCollections collections;
 
             // build list of dirs / files
@@ -1321,7 +1300,7 @@ void Menu::OnPasteCallback() {
         Scan(m_path);
         log_write("did paste\n");
     } else {
-        App::Push(std::make_shared<ProgressBox>("Pasting"_i18n, [this](auto pbox){
+        App::Push(std::make_shared<ProgressBox>(0, "Pasting"_i18n, "", [this](auto pbox){
 
             if (m_selected_type == SelectedType::Cut) {
                 for (const auto& p : m_selected_files) {

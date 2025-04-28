@@ -18,16 +18,17 @@ MenuBase::~MenuBase() {
 
 void MenuBase::Update(Controller* controller, TouchInfo* touch) {
     Widget::Update(controller, touch);
-
-    // update every second.
-    if (m_poll_timestamp.GetSeconds() >= 1) {
-        UpdateVars();
-    }
 }
 
 void MenuBase::Draw(NVGcontext* vg, Theme* theme) {
     DrawElement(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, ThemeEntryID_BACKGROUND);
     Widget::Draw(vg, theme);
+
+    // update every second, do this in Draw because Update() isn't called if it
+    // doesn't have focus.
+    if (m_poll_timestamp.GetSeconds() >= 1) {
+        UpdateVars();
+    }
 
     const float start_y = 70;
     const float font_size = 22;

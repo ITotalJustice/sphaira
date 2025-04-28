@@ -259,9 +259,11 @@ auto Sidebar::Update(Controller* controller, TouchInfo* touch) -> void {
     if (touch->is_clicked && !touch->in_range(GetPos())) {
         App::PopToMenu();
     } else {
-        m_list->OnUpdate(controller, touch, m_items.size(), [this](auto i) {
+        m_list->OnUpdate(controller, touch, m_index, m_items.size(), [this](bool touch, auto i) {
             SetIndex(i);
-            FireAction(Button::A);
+            if (touch) {
+                FireAction(Button::A);
+            }
         });
     }
 
@@ -334,18 +336,6 @@ void Sidebar::SetupButtons() {
 
     // add default actions, overriding if needed.
     this->SetActions(
-        std::make_pair(Button::DOWN, Action{[this](){
-            auto index = m_index;
-            if (m_list->ScrollDown(index, 1, m_items.size())) {
-                SetIndex(index);
-            }
-        }}),
-        std::make_pair(Button::UP, Action{[this](){
-            auto index = m_index;
-            if (m_list->ScrollUp(index, 1, m_items.size())) {
-                SetIndex(index);
-            }
-        }}),
         // each item has it's own Action, but we take over B
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
             SetPop();

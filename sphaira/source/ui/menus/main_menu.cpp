@@ -1,9 +1,4 @@
 #include "ui/menus/main_menu.hpp"
-#include "ui/menus/irs_menu.hpp"
-#include "ui/menus/themezer.hpp"
-#include "ui/menus/ghdl.hpp"
-#include "ui/menus/usb_menu.hpp"
-#include "ui/menus/gc_menu.hpp"
 
 #include "ui/sidebar.hpp"
 #include "ui/popup_list.hpp"
@@ -15,7 +10,6 @@
 #include "log.hpp"
 #include "download.hpp"
 #include "defines.hpp"
-#include "web.hpp"
 #include "i18n.hpp"
 
 #include <cstring>
@@ -234,48 +228,29 @@ MainMenu::MainMenu() {
             language_items.push_back("Swedish"_i18n);
             language_items.push_back("Vietnamese"_i18n);
 
-            options->Add(std::make_shared<SidebarEntryCallback>("Theme"_i18n, [this](){
-                SidebarEntryArray::Items theme_items{};
-                const auto theme_meta = App::GetThemeMetaList();
-                for (auto& p : theme_meta) {
-                    theme_items.emplace_back(p.name);
-                }
-
-                auto options = std::make_shared<Sidebar>("Theme Options"_i18n, Sidebar::Side::LEFT);
-                ON_SCOPE_EXIT(App::Push(options));
-
-                options->Add(std::make_shared<SidebarEntryArray>("Select Theme"_i18n, theme_items, [this, theme_items](s64& index_out){
-                    App::SetTheme(index_out);
-                }, App::GetThemeIndex()));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Music"_i18n, App::GetThemeMusicEnable(), [this](bool& enable){
-                    App::SetThemeMusicEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
-
-                options->Add(std::make_shared<SidebarEntryBool>("12 Hour Time"_i18n, App::Get12HourTimeEnable(), [this](bool& enable){
-                    App::Set12HourTimeEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
+            options->Add(std::make_shared<SidebarEntryCallback>("Theme"_i18n, [](){
+                App::DisplayThemeOptions();
             }));
 
             options->Add(std::make_shared<SidebarEntryCallback>("Network"_i18n, [this](){
                 auto options = std::make_shared<Sidebar>("Network Options"_i18n, Sidebar::Side::LEFT);
                 ON_SCOPE_EXIT(App::Push(options));
 
-                options->Add(std::make_shared<SidebarEntryBool>("Ftp"_i18n, App::GetFtpEnable(), [this](bool& enable){
+                options->Add(std::make_shared<SidebarEntryBool>("Ftp"_i18n, App::GetFtpEnable(), [](bool& enable){
                     App::SetFtpEnable(enable);
                 }, "Enabled"_i18n, "Disabled"_i18n));
 
-                options->Add(std::make_shared<SidebarEntryBool>("Mtp"_i18n, App::GetMtpEnable(), [this](bool& enable){
+                options->Add(std::make_shared<SidebarEntryBool>("Mtp"_i18n, App::GetMtpEnable(), [](bool& enable){
                     App::SetMtpEnable(enable);
                 }, "Enabled"_i18n, "Disabled"_i18n));
 
-                options->Add(std::make_shared<SidebarEntryBool>("Nxlink"_i18n, App::GetNxlinkEnable(), [this](bool& enable){
+                options->Add(std::make_shared<SidebarEntryBool>("Nxlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
                     App::SetNxlinkEnable(enable);
                 }, "Enabled"_i18n, "Disabled"_i18n));
 
                 if (m_update_state == UpdateState::Update) {
                     options->Add(std::make_shared<SidebarEntryCallback>("Download update: "_i18n + m_update_version, [this](){
-                        App::Push(std::make_shared<ProgressBox>("Downloading "_i18n + m_update_version, [this](auto pbox){
+                        App::Push(std::make_shared<ProgressBox>(0, "Downloading "_i18n, "Sphaira v" + m_update_version, [this](auto pbox){
                             return InstallUpdate(pbox, m_update_url, m_update_version);
                         }, [this](bool success){
                             if (success) {
@@ -294,148 +269,16 @@ MainMenu::MainMenu() {
                 }
             }));
 
-            options->Add(std::make_shared<SidebarEntryArray>("Language"_i18n, language_items, [this](s64& index_out){
+            options->Add(std::make_shared<SidebarEntryArray>("Language"_i18n, language_items, [](s64& index_out){
                 App::SetLanguage(index_out);
             }, (s64)App::GetLanguage()));
 
-            options->Add(std::make_shared<SidebarEntryCallback>("Misc"_i18n, [this](){
-                auto options = std::make_shared<Sidebar>("Misc Options"_i18n, Sidebar::Side::LEFT);
-                ON_SCOPE_EXIT(App::Push(options));
-
-                options->Add(std::make_shared<SidebarEntryCallback>("Themezer"_i18n, [](){
-                    App::Push(std::make_shared<menu::themezer::Menu>());
-                }));
-
-                options->Add(std::make_shared<SidebarEntryCallback>("GitHub"_i18n, [](){
-                    App::Push(std::make_shared<menu::gh::Menu>());
-                }));
-
-                options->Add(std::make_shared<SidebarEntryCallback>("Irs"_i18n, [](){
-                    App::Push(std::make_shared<menu::irs::Menu>());
-                }));
-
-                if (App::IsApplication()) {
-                    options->Add(std::make_shared<SidebarEntryCallback>("Web"_i18n, [](){
-                        WebShow("https://lite.duckduckgo.com/lite");
-                    }));
-                }
-
-                if (App::GetApp()->m_install.Get()) {
-                    options->Add(std::make_shared<SidebarEntryCallback>("Usb Install"_i18n, [](){
-                        App::Push(std::make_shared<menu::usb::Menu>());
-                    }));
-
-                    options->Add(std::make_shared<SidebarEntryCallback>("GameCard Install"_i18n, [](){
-                        App::Push(std::make_shared<menu::gc::Menu>());
-                    }));
-                }
+            options->Add(std::make_shared<SidebarEntryCallback>("Misc"_i18n, [](){
+                App::DisplayMiscOptions();
             }));
 
-            options->Add(std::make_shared<SidebarEntryCallback>("Advanced"_i18n, [this](){
-                auto options = std::make_shared<Sidebar>("Advanced Options"_i18n, Sidebar::Side::LEFT);
-                ON_SCOPE_EXIT(App::Push(options));
-
-                SidebarEntryArray::Items text_scroll_speed_items;
-                text_scroll_speed_items.push_back("Slow"_i18n);
-                text_scroll_speed_items.push_back("Normal"_i18n);
-                text_scroll_speed_items.push_back("Fast"_i18n);
-
-                options->Add(std::make_shared<SidebarEntryBool>("Logging"_i18n, App::GetLogEnable(), [this](bool& enable){
-                    App::SetLogEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Replace hbmenu on exit"_i18n, App::GetReplaceHbmenuEnable(), [this](bool& enable){
-                    App::SetReplaceHbmenuEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
-
-                options->Add(std::make_shared<SidebarEntryArray>("Text scroll speed"_i18n, text_scroll_speed_items, [this](s64& index_out){
-                    App::SetTextScrollSpeed(index_out);
-                }, (s64)App::GetTextScrollSpeed()));
-
-                options->Add(std::make_shared<SidebarEntryCallback>("Install options"_i18n, [this](){
-                    auto options = std::make_shared<Sidebar>("Install Options"_i18n, Sidebar::Side::LEFT);
-                    ON_SCOPE_EXIT(App::Push(options));
-
-                    SidebarEntryArray::Items install_items;
-                    install_items.push_back("System memory"_i18n);
-                    install_items.push_back("microSD card"_i18n);
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Enable"_i18n, App::GetInstallEnable(), [this](bool& enable){
-                        App::SetInstallEnable(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Show install warning"_i18n, App::GetInstallPrompt(), [this](bool& enable){
-                        App::SetInstallPrompt(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryArray>("Install location"_i18n, install_items, [this](s64& index_out){
-                        App::SetInstallSdEnable(index_out);
-                    }, (s64)App::GetInstallSdEnable()));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Allow downgrade"_i18n, App::GetApp()->m_allow_downgrade.Get(), [this](bool& enable){
-                        App::GetApp()->m_allow_downgrade.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip if already installed"_i18n, App::GetApp()->m_skip_if_already_installed.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_if_already_installed.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Ticket only"_i18n, App::GetApp()->m_ticket_only.Get(), [this](bool& enable){
-                        App::GetApp()->m_ticket_only.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Patch ticket"_i18n, App::GetApp()->m_patch_ticket.Get(), [this](bool& enable){
-                        App::GetApp()->m_patch_ticket.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip base"_i18n, App::GetApp()->m_skip_base.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_base.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip Patch"_i18n, App::GetApp()->m_skip_patch.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_patch.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip addon"_i18n, App::GetApp()->m_skip_addon.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_addon.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip data patch"_i18n, App::GetApp()->m_skip_data_patch.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_data_patch.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip ticket"_i18n, App::GetApp()->m_skip_ticket.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_ticket.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("skip NCA hash verify"_i18n, App::GetApp()->m_skip_nca_hash_verify.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_nca_hash_verify.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip RSA header verify"_i18n, App::GetApp()->m_skip_rsa_header_fixed_key_verify.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_rsa_header_fixed_key_verify.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Skip RSA NPDM verify"_i18n, App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Get(), [this](bool& enable){
-                        App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Ignore distribution bit"_i18n, App::GetApp()->m_ignore_distribution_bit.Get(), [this](bool& enable){
-                        App::GetApp()->m_ignore_distribution_bit.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Convert to standard crypto"_i18n, App::GetApp()->m_convert_to_standard_crypto.Get(), [this](bool& enable){
-                        App::GetApp()->m_convert_to_standard_crypto.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Lower master key"_i18n, App::GetApp()->m_lower_master_key.Get(), [this](bool& enable){
-                        App::GetApp()->m_lower_master_key.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-
-                    options->Add(std::make_shared<SidebarEntryBool>("Lower system version"_i18n, App::GetApp()->m_lower_system_version.Get(), [this](bool& enable){
-                        App::GetApp()->m_lower_system_version.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
-                }));
+            options->Add(std::make_shared<SidebarEntryCallback>("Advanced"_i18n, [](){
+                App::DisplayAdvancedOptions();
             }));
         }})
     );

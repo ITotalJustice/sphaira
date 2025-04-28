@@ -43,6 +43,10 @@ Menu::Menu() : MenuBase{"USB"_i18n} {
         SetPop();
     }});
 
+    SetAction(Button::X, Action{"Options"_i18n, [this](){
+        App::DisplayInstallOptions(false);
+    }});
+
     // if mtp is enabled, disable it for now.
     m_was_mtp_enabled = App::GetMtpEnable();
     if (m_was_mtp_enabled) {
@@ -99,7 +103,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
             log_write("set to progress\n");
             m_state = State::Progress;
             log_write("got connection\n");
-            App::Push(std::make_shared<ui::ProgressBox>("Installing App"_i18n, [this](auto pbox) mutable -> bool {
+            App::Push(std::make_shared<ui::ProgressBox>(0, "Installing "_i18n, "", [this](auto pbox) mutable -> bool {
                 log_write("inside progress box\n");
                 for (u32 i = 0; i < m_usb_count; i++) {
                     std::string file_name;

@@ -19,7 +19,7 @@ static_assert(sizeof(PackagedContentMeta) == 0x20);
 
 struct ContentStorageRecord {
     NcmContentMetaKey key;
-    u8 storage_id;
+    u8 storage_id; // NcmStorageId
     u8 padding[0x7];
 };
 
@@ -31,7 +31,9 @@ union ExtendedHeader {
     NcmDataPatchMetaExtendedHeader data_patch;
 };
 
+auto GetAppId(u8 meta_type, u64 id) -> u64;
 auto GetAppId(const NcmContentMetaKey& key) -> u64;
+auto GetAppId(const PackagedContentMeta& meta) -> u64;
 
 Result Delete(NcmContentStorage* cs, const NcmContentId *content_id);
 Result Register(NcmContentStorage* cs, const NcmContentId *content_id, const NcmPlaceHolderId *placeholder_id);

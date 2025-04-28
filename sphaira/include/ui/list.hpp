@@ -6,11 +6,11 @@ namespace sphaira::ui {
 
 struct List final : Object {
     using Callback = std::function<void(NVGcontext* vg, Theme* theme, Vec4 v, s64 index)>;
-    using TouchCallback = std::function<void(s64 index)>;
+    using TouchCallback = std::function<void(bool touch, s64 index)>;
 
     List(s64 row, s64 page, const Vec4& pos, const Vec4& v, const Vec2& pad = {});
 
-    void OnUpdate(Controller* controller, TouchInfo* touch, s64 count, TouchCallback callback);
+    void OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback);
 
     void Draw(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const;
 

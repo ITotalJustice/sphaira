@@ -29,6 +29,7 @@ private:
     std::string m_title_sub_heading{};
     std::string m_sub_heading{};
 
+protected:
     struct tm m_tm{};
     TimeStamp m_poll_timestamp{};
     u32 m_battery_percetange{};
