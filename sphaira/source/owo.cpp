@@ -715,7 +715,7 @@ void write_nca_header_encypted(nca::Header& nca_header, u64 tid, const keys::Key
     nca_header.magic = NCA3_MAGIC;
     nca_header.distribution_type = nca::DistributionType_System;
     nca_header.content_type = type;
-    nca_header.title_id = tid;
+    nca_header.program_id = tid;
     nca_header.sdk_version = 0x000C1100;
     nca_header.size = buf.tell();
 

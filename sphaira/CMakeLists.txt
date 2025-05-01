@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(sphaira_VERSION 0.8.0)
+set(sphaira_VERSION 0.8.2)
 
 project(sphaira
     VERSION ${sphaira_VERSION}
@@ -49,6 +49,7 @@ add_executable(sphaira
     source/ui/menus/usb_menu.cpp
     source/ui/menus/ftp_menu.cpp
     source/ui/menus/gc_menu.cpp
+    source/ui/menus/game_menu.cpp
 
     source/ui/error_box.cpp
     source/ui/notification.cpp
@@ -61,6 +62,7 @@ add_executable(sphaira
     source/ui/widget.cpp
     source/ui/list.cpp
     source/ui/bubbles.cpp
+    source/ui/scrolling_text.cpp
 
     source/app.cpp
     source/download.cpp
@@ -74,7 +76,6 @@ add_executable(sphaira
     source/nxlink.cpp
     source/owo.cpp
     source/swkbd.cpp
-    source/web.cpp
     source/i18n.cpp
     source/ftpsrv_helper.cpp
 

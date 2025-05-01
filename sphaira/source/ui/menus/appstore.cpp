@@ -236,7 +236,7 @@ void DrawIcon(NVGcontext* vg, const LazyImage& l, const LazyImage& d, float x, f
     bool crop = false;
     if (iw < w || ih < h) {
         rounded_image = false;
-        gfx::drawRect(vg, x, y, w, h, nvgRGB(i.first_pixel[0], i.first_pixel[1], i.first_pixel[2]), rounded ? 15 : 0);
+        gfx::drawRect(vg, x, y, w, h, nvgRGB(i.first_pixel[0], i.first_pixel[1], i.first_pixel[2]), rounded ? 5 : 0);
     }
     if (iw > w || ih > h) {
         crop = true;
@@ -244,7 +244,7 @@ void DrawIcon(NVGcontext* vg, const LazyImage& l, const LazyImage& d, float x, f
         nvgIntersectScissor(vg, x, y, w, h);
     }
 
-    gfx::drawImage(vg, ix, iy, iw, ih, i.image, rounded_image ? 15 : 0);
+    gfx::drawImage(vg, ix, iy, iw, ih, i.image, rounded_image ? 5 : 0);
     if (crop) {
         nvgRestore(vg);
     }
@@ -590,6 +590,14 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> bool {
     return true;
 }
 
+// case-insensitive version of str.find()
+auto FindCaseInsensitive(std::string_view base, std::string_view term) -> bool {
+    const auto it = std::search(base.cbegin(), base.cend(), term.cbegin(), term.cend(), [](char a, char b){
+        return std::toupper(a) == std::toupper(b);
+    });
+    return it != base.cend();
+}
+
 } // namespace
 
 EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
@@ -838,12 +846,6 @@ void EntryMenu::SetIndex(s64 index) {
     }
 }
 
-auto toLower(const std::string& str) -> std::string {
-	std::string lower;
-	std::transform(str.cbegin(), str.cend(), std::back_inserter(lower), tolower);
-	return lower;
-}
-
 Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"_i18n}, m_nro_entries{nro_entries} {
     fs::FsNativeSd fs;
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/icons");
@@ -1025,7 +1027,8 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         auto text_id = ThemeEntryID_TEXT;
-        if (pos == m_index) {
+        const auto selected = pos == m_index;
+        if (selected) {
             text_id = ThemeEntryID_TEXT_SELECTED;
             gfx::drawRectOutline(vg, theme, 4.f, v);
         } else {
@@ -1038,13 +1041,16 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         DrawIcon(vg, e.image, m_default_image, x + 20, y + 20, 115, 115, true, image_scale);
         // gfx::drawImage(vg, x + 20, y + 20, image_size, image_size_h, image.image ? image.image : m_default_image);
 
+        const auto text_off = 148;
+        const auto text_x = x + text_off;
+        const auto text_clip_w = w - 30.f - text_off;
         nvgSave(vg);
-        nvgIntersectScissor(vg, v.x, v.y, w - 30.f, h); // clip
+        nvgIntersectScissor(vg, text_x, y, text_clip_w, h); // clip
         {
             const float font_size = 18;
-            gfx::drawTextArgs(vg, x + 148, y + 45, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.title.c_str());
-            gfx::drawTextArgs(vg, x + 148, y + 80, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.author.c_str());
-            gfx::drawTextArgs(vg, x + 148, y + 115, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.version.c_str());
+            m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.title.c_str());
+            m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.author.c_str());
+            m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.version.c_str());
         }
         nvgRestore(vg);
 
@@ -1293,12 +1299,11 @@ void Menu::SetSearch(const std::string& term) {
 
     m_search_term = term;
     m_entries_index_search.clear();
-    const auto query = toLower(m_search_term);
-    const auto npos = std::string::npos;
+    const auto query = m_search_term;
 
     for (u64 i = 0; i < m_entries.size(); i++) {
         const auto& e = m_entries[i];
-        if (toLower(e.title).find(query) != npos || toLower(e.author).find(query) != npos || toLower(e.details).find(query) != npos || toLower(e.description).find(query) != npos) {
+        if (FindCaseInsensitive(e.title, query) || FindCaseInsensitive(e.author, query) || FindCaseInsensitive(e.description, query)) {
             m_entries_index_search.emplace_back(i);
         }
     }
@@ -1327,10 +1332,11 @@ void Menu::SetAuthor() {
 
     m_author_term = m_entries[m_entries_current[m_index]].author;
     m_entries_index_author.clear();
+    const auto query = m_author_term;
 
     for (u64 i = 0; i < m_entries.size(); i++) {
         const auto& e = m_entries[i];
-        if (e.author.find(m_author_term) != std::string::npos) {
+        if (FindCaseInsensitive(e.author, query)) {
             m_entries_index_author.emplace_back(i);
         }
     }

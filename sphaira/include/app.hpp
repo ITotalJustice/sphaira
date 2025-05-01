@@ -189,6 +189,7 @@ public:
     option::OptionBool m_install{INI_SECTION, "install", false};
     option::OptionBool m_install_sd{INI_SECTION, "install_sd", true};
     option::OptionLong m_install_prompt{INI_SECTION, "install_prompt", true};
+    option::OptionLong m_boost_mode{INI_SECTION, "boost_mode", false};
     option::OptionBool m_allow_downgrade{INI_SECTION, "allow_downgrade", false};
     option::OptionBool m_skip_if_already_installed{INI_SECTION, "skip_if_already_installed", true};
     option::OptionBool m_ticket_only{INI_SECTION, "ticket_only", false};

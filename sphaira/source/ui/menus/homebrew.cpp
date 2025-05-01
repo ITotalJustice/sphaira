@@ -24,6 +24,11 @@ auto GenerateStarPath(const fs::FsPath& nro_path) -> fs::FsPath {
     return out;
 }
 
+void FreeEntry(NVGcontext* vg, NroEntry& e) {
+    nvgDeleteImage(vg, e.image);
+    e.image = 0;
+}
+
 } // namespace
 
 Menu::Menu() : MenuBase{"Homebrew"_i18n} {
@@ -80,11 +85,12 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                         "Back"_i18n, "Delete"_i18n, 1, [this](auto op_index){
                             if (op_index && *op_index) {
                                 if (R_SUCCEEDED(fs::FsNativeSd().DeleteFile(m_entries[m_index].path))) {
+                                    FreeEntry(App::GetVg(), m_entries[m_index]);
                                     m_entries.erase(m_entries.begin() + m_index);
                                     SetIndex(m_index ? m_index - 1 : 0);
                                 }
                             }
-                        }
+                        }, m_entries[m_index].image
                     ));
                 }, true));
 
@@ -97,7 +103,7 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                                     if (op_index && *op_index) {
                                         InstallHomebrew();
                                     }
-                                }
+                                }, m_entries[m_index].image
                             ));
                         } else {
                             InstallHomebrew();
@@ -114,11 +120,7 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
 }
 
 Menu::~Menu() {
-    auto vg = App::GetVg();
-
-    for (auto&p : m_entries) {
-        nvgDeleteImage(vg, p.image);
-    }
+    FreeEntries();
 }
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
@@ -160,7 +162,8 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         auto text_id = ThemeEntryID_TEXT;
-        if (pos == m_index) {
+        const auto selected = pos == m_index;
+        if (selected) {
             text_id = ThemeEntryID_TEXT_SELECTED;
             gfx::drawRectOutline(vg, theme, 4.f, v);
         } else {
@@ -168,10 +171,13 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         const float image_size = 115;
-        gfx::drawImage(vg, x + 20, y + 20, image_size, image_size, e.image ? e.image : App::GetDefaultImage(), 15);
+        gfx::drawImage(vg, x + 20, y + 20, image_size, image_size, e.image ? e.image : App::GetDefaultImage(), 5);
 
+        const auto text_off = 148;
+        const auto text_x = x + text_off;
+        const auto text_clip_w = w - 30.f - text_off;
         nvgSave(vg);
-        nvgIntersectScissor(vg, x, y, w - 30.f, h); // clip
+        nvgIntersectScissor(vg, text_x, y, text_clip_w, h); // clip
         {
             bool has_star = false;
             if (IsStarEnabled()) {
@@ -182,9 +188,9 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             }
 
             const float font_size = 18;
-            gfx::drawTextArgs(vg, x + 148, y + 45, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), "%s%s", has_star ? "\u2605 " : "", e.GetName());
-            gfx::drawTextArgs(vg, x + 148, y + 80, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
-            gfx::drawTextArgs(vg, x + 148, y + 115, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
+            m_scroll_name.DrawArgs(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), "%s%s", has_star ? "\u2605 " : "", e.GetName());
+            m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
+            m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
         }
         nvgRestore(vg);
     });
@@ -238,6 +244,7 @@ void Menu::InstallHomebrew() {
 
 void Menu::ScanHomebrew() {
     TimeStamp ts;
+    FreeEntries();
     nro_scan("/switch", m_entries, m_hide_sphaira.Get());
     log_write("nros found: %zu time_taken: %.2f\n", m_entries.size(), ts.GetSecondsD());
 
@@ -392,6 +399,16 @@ void Menu::SortAndFindLastFile() {
         }
         SetIndex(index);
     }
+}
+
+void Menu::FreeEntries() {
+    auto vg = App::GetVg();
+
+    for (auto&p : m_entries) {
+        FreeEntry(vg, p);
+    }
+
+    m_entries.clear();
 }
 
 Result Menu::InstallHomebrew(const fs::FsPath& path, const NacpStruct& nacp, const std::vector<u8>& icon) {

@@ -13,6 +13,7 @@
 #include "ui/menus/usb_menu.hpp"
 #include "ui/menus/ftp_menu.hpp"
 #include "ui/menus/gc_menu.hpp"
+#include "ui/menus/game_menu.hpp"
 
 #include "app.hpp"
 #include "log.hpp"
@@ -26,7 +27,6 @@
 #include "defines.hpp"
 #include "i18n.hpp"
 #include "ftpsrv_helper.hpp"
-#include "web.hpp"
 
 #include <nanovg_dk.h>
 #include <minIni.h>
@@ -46,8 +46,33 @@ extern "C" {
 namespace sphaira {
 namespace {
 
+constexpr fs::FsPath DEFAULT_MUSIC_PATH = "/config/sphaira/themes/default_music.bfstm";
+constexpr const char* DEFAULT_MUSIC_URL = "https://files.catbox.moe/1ovji1.bfstm";
+// constexpr const char* DEFAULT_MUSIC_URL = "https://raw.githubusercontent.com/ITotalJustice/sphaira/refs/heads/master/assets/default_music.bfstm";
+
+void download_default_music() {
+    App::Push(std::make_shared<ui::ProgressBox>(0, "Downloading "_i18n, "default_music.bfstm", [](auto pbox){
+        const auto result = curl::Api().ToFile(
+            curl::Url{DEFAULT_MUSIC_URL},
+            curl::Path{DEFAULT_MUSIC_PATH},
+            curl::OnProgress{pbox->OnDownloadProgressCallback()}
+        );
+
+        return result.success;
+    }, [](bool success){
+        if (success) {
+            App::Notify("Downloaded "_i18n + "default_music.bfstm");
+            App::SetTheme(App::GetThemeIndex());
+        } else {
+            App::Push(std::make_shared<ui::ErrorBox>(
+                "Failed to download default_music.bfstm, please try again"_i18n
+            ));
+        }
+    }));
+}
+
 struct ThemeData {
-    fs::FsPath music_path{"/config/sphaira/themes/default_music.bfstm"};
+    fs::FsPath music_path{DEFAULT_MUSIC_PATH};
     std::string elements[ThemeEntryID_MAX]{};
 };
 
@@ -1116,7 +1141,6 @@ void App::CloseTheme() {
     if (m_sound_ids[SoundEffect_Music]) {
         plsrPlayerFree(m_sound_ids[SoundEffect_Music]);
         m_sound_ids[SoundEffect_Music] = nullptr;
-        plsrBFSTMClose(&m_theme.music);
     }
 
     for (auto& e : m_theme.elements) {
@@ -1146,10 +1170,12 @@ void App::LoadTheme(const ThemeMeta& meta) {
 
         // load music
         if (!theme_data.music_path.empty()) {
-            if (R_SUCCEEDED(plsrBFSTMOpen(theme_data.music_path, &m_theme.music))) {
-                if (R_SUCCEEDED(plsrPlayerLoadStream(&m_theme.music, &m_sound_ids[SoundEffect_Music]))) {
+            PLSR_BFSTM music_stream;
+            if (R_SUCCEEDED(plsrBFSTMOpen(theme_data.music_path, &music_stream))) {
+                if (R_SUCCEEDED(plsrPlayerLoadStream(&music_stream, &m_sound_ids[SoundEffect_Music]))) {
                     PlaySoundEffect(SoundEffect_Music);
                 }
+                plsrBFSTMClose(&music_stream);
             }
         }
     }
@@ -1312,16 +1338,21 @@ App::App(const char* argv0) {
         if (R_SUCCEEDED(plsrBFSAROpen("qlaunch:/sound/qlaunch.bfsar", &qlaunch_bfsar))) {
             ON_SCOPE_EXIT(plsrBFSARClose(&qlaunch_bfsar));
 
-            plsrPlayerLoadSoundByName(&qlaunch_bfsar, "SeGameIconFocus", &m_sound_ids[SoundEffect_Focus]);
-            plsrPlayerLoadSoundByName(&qlaunch_bfsar, "SeGameIconScroll", &m_sound_ids[SoundEffect_Scroll]);
-            plsrPlayerLoadSoundByName(&qlaunch_bfsar, "SeGameIconLimit", &m_sound_ids[SoundEffect_Limit]);
-            plsrPlayerLoadSoundByName(&qlaunch_bfsar, "SeStartupMenu_game", &m_sound_ids[SoundEffect_Startup]);
-            plsrPlayerLoadSoundByName(&qlaunch_bfsar, "SeGameIconAdd", &m_sound_ids[SoundEffect_Install]);
-            plsrPlayerLoadSoundByName(&qlaunch_bfsar, "SeInsertError", &m_sound_ids[SoundEffect_Error]);
+            const auto load_sound = [&](const char* name, u32 id) {
+                if (R_FAILED(plsrPlayerLoadSoundByName(&qlaunch_bfsar, name, &m_sound_ids[id]))) {
+                    log_write("[PLSR] failed to load sound effect: %s\n", name);
+                }
+            };
+
+            load_sound("SeGameIconFocus", SoundEffect_Focus);
+            load_sound("SeGameIconScroll", SoundEffect_Scroll);
+            load_sound("SeGameIconLimit", SoundEffect_Limit);
+            load_sound("StartupMenu_Game", SoundEffect_Startup);
+            load_sound("SeGameIconAdd", SoundEffect_Install);
+            load_sound("SeInsertError", SoundEffect_Error);
 
             plsrPlayerSetVolume(m_sound_ids[SoundEffect_Limit], 2.0f);
             plsrPlayerSetVolume(m_sound_ids[SoundEffect_Focus], 0.5f);
-            PlaySoundEffect(SoundEffect_Startup);
         }
     } else {
         log_write("failed to mount romfs 0x0100000000001000\n");
@@ -1450,7 +1481,7 @@ void App::DisplayThemeOptions(bool left_side) {
     auto options = std::make_shared<ui::Sidebar>("Theme Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
     ON_SCOPE_EXIT(App::Push(options));
 
-    options->Add(std::make_shared<ui::SidebarEntryArray>("Select Theme"_i18n, theme_items, [theme_items](s64& index_out){
+    options->Add(std::make_shared<ui::SidebarEntryArray>("Select Theme"_i18n, theme_items, [](s64& index_out){
         App::SetTheme(index_out);
     }, App::GetThemeIndex()));
 
@@ -1461,6 +1492,23 @@ void App::DisplayThemeOptions(bool left_side) {
     options->Add(std::make_shared<ui::SidebarEntryBool>("12 Hour Time"_i18n, App::Get12HourTimeEnable(), [](bool& enable){
         App::Set12HourTimeEnable(enable);
     }, "Enabled"_i18n, "Disabled"_i18n));
+
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("Download Default Music"_i18n, [](){
+        // check if we already have music
+        if (fs::FileExists(DEFAULT_MUSIC_PATH)) {
+            App::Push(std::make_shared<ui::OptionBox>(
+                "Overwrite current default music?"_i18n,
+                "No"_i18n, "Yes"_i18n, 0, [](auto op_index){
+                    if (op_index && *op_index) {
+                        download_default_music();
+                    }
+                }
+            ));
+
+        } else {
+            download_default_music();
+        }
+    }));
 }
 
 void App::DisplayNetworkOptions(bool left_side) {
@@ -1471,6 +1519,10 @@ void App::DisplayMiscOptions(bool left_side) {
     auto options = std::make_shared<ui::Sidebar>("Misc Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
     ON_SCOPE_EXIT(App::Push(options));
 
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("Games"_i18n, [](){
+        App::Push(std::make_shared<ui::menu::game::Menu>());
+    }));
+
     options->Add(std::make_shared<ui::SidebarEntryCallback>("Themezer"_i18n, [](){
         App::Push(std::make_shared<ui::menu::themezer::Menu>());
     }));
@@ -1478,16 +1530,6 @@ void App::DisplayMiscOptions(bool left_side) {
     options->Add(std::make_shared<ui::SidebarEntryCallback>("GitHub"_i18n, [](){
         App::Push(std::make_shared<ui::menu::gh::Menu>());
     }));
-
-    options->Add(std::make_shared<ui::SidebarEntryCallback>("Irs"_i18n, [](){
-        App::Push(std::make_shared<ui::menu::irs::Menu>());
-    }));
-
-    if (App::IsApplication()) {
-        options->Add(std::make_shared<ui::SidebarEntryCallback>("Web"_i18n, [](){
-            WebShow("https://lite.duckduckgo.com/lite");
-        }));
-    }
 
     if (App::GetApp()->m_install.Get()) {
         if (App::GetFtpEnable()) {
@@ -1504,6 +1546,10 @@ void App::DisplayMiscOptions(bool left_side) {
             App::Push(std::make_shared<ui::menu::gc::Menu>());
         }));
     }
+
+    options->Add(std::make_shared<ui::SidebarEntryCallback>("Irs (Infrared Joycon Camera)"_i18n, [](){
+        App::Push(std::make_shared<ui::menu::irs::Menu>());
+    }));
 }
 
 void App::DisplayAdvancedOptions(bool left_side) {
@@ -1540,17 +1586,21 @@ void App::DisplayInstallOptions(bool left_side) {
     install_items.push_back("System memory"_i18n);
     install_items.push_back("microSD card"_i18n);
 
-    options->Add(std::make_shared<ui::SidebarEntryBool>("Enable"_i18n, App::GetInstallEnable(), [](bool& enable){
-        App::SetInstallEnable(enable);
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Enable"_i18n, App::GetApp()->m_install.Get(), [](bool& enable){
+        App::GetApp()->m_install.Set(enable);
     }, "Enabled"_i18n, "Disabled"_i18n));
 
-    options->Add(std::make_shared<ui::SidebarEntryBool>("Show install warning"_i18n, App::GetInstallPrompt(), [](bool& enable){
-        App::SetInstallPrompt(enable);
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Show install warning"_i18n, App::GetApp()->m_install_prompt.Get(), [](bool& enable){
+        App::GetApp()->m_install_prompt.Set(enable);
     }, "Enabled"_i18n, "Disabled"_i18n));
 
     options->Add(std::make_shared<ui::SidebarEntryArray>("Install location"_i18n, install_items, [](s64& index_out){
         App::SetInstallSdEnable(index_out);
     }, (s64)App::GetInstallSdEnable()));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Boost CPU clock"_i18n, App::GetApp()->m_boost_mode.Get(), [](bool& enable){
+        App::GetApp()->m_boost_mode.Set(enable);
+    }, "Enabled"_i18n, "Disabled"_i18n));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Allow downgrade"_i18n, App::GetApp()->m_allow_downgrade.Get(), [](bool& enable){
         App::GetApp()->m_allow_downgrade.Set(enable);
@@ -1568,11 +1618,11 @@ void App::DisplayInstallOptions(bool left_side) {
         App::GetApp()->m_skip_base.Set(enable);
     }, "Enabled"_i18n, "Disabled"_i18n));
 
-    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip Patch"_i18n, App::GetApp()->m_skip_patch.Get(), [](bool& enable){
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip patch"_i18n, App::GetApp()->m_skip_patch.Get(), [](bool& enable){
         App::GetApp()->m_skip_patch.Set(enable);
     }, "Enabled"_i18n, "Disabled"_i18n));
 
-    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip addon"_i18n, App::GetApp()->m_skip_addon.Get(), [](bool& enable){
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip dlc"_i18n, App::GetApp()->m_skip_addon.Get(), [](bool& enable){
         App::GetApp()->m_skip_addon.Set(enable);
     }, "Enabled"_i18n, "Disabled"_i18n));
 

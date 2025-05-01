@@ -18,7 +18,6 @@
 #include "i18n.hpp"
 #include "log.hpp"
 
-#include <new>
 #include <zstd.h>
 #include <minIni.h>
 
@@ -30,40 +29,10 @@ constexpr NcmStorageId NCM_STORAGE_IDS[]{
     NcmStorageId_SdCard,
 };
 
-// custom allocator for std::vector that respects alignment.
-// https://en.cppreference.com/w/cpp/named_req/Allocator
-template <typename T, std::size_t Align>
-struct CustomVectorAllocator {
-public:
-    // https://en.cppreference.com/w/cpp/memory/new/operator_new
-    auto allocate(std::size_t n) -> T* {
-        // log_write("allocating ptr size: %zu\n", n);
-        return new(align) T[n];
-    }
-
-    // https://en.cppreference.com/w/cpp/memory/new/operator_delete
-    auto deallocate(T* p, std::size_t n) noexcept -> void {
-        // log_write("deleting ptr size: %zu\n", n);
-        ::operator delete[] (p, n, align);
-    }
-
-private:
-    static constexpr inline std::align_val_t align{Align};
-};
-
-template <typename T>
-struct PageAllocator : CustomVectorAllocator<T, 0x1000> {
-    using value_type = T; // used by std::vector
-};
-
-template<class T, class U>
-bool operator==(const PageAllocator <T>&, const PageAllocator <U>&) { return true; }
-
-using PageAlignedVector = std::vector<u8, PageAllocator<u8>>;
-
 constexpr u32 KEYGEN_LIMIT = 0x20;
 
 struct NcaCollection : container::CollectionEntry {
+    nca::Header header{};
     // NcmContentType
     u8 type{};
     NcmContentId content_id{};
@@ -72,6 +41,8 @@ struct NcaCollection : container::CollectionEntry {
     u8 hash[SHA256_HASH_SIZE]{};
     // set true if nca has been modified.
     bool modified{};
+    // set if the nca was not installed.
+    bool skipped{};
 };
 
 struct CnmtCollection : NcaCollection {
@@ -81,7 +52,7 @@ struct CnmtCollection : NcaCollection {
     // if set, the ticket / cert will be installed once all nca's have installed.
     std::vector<FsRightsId> rights_id{};
 
-    NcmContentMetaHeader header{};
+    NcmContentMetaHeader meta_header{};
     NcmContentMetaKey key{};
     NcmContentInfo content_info{};
     std::vector<u8> extended_header{};
@@ -107,7 +78,7 @@ struct ThreadBuffer {
         buf.reserve(INFLATE_BUFFER_MAX);
     }
 
-    PageAlignedVector buf;
+    std::vector<u8> buf;
     s64 off;
 };
 
@@ -137,7 +108,7 @@ public:
         return ringbuf_capacity() - ringbuf_size();
     }
 
-    void ringbuf_push(PageAlignedVector& buf_in, s64 off_in) {
+    void ringbuf_push(std::vector<u8>& buf_in, s64 off_in) {
         auto& value = this->buf[this->w_index % ringbuf_capacity()];
         value.off = off_in;
         std::swap(value.buf, buf_in);
@@ -145,7 +116,7 @@ public:
         this->w_index = (this->w_index + 1U) % (ringbuf_capacity() * 2U);
     }
 
-    void ringbuf_pop(PageAlignedVector& buf_out, s64& off_out) {
+    void ringbuf_pop(std::vector<u8>& buf_out, s64& off_out) {
         auto& value = this->buf[this->r_index % ringbuf_capacity()];
         off_out = value.off;
         std::swap(value.buf, buf_out);
@@ -178,7 +149,7 @@ struct ThreadData {
 
     Result Read(void* buf, s64 size, u64* bytes_read);
 
-    Result SetDecompressBuf(PageAlignedVector& buf, s64 off, s64 size) {
+    Result SetDecompressBuf(std::vector<u8>& buf, s64 off, s64 size) {
         buf.resize(size);
 
         mutexLock(std::addressof(read_mutex));
@@ -192,7 +163,7 @@ struct ThreadData {
         return condvarWakeOne(std::addressof(can_decompress));
     }
 
-    Result GetDecompressBuf(PageAlignedVector& buf_out, s64& off_out) {
+    Result GetDecompressBuf(std::vector<u8>& buf_out, s64& off_out) {
         mutexLock(std::addressof(read_mutex));
         if (!read_buffers.ringbuf_size()) {
             R_TRY(condvarWait(std::addressof(can_decompress), std::addressof(read_mutex)));
@@ -204,7 +175,7 @@ struct ThreadData {
         return condvarWakeOne(std::addressof(can_read));
     }
 
-    Result SetWriteBuf(PageAlignedVector& buf, s64 size, bool skip_verify) {
+    Result SetWriteBuf(std::vector<u8>& buf, s64 size, bool skip_verify) {
         buf.resize(size);
         if (!skip_verify) {
             sha256ContextUpdate(std::addressof(sha256), buf.data(), buf.size());
@@ -221,7 +192,7 @@ struct ThreadData {
         return condvarWakeOne(std::addressof(can_write));
     }
 
-    Result GetWriteBuf(PageAlignedVector& buf_out, s64& off_out) {
+    Result GetWriteBuf(std::vector<u8>& buf_out, s64& off_out) {
         mutexLock(std::addressof(write_mutex));
         if (!write_buffers.ringbuf_size()) {
             R_TRY(condvarWait(std::addressof(can_write), std::addressof(write_mutex)));
@@ -276,8 +247,8 @@ struct Yati {
 
     Result Setup(const ConfigOverride& override);
     Result InstallNca(std::span<TikCollection> tickets, NcaCollection& nca);
+    Result InstallNcaInternal(std::span<TikCollection> tickets, NcaCollection& nca);
     Result InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cnmt, const container::Collections& collections);
-    Result InstallControlNca(std::span<TikCollection> tickets, const CnmtCollection& cnmt, NcaCollection& nca);
 
     Result readFuncInternal(ThreadData* t);
     Result decompressFuncInternal(ThreadData* t);
@@ -361,11 +332,11 @@ HashStr hexIdToStr(auto id) {
 // parsing ncz headers, sections and reading ncz blocks
 Result Yati::readFuncInternal(ThreadData* t) {
     // the main buffer which data is read into.
-    PageAlignedVector buf;
+    std::vector<u8> buf;
     // workaround ncz block reading ahead. if block isn't found, we usually
     // would seek back to the offset, however this is not possible in stream
     // mode, so we instead store the data to the temp buffer and pre-pend it.
-    PageAlignedVector temp_buf;
+    std::vector<u8> temp_buf;
     buf.reserve(t->max_buffer_size);
     temp_buf.reserve(t->max_buffer_size);
 
@@ -453,12 +424,12 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
 
     s64 inflate_offset{};
     Aes128CtrContext ctx{};
-    PageAlignedVector inflate_buf{};
+    std::vector<u8> inflate_buf{};
     inflate_buf.reserve(t->max_buffer_size);
 
     s64 written{};
     s64 decompress_buf_off{};
-    PageAlignedVector buf{};
+    std::vector<u8> buf{};
     buf.reserve(t->max_buffer_size);
 
     // encrypts the nca and passes the buffer to the write thread.
@@ -471,7 +442,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
         // the remaining data.
         // rather that copying the entire vector to the write thread,
         // only copy (store) the remaining amount.
-        PageAlignedVector temp_vector{};
+        std::vector<u8> temp_vector{};
         if (size < inflate_offset) {
             temp_vector.resize(inflate_offset - size);
             std::memcpy(temp_vector.data(), inflate_buf.data() + size, temp_vector.size());
@@ -538,6 +509,9 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                 R_UNLESS(header.magic == 0x3341434E, Result_InvalidNcaMagic);
                 log_write("nca magic is ok! type: %u\n", header.content_type);
 
+                // store the unmodified header.
+                t->nca->header = header;
+
                 if (!config.skip_rsa_header_fixed_key_verify) {
                     log_write("verifying nca fixed key\n");
                     R_TRY(nca::VerifyFixedKey(header));
@@ -556,7 +530,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
 
                 TikCollection* ticket = nullptr;
                 if (isRightsIdValid(header.rights_id)) {
-                    auto it = std::find_if(t->tik.begin(), t->tik.end(), [header](auto& e){
+                    auto it = std::find_if(t->tik.begin(), t->tik.end(), [&header](auto& e){
                         return !std::memcmp(&header.rights_id, &e.rights_id, sizeof(e.rights_id));
                     });
 
@@ -709,7 +683,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
 
 // write thread writes data to the nca placeholder.
 Result Yati::writeFuncInternal(ThreadData* t) {
-    PageAlignedVector buf;
+    std::vector<u8> buf;
     buf.reserve(t->max_buffer_size);
 
     while (t->write_offset < t->write_size && R_SUCCEEDED(t->GetResults())) {
@@ -790,10 +764,15 @@ Yati::~Yati() {
 
     serviceClose(std::addressof(es));
     appletSetMediaPlaybackState(false);
+
+    if (config.boost_mode) {
+        appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+    }
 }
 
 Result Yati::Setup(const ConfigOverride& override) {
     config.sd_card_install = override.sd_card_install.value_or(App::GetApp()->m_install_sd.Get());
+    config.boost_mode = App::GetApp()->m_boost_mode.Get();
     config.allow_downgrade = App::GetApp()->m_allow_downgrade.Get();
     config.skip_if_already_installed = App::GetApp()->m_skip_if_already_installed.Get();
     config.ticket_only = App::GetApp()->m_ticket_only.Get();
@@ -810,6 +789,10 @@ Result Yati::Setup(const ConfigOverride& override) {
     config.lower_master_key = override.lower_master_key.value_or(App::GetApp()->m_lower_master_key.Get());
     config.lower_system_version = override.lower_system_version.value_or(App::GetApp()->m_lower_system_version.Get());
     storage_id = config.sd_card_install ? NcmStorageId_SdCard : NcmStorageId_BuiltInUser;
+
+    if (config.boost_mode) {
+        appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+    }
 
     R_TRY(source->GetOpenResult());
     R_TRY(splCryptoInitialize());
@@ -829,10 +812,17 @@ Result Yati::Setup(const ConfigOverride& override) {
     R_SUCCEED();
 }
 
-Result Yati::InstallNca(std::span<TikCollection> tickets, NcaCollection& nca) {
-    log_write("in install nca\n");
-    pbox->NewTransfer(nca.name);
-    keys::parse_hex_key(std::addressof(nca.content_id), nca.name.c_str());
+Result Yati::InstallNcaInternal(std::span<TikCollection> tickets, NcaCollection& nca) {
+    if (config.skip_if_already_installed) {
+        R_TRY(ncmContentStorageHas(std::addressof(cs), std::addressof(nca.skipped), std::addressof(nca.content_id)));
+        if (nca.skipped) {
+            log_write("\tskipped nca as it's already installed ncmContentStorageHas()\n");
+            R_TRY(ncmContentStorageReadContentIdFile(std::addressof(cs), std::addressof(nca.header), sizeof(nca.header), std::addressof(nca.content_id), 0));
+            crypto::cryptoAes128Xts(std::addressof(nca.header), std::addressof(nca.header), keys.header_key, 0, 0x200, sizeof(nca.header), false);
+            R_SUCCEED();
+        }
+    }
+
     log_write("generateing placeholder\n");
     R_TRY(ncmContentStorageGeneratePlaceHolderId(std::addressof(cs), std::addressof(nca.placeholder_id)));
     log_write("creating placeholder\n");
@@ -918,39 +908,71 @@ Result Yati::InstallNca(std::span<TikCollection> tickets, NcaCollection& nca) {
     R_SUCCEED();
 }
 
+Result Yati::InstallNca(std::span<TikCollection> tickets, NcaCollection& nca) {
+    log_write("in install nca\n");
+    pbox->NewTransfer(nca.name);
+    keys::parse_hex_key(std::addressof(nca.content_id), nca.name.c_str());
+
+    R_TRY(InstallNcaInternal(tickets, nca));
+
+    fs::FsPath path;
+    if (nca.skipped) {
+        R_TRY(ncmContentStorageGetPath(std::addressof(cs), path, sizeof(path), std::addressof(nca.content_id)));
+    } else {
+        R_TRY(ncmContentStorageFlushPlaceHolder(std::addressof(cs)));
+        R_TRY(ncmContentStorageGetPlaceHolderPath(std::addressof(cs), path, sizeof(path), std::addressof(nca.placeholder_id)));
+    }
+
+    if (nca.header.content_type == nca::ContentType_Program) {
+        // todo: verify npdm key.
+    } else if (nca.header.content_type == nca::ContentType_Control) {
+        NacpLanguageEntry entry;
+        std::vector<u8> icon;
+        R_TRY(yati::ParseControlNca(path, nca.header.program_id, &entry, sizeof(entry), &icon));
+        pbox->SetTitle(entry.name).SetImageData(icon);
+    }
+
+    R_SUCCEED();
+}
+
 Result Yati::InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cnmt, const container::Collections& collections) {
     R_TRY(InstallNca(tickets, cnmt));
 
     fs::FsPath path;
-    R_TRY(ncmContentStorageFlushPlaceHolder(std::addressof(cs)));
-    R_TRY(ncmContentStorageGetPlaceHolderPath(std::addressof(cs), path, sizeof(path), std::addressof(cnmt.placeholder_id)));
+    if (cnmt.skipped) {
+        R_TRY(ncmContentStorageGetPath(std::addressof(cs), path, sizeof(path), std::addressof(cnmt.content_id)));
+    } else {
+        R_TRY(ncmContentStorageFlushPlaceHolder(std::addressof(cs)));
+        R_TRY(ncmContentStorageGetPlaceHolderPath(std::addressof(cs), path, sizeof(path), std::addressof(cnmt.placeholder_id)));
+    }
 
     ncm::PackagedContentMeta header;
     std::vector<NcmPackagedContentInfo> infos;
-    R_TRY(ParseCnmtNca(path, header, cnmt.extended_header, infos));
+    R_TRY(ParseCnmtNca(path, cnmt.header.program_id, header, cnmt.extended_header, infos));
 
-    for (const auto& info : infos) {
-        if (info.info.content_type == NcmContentType_DeltaFragment) {
+    for (const auto& packed_info : infos) {
+        const auto& info = packed_info.info;
+        if (info.content_type == NcmContentType_DeltaFragment) {
             continue;
         }
 
-        const auto str = hexIdToStr(info.info.content_id);
-        const auto it = std::find_if(collections.cbegin(), collections.cend(), [str](auto& e){
+        const auto str = hexIdToStr(info.content_id);
+        const auto it = std::find_if(collections.cbegin(), collections.cend(), [&str](auto& e){
             return e.name.find(str.str) != e.name.npos;
         });
 
         R_UNLESS(it != collections.cend(), Result_NcaNotFound);
 
         log_write("found: %s\n", str.str);
-        cnmt.infos.emplace_back(info);
+        cnmt.infos.emplace_back(packed_info);
         auto& nca = cnmt.ncas.emplace_back(*it);
-        nca.type = info.info.content_type;
+        nca.type = info.content_type;
     }
 
     // update header
-    cnmt.header = header.meta_header;
-    cnmt.header.content_count = cnmt.infos.size() + 1;
-    cnmt.header.storage_id = 0;
+    cnmt.meta_header = header.meta_header;
+    cnmt.meta_header.content_count = cnmt.infos.size() + 1;
+    cnmt.meta_header.storage_id = 0;
 
     cnmt.key.id = header.title_id;
     cnmt.key.version = header.title_version;
@@ -985,26 +1007,6 @@ Result Yati::InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cn
     R_SUCCEED();
 }
 
-Result Yati::InstallControlNca(std::span<TikCollection> tickets, const CnmtCollection& cnmt, NcaCollection& nca) {
-    R_TRY(InstallNca(tickets, nca));
-
-    fs::FsPath path;
-    R_TRY(ncmContentStorageFlushPlaceHolder(std::addressof(cs)));
-    R_TRY(ncmContentStorageGetPlaceHolderPath(std::addressof(cs), path, sizeof(path), std::addressof(nca.placeholder_id)));
-
-    // this can fail if it's not a valid control nca, examples are mario 3d all stars.
-    // there are 4 control ncas, only 1 is valid (InvalidNcaId 0x235E02).
-    NacpLanguageEntry entry;
-    std::vector<u8> icon;
-    if (R_SUCCEEDED(yati::ParseControlNca(path, ncm::GetAppId(cnmt.key), &entry, sizeof(entry), &icon))) {
-        pbox->SetTitle(entry.name).SetImageData(icon);
-    } else {
-        log_write("\tWARNING: failed to parse control nca!\n");
-    }
-
-    R_SUCCEED();
-}
-
 Result Yati::ParseTicketsIntoCollection(std::vector<TikCollection>& tickets, const container::Collections& collections, bool read_data) {
     for (const auto& collection : collections) {
         if (collection.name.ends_with(".tik")) {
@@ -1012,7 +1014,7 @@ Result Yati::ParseTicketsIntoCollection(std::vector<TikCollection>& tickets, con
             keys::parse_hex_key(entry.rights_id.c, collection.name.c_str());
             const auto str = collection.name.substr(0, collection.name.length() - 4) + ".cert";
 
-            const auto cert = std::find_if(collections.cbegin(), collections.cend(), [str](auto& e){
+            const auto cert = std::find_if(collections.cbegin(), collections.cend(), [&str](auto& e){
                 return e.name.find(str) != e.name.npos;
             });
 
@@ -1091,6 +1093,13 @@ Result Yati::ShouldSkip(const CnmtCollection& cnmt, bool& skip) {
     } else if (config.skip_data_patch && cnmt.key.type == NcmContentMetaType_DataPatch) {
         log_write("\tskipping: [NcmContentMetaType_DataPatch]\n");
         skip = true;
+    } else if (config.skip_if_already_installed) {
+        bool has;
+        R_TRY(ncmContentMetaDatabaseHas(std::addressof(db), std::addressof(has), std::addressof(cnmt.key)));
+        if (has) {
+            log_write("\tskipping: [ncmContentMetaDatabaseHas()]\n");
+            skip = true;
+        }
     }
 
     R_SUCCEED();
@@ -1183,7 +1192,7 @@ Result Yati::RegisterNcasAndPushRecord(const CnmtCollection& cnmt, u32 latest_ve
     log_write("registered cnmt nca\n");
 
     for (auto& nca : cnmt.ncas) {
-        if (nca.type != NcmContentType_DeltaFragment) {
+        if (!nca.skipped && nca.type != NcmContentType_DeltaFragment) {
             log_write("registering nca: %s\n", nca.name.c_str());
             R_TRY(ncm::Register(std::addressof(cs), std::addressof(nca.content_id), std::addressof(nca.placeholder_id)));
             log_write("registered nca: %s\n", nca.name.c_str());
@@ -1194,7 +1203,7 @@ Result Yati::RegisterNcasAndPushRecord(const CnmtCollection& cnmt, u32 latest_ve
 
     // build ncm meta and push to the database.
     BufHelper buf{};
-    buf.write(std::addressof(cnmt.header), sizeof(cnmt.header));
+    buf.write(std::addressof(cnmt.meta_header), sizeof(cnmt.meta_header));
     buf.write(cnmt.extended_header.data(), cnmt.extended_header.size());
     buf.write(std::addressof(cnmt.content_info), sizeof(cnmt.content_info));
 
@@ -1262,12 +1271,7 @@ Result InstallInternal(ui::ProgressBox* pbox, std::shared_ptr<source::Base> sour
 
         log_write("installing nca's\n");
         for (auto& nca : cnmt.ncas) {
-            if (nca.type == NcmContentType_Control) {
-                log_write("installing control nca\n");
-                R_TRY(yati->InstallControlNca(tickets, cnmt, nca));
-            } else {
-                R_TRY(yati->InstallNca(tickets, nca));
-            }
+            R_TRY(yati->InstallNca(tickets, nca));
         }
 
         R_TRY(yati->ImportTickets(tickets));
@@ -1284,6 +1288,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
     R_TRY(yati->Setup(override));
 
     // not supported with stream installs (yet).
+    yati->config.skip_if_already_installed = false;
     yati->config.convert_to_standard_crypto = false;
     yati->config.lower_master_key = false;
 
@@ -1326,7 +1331,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
             keys::parse_hex_key(rights_id.c, collection.name.c_str());
             const auto str = collection.name.substr(0, collection.name.length() - 4) + ".cert";
 
-            auto entry = std::find_if(tickets.begin(), tickets.end(), [rights_id](auto& e){
+            auto entry = std::find_if(tickets.begin(), tickets.end(), [&rights_id](auto& e){
                 return !std::memcmp(&rights_id, &e.rights_id, sizeof(rights_id));
             });
 
@@ -1345,7 +1350,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
     for (auto& cnmt : cnmts) {
         // copy nca structs into cnmt.
         for (auto& cnmt_nca : cnmt.ncas) {
-            auto it = std::find_if(ncas.cbegin(), ncas.cend(), [cnmt_nca](auto& e){
+            auto it = std::find_if(ncas.cbegin(), ncas.cend(), [&cnmt_nca](auto& e){
                 return e.name == cnmt_nca.name;
             });
 
@@ -1412,9 +1417,9 @@ Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Bas
     }
 }
 
-Result ParseCnmtNca(const fs::FsPath& path, ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos) {
+Result ParseCnmtNca(const fs::FsPath& path, u64 program_id, ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos) {
     FsFileSystem fs;
-    R_TRY(fsOpenFileSystem(std::addressof(fs), FsFileSystemType_ContentMeta, path));
+    R_TRY(fsOpenFileSystemWithId(std::addressof(fs), program_id, FsFileSystemType_ContentMeta, path, FsContentAttributes_All));
     ON_SCOPE_EXIT(fsFsClose(std::addressof(fs)));
 
     FsDir dir;
@@ -1447,9 +1452,9 @@ Result ParseCnmtNca(const fs::FsPath& path, ncm::PackagedContentMeta& header, st
     R_SUCCEED();
 }
 
-Result ParseControlNca(const fs::FsPath& path, u64 id, void* nacp_out, s64 nacp_size, std::vector<u8>* icon_out) {
+Result ParseControlNca(const fs::FsPath& path, u64 program_id, void* nacp_out, s64 nacp_size, std::vector<u8>* icon_out) {
     FsFileSystem fs;
-    R_TRY(fsOpenFileSystemWithId(std::addressof(fs), id, FsFileSystemType_ContentControl, path, FsContentAttributes_All));
+    R_TRY(fsOpenFileSystemWithId(std::addressof(fs), program_id, FsFileSystemType_ContentControl, path, FsContentAttributes_All));
     ON_SCOPE_EXIT(fsFsClose(std::addressof(fs)));
 
     // read nacp.

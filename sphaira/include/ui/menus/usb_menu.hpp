@@ -8,8 +8,10 @@ namespace sphaira::ui::menu::usb {
 enum class State {
     // not connected.
     None,
+    // just connected, waiting for file list.
+    Connected_WaitForFileList,
     // just connected, starts the transfer.
-    Connected,
+    Connected_StartingTransfer,
     // set whilst transfer is in progress.
     Progress,
     // set when the transfer is finished.
@@ -35,9 +37,8 @@ struct Menu final : MenuBase {
     Mutex m_mutex{};
     // the below are shared across threads, lock with the above mutex!
     State m_state{State::None};
+    std::vector<std::string> m_names{};
     bool m_usb_has_connection{};
-    u32 m_usb_speed{};
-    u32 m_usb_count{};
 };
 
 } // namespace sphaira::ui::menu::usb

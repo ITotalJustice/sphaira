@@ -95,7 +95,7 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     }
 
     gfx::dimBackground(vg);
-    gfx::drawRect(vg, m_pos, theme->GetColour(ThemeEntryID_POPUP));
+    gfx::drawRect(vg, m_pos, theme->GetColour(ThemeEntryID_POPUP), 5);
 
     // The pop up shape.
     // const Vec4 box = { 255, 145, 770, 430 };

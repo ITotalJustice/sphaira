@@ -71,6 +71,10 @@ enum : Result {
 struct Config {
     bool sd_card_install{};
 
+    // sets the performance mode to FastLoad which boosts the CPU clock
+    // and lowers the GPU clock.
+    bool boost_mode{};
+
     // enables downgrading patch / data patch (dlc) version.
     bool allow_downgrade{};
 
@@ -132,7 +136,7 @@ Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> so
 Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container, const ConfigOverride& override = {});
 Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections, const ConfigOverride& override = {});
 
-Result ParseCnmtNca(const fs::FsPath& path,  ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos);
-Result ParseControlNca(const fs::FsPath& path, u64 id, void* nacp_out = nullptr, s64 nacp_size = 0, std::vector<u8>* icon_out = nullptr);
+Result ParseCnmtNca(const fs::FsPath& path, u64 program_id, ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos);
+Result ParseControlNca(const fs::FsPath& path, u64 program_id, void* nacp_out = nullptr, s64 nacp_size = 0, std::vector<u8>* icon_out = nullptr);
 
 } // namespace sphaira::yati

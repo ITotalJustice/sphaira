@@ -22,6 +22,7 @@
 #include "yati/source/file.hpp"
 
 #include <minIni.h>
+#include <minizip/zip.h>
 #include <minizip/unzip.h>
 #include <dirent.h>
 #include <cstring>
@@ -56,6 +57,14 @@ constexpr std::string_view IMAGE_EXTENSIONS[] = {
 };
 constexpr std::string_view INSTALL_EXTENSIONS[] = {
     "nsp", "xci", "nsz", "xcz",
+};
+// these are files that are already compressed or encrypted and should
+// be stored raw in a zip file.
+constexpr std::string_view COMPRESSED_EXTENSIONS[] = {
+    "zip", "xz", "7z", "rar", "tar", "nca", "nsp", "xci", "nsz", "xcz"
+};
+constexpr std::string_view ZIP_EXTENSIONS[] = {
+    "zip",
 };
 
 
@@ -267,6 +276,25 @@ auto GetRomIcon(fs::FsNative* fs, ProgressBox* pbox, std::string filename, const
 
 Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i18n}, m_nro_entries{nro_entries} {
     this->SetActions(
+        std::make_pair(Button::L2, Action{[this](){
+            if (!m_selected_files.empty()) {
+                ResetSelection();
+            }
+
+            const auto set = m_selected_count != m_entries_current.size();
+
+            for (const auto& i : m_entries_current) {
+                auto& e = GetEntry(i);
+                if (e.selected != set) {
+                    e.selected = set;
+                    if (set) {
+                        m_selected_count++;
+                    } else {
+                        m_selected_count--;
+                    }
+                }
+            }
+        }}),
         std::make_pair(Button::R2, Action{[this](){
             if (!m_selected_files.empty()) {
                 ResetSelection();
@@ -475,28 +503,103 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 }));
             }
 
-            // if install is enabled, check if all currently selected files are installable.
-            if (m_entries_current.size() && App::GetInstallEnable()) {
-                bool should_install = true;
+            // returns true if all entries match the ext array.
+            const auto check_all_ext = [this](auto& exts){
                 if (!m_selected_count) {
-                    should_install = IsExtension(GetEntry().GetExtension(), INSTALL_EXTENSIONS);
+                    return IsExtension(GetEntry().GetExtension(), exts);
                 } else {
                     const auto entries = GetSelectedEntries();
                     for (auto&e : entries) {
-                        if (!IsExtension(e.GetExtension(), INSTALL_EXTENSIONS)) {
-                            should_install = false;
-                            break;
+                        if (!IsExtension(e.GetExtension(), exts)) {
+                            return false;
                         }
                     }
                 }
+                return true;
+            };
 
-                if (should_install) {
+            // if install is enabled, check if all currently selected files are installable.
+            if (m_entries_current.size() && App::GetInstallEnable()) {
+                if (check_all_ext(INSTALL_EXTENSIONS)) {
                     options->Add(std::make_shared<SidebarEntryCallback>("Install"_i18n, [this](){
                         if (!m_selected_count) {
                             InstallFile(GetEntry());
                         } else {
                             InstallFiles(GetSelectedEntries());
                         }
+                    }));
+                }
+            }
+
+            if (m_fs_type == FsType::Sd && m_entries_current.size()) {
+                if (App::GetInstallEnable() && HasTypeInSelectedEntries(FsDirEntryType_File) && !m_selected_count && (GetEntry().GetExtension() == "nro" || !FindFileAssocFor().empty())) {
+                    options->Add(std::make_shared<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){;
+                        if (App::GetInstallPrompt()) {
+                            App::Push(std::make_shared<OptionBox>(
+                                "WARNING: Installing forwarders will lead to a ban!"_i18n,
+                                "Back"_i18n, "Install"_i18n, 0, [this](auto op_index){
+                                    if (op_index && *op_index) {
+                                        InstallForwarder();
+                                    }
+                                }
+                            ));
+                        } else {
+                            InstallForwarder();
+                        }
+                    }));
+                }
+            }
+
+            if (m_entries_current.size()) {
+                if (check_all_ext(ZIP_EXTENSIONS)) {
+                    options->Add(std::make_shared<SidebarEntryCallback>("Extract"_i18n, [this](){
+                        auto options = std::make_shared<Sidebar>("Extract Options"_i18n, Sidebar::Side::RIGHT);
+                        ON_SCOPE_EXIT(App::Push(options));
+
+                        options->Add(std::make_shared<SidebarEntryCallback>("Extract here"_i18n, [this](){
+                            if (!m_selected_count) {
+                                UnzipFile("", GetEntry());
+                            } else {
+                                UnzipFiles("", GetSelectedEntries());
+                            }
+                        }));
+
+                        options->Add(std::make_shared<SidebarEntryCallback>("Extract to..."_i18n, [this](){
+                            std::string out;
+                            if (R_SUCCEEDED(swkbd::ShowText(out, "Enter the path to the folder to extract into", fs::AppendPath(m_path, ""))) && !out.empty()) {
+                                if (!m_selected_count) {
+                                    UnzipFile(out, GetEntry());
+                                } else {
+                                    UnzipFiles(out, GetSelectedEntries());
+                                }
+                            }
+                        }));
+                    }));
+                }
+
+                if (!check_all_ext(ZIP_EXTENSIONS) || m_selected_count) {
+                    options->Add(std::make_shared<SidebarEntryCallback>("Compress"_i18n, [this](){
+                        auto options = std::make_shared<Sidebar>("Compress Options"_i18n, Sidebar::Side::RIGHT);
+                        ON_SCOPE_EXIT(App::Push(options));
+
+                        options->Add(std::make_shared<SidebarEntryCallback>("Compress"_i18n, [this](){
+                            if (!m_selected_count) {
+                                ZipFile("", GetEntry());
+                            } else {
+                                ZipFiles("", GetSelectedEntries());
+                            }
+                        }));
+
+                        options->Add(std::make_shared<SidebarEntryCallback>("Compress to..."_i18n, [this](){
+                            std::string out;
+                            if (R_SUCCEEDED(swkbd::ShowText(out, "Enter the path to the folder to extract into", m_path)) && !out.empty()) {
+                                if (!m_selected_count) {
+                                    ZipFile(out, GetEntry());
+                                } else {
+                                    ZipFiles(out, GetSelectedEntries());
+                                }
+                            }
+                        }));
                     }));
                 }
             }
@@ -529,7 +632,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Create Folder"_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name"_i18n.c_str())) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name"_i18n.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
                         App::PopToMenu();
 
                         fs::FsPath full_path;
@@ -552,25 +655,6 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                     options->Add(std::make_shared<SidebarEntryCallback>("View as text (unfinished)"_i18n, [this](){
                         App::Push(std::make_shared<fileview::Menu>(GetNewPathCurrent()));
                     }));
-                }
-
-                if (m_fs_type == FsType::Sd && m_entries_current.size()) {
-                    if (App::GetInstallEnable() && HasTypeInSelectedEntries(FsDirEntryType_File) && !m_selected_count && (GetEntry().GetExtension() == "nro" || !FindFileAssocFor().empty())) {
-                        options->Add(std::make_shared<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){;
-                            if (App::GetInstallPrompt()) {
-                                App::Push(std::make_shared<OptionBox>(
-                                    "WARNING: Installing forwarders will lead to a ban!"_i18n,
-                                    "Back"_i18n, "Install"_i18n, 0, [this](auto op_index){
-                                        if (op_index && *op_index) {
-                                            InstallForwarder();
-                                        }
-                                    }
-                                ));
-                            } else {
-                                InstallForwarder();
-                            }
-                        }));
-                    }
                 }
 
                 options->Add(std::make_shared<SidebarEntryBool>("Ignore read only"_i18n, m_ignore_read_only.Get(), [this](bool& v_out){
@@ -650,7 +734,8 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         }
 
         auto text_id = ThemeEntryID_TEXT;
-        if (m_index == i) {
+        const auto selected = m_index == i;
+        if (selected) {
             text_id = ThemeEntryID_TEXT_SELECTED;
             gfx::drawRectOutline(vg, theme, 4.f, v);
         } else {
@@ -673,7 +758,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             } else if (IsExtension(ext, INSTALL_EXTENSIONS)) {
                 // todo: maybe replace this icon with something else?
                 icon = ThemeEntryID_ICON_NRO;
-            } else if (IsExtension(ext, "zip")) {
+            } else if (IsExtension(ext, ZIP_EXTENSIONS)) {
                 icon = ThemeEntryID_ICON_ZIP;
             } else if (IsExtension(ext, "nro")) {
                 icon = ThemeEntryID_ICON_NRO;
@@ -845,6 +930,272 @@ void Menu::InstallFiles(const std::vector<FileEntry>& targets) {
                 return true;
             }));
         }
+    }));
+}
+
+void Menu::UnzipFile(const fs::FsPath& dir_path, const FileEntry& target) {
+    std::vector<FileEntry> targets{target};
+    UnzipFiles(dir_path, targets);
+}
+
+void Menu::UnzipFiles(fs::FsPath dir_path, const std::vector<FileEntry>& targets) {
+    // set to current path.
+    if (dir_path.empty()) {
+        dir_path = m_path;
+    }
+
+    App::Push(std::make_shared<ui::ProgressBox>(0, "Extracting "_i18n, "", [this, dir_path, targets](auto pbox) mutable -> bool {
+        constexpr auto chunk_size = 1024 * 512; // 512KiB
+        auto& fs = *m_fs.get();
+
+        for (auto& e : targets) {
+            pbox->SetTitle(e.GetName());
+
+            const auto zip_out = GetNewPath(e);
+            auto zfile = unzOpen64(zip_out);
+            if (!zfile) {
+                log_write("failed to open zip: %s\n", zip_out.s);
+                return false;
+            }
+            ON_SCOPE_EXIT(unzClose(zfile));
+
+            unz_global_info64 pglobal_info;
+            if (UNZ_OK != unzGetGlobalInfo64(zfile, &pglobal_info)) {
+                return false;
+            }
+
+            for (int i = 0; i < pglobal_info.number_entry; i++) {
+                if (i > 0) {
+                    if (UNZ_OK != unzGoToNextFile(zfile)) {
+                        log_write("failed to unzGoToNextFile\n");
+                        return false;
+                    }
+                }
+
+                if (UNZ_OK != unzOpenCurrentFile(zfile)) {
+                    log_write("failed to open current file\n");
+                    return false;
+                }
+                ON_SCOPE_EXIT(unzCloseCurrentFile(zfile));
+
+                unz_file_info64 info;
+                char name[512];
+                if (UNZ_OK != unzGetCurrentFileInfo64(zfile, &info, name, sizeof(name), 0, 0, 0, 0)) {
+                    log_write("failed to get current info\n");
+                    return false;
+                }
+
+                const auto file_path = fs::AppendPath(dir_path, name);
+                pbox->NewTransfer(name);
+
+                // create directories
+                fs.CreateDirectoryRecursivelyWithPath(file_path);
+
+                Result rc;
+                if (R_FAILED(rc = fs.CreateFile(file_path, info.uncompressed_size, 0)) && rc != FsError_PathAlreadyExists) {
+                    log_write("failed to create file: %s 0x%04X\n", file_path.s, rc);
+                    return false;
+                }
+
+                FsFile f;
+                if (R_FAILED(rc = fs.OpenFile(file_path, FsOpenMode_Write, &f))) {
+                    log_write("failed to open file: %s 0x%04X\n", file_path.s, rc);
+                    return false;
+                }
+                ON_SCOPE_EXIT(fsFileClose(&f));
+
+                if (R_FAILED(rc = fsFileSetSize(&f, info.uncompressed_size))) {
+                    log_write("failed to set file size: %s 0x%04X\n", file_path.s, rc);
+                    return false;
+                }
+
+                std::vector<char> buf(chunk_size);
+                s64 offset{};
+                while (offset < info.uncompressed_size) {
+                    if (pbox->ShouldExit()) {
+                        return false;
+                    }
+
+                    const auto bytes_read = unzReadCurrentFile(zfile, buf.data(), buf.size());
+                    if (bytes_read <= 0) {
+                        log_write("failed to read zip file: %s\n", name);
+                        return false;
+                    }
+
+                    if (R_FAILED(rc = fsFileWrite(&f, offset, buf.data(), bytes_read, FsWriteOption_None))) {
+                        log_write("failed to write file: %s 0x%04X\n", file_path.s, rc);
+                        return false;
+                    }
+
+                    pbox->UpdateTransfer(offset, info.uncompressed_size);
+                    offset += bytes_read;
+                }
+            }
+        }
+
+        return true;
+    }, [this](bool success){
+        if (success) {
+            App::Notify("Extract success!");
+        } else {
+            App::Notify("Extract failed!");
+        }
+        Scan(m_path);
+        log_write("did extract\n");
+    }));
+}
+
+void Menu::ZipFile(const fs::FsPath& zip_path, const FileEntry& target) {
+    std::vector<FileEntry> targets{target};
+    ZipFiles(zip_path, targets);
+}
+
+void Menu::ZipFiles(fs::FsPath zip_out, const std::vector<FileEntry>& targets) {
+    // set to current path.
+    if (zip_out.empty()) {
+        if (std::size(targets) == 1) {
+            const auto name = targets[0].name;
+            const auto ext = std::strrchr(targets[0].name, '.');
+            fs::FsPath file_path;
+            if (!ext) {
+                std::snprintf(file_path, sizeof(file_path), "%s.zip", name);
+            } else {
+                std::snprintf(file_path, sizeof(file_path), "%.*s.zip", (int)(ext - name), name);
+            }
+            zip_out = fs::AppendPath(m_path, file_path);
+            log_write("zip out: %s name: %s file_path: %s\n", zip_out.s, name, file_path.s);
+        } else {
+            // loop until we find an unused file name.
+            for (u64 i = 0; ; i++) {
+                fs::FsPath file_path = "Archive.zip";
+                if (i) {
+                    std::snprintf(file_path, sizeof(file_path), "Archive (%zu).zip", i);
+                }
+
+                zip_out = fs::AppendPath(m_path, file_path);
+                if (!fs::FileExists(&m_fs->m_fs, zip_out)) {
+                    break;
+                }
+            }
+        }
+    } else {
+        if (!std::string_view(zip_out).ends_with(".zip")) {
+            zip_out += ".zip";
+        }
+    }
+
+    App::Push(std::make_shared<ui::ProgressBox>(0, "Compressing "_i18n, "", [this, zip_out, targets](auto pbox) mutable -> bool {
+        constexpr auto chunk_size = 1024 * 512; // 512KiB
+        auto& fs = *m_fs.get();
+
+        const auto t = std::time(NULL);
+        const auto tm = std::localtime(&t);
+
+        // pre-calculate the time rather than calculate it in the loop.
+        zip_fileinfo zip_info{};
+        zip_info.tmz_date.tm_sec = tm->tm_sec;
+        zip_info.tmz_date.tm_min = tm->tm_min;
+        zip_info.tmz_date.tm_hour = tm->tm_hour;
+        zip_info.tmz_date.tm_mday = tm->tm_mday;
+        zip_info.tmz_date.tm_mon = tm->tm_mon;
+        zip_info.tmz_date.tm_year = tm->tm_year;
+
+        auto zfile = zipOpen(zip_out, APPEND_STATUS_CREATE);
+        if (!zfile) {
+            log_write("failed to open zip: %s\n", zip_out.s);
+            return false;
+        }
+        ON_SCOPE_EXIT(zipClose(zfile, "sphaira v" APP_VERSION_HASH));
+
+        const auto zip_add = [&](const fs::FsPath& file_path){
+            // the file name needs to be relative to the current directory.
+            const char* file_name_in_zip = file_path.s + std::strlen(m_path);
+
+            // root paths are banned in zips, they will warn when extracting otherwise.
+            if (file_name_in_zip[0] == '/') {
+                file_name_in_zip++;
+            }
+
+            pbox->NewTransfer(file_name_in_zip);
+
+            const auto ext = std::strrchr(file_name_in_zip, '.');
+            const auto raw = ext && IsExtension(ext + 1, COMPRESSED_EXTENSIONS);
+
+            if (ZIP_OK != zipOpenNewFileInZip2(zfile, file_name_in_zip, &zip_info, NULL, 0, NULL, 0, NULL, Z_DEFLATED, Z_DEFAULT_COMPRESSION, raw)) {
+                return false;
+            }
+            ON_SCOPE_EXIT(zipCloseFileInZip(zfile));
+
+            FsFile f;
+            Result rc;
+            if (R_FAILED(rc = fs.OpenFile(file_path, FsOpenMode_Read, &f))) {
+                log_write("failed to open file: %s 0x%04X\n", file_path.s, rc);
+                return false;
+            }
+            ON_SCOPE_EXIT(fsFileClose(&f));
+
+            s64 file_size;
+            if (R_FAILED(rc = fsFileGetSize(&f, &file_size))) {
+                log_write("failed to get file size: %s 0x%04X\n", file_path.s, rc);
+                return false;
+            }
+
+            std::vector<char> buf(chunk_size);
+            s64 offset{};
+            while (offset < file_size) {
+                if (pbox->ShouldExit()) {
+                    return false;
+                }
+
+                u64 bytes_read;
+                if (R_FAILED(rc = fsFileRead(&f, offset, buf.data(), buf.size(), FsReadOption_None, &bytes_read))) {
+                    log_write("failed to write file: %s 0x%04X\n", file_path.s, rc);
+                    return false;
+                }
+
+                if (ZIP_OK != zipWriteInFileInZip(zfile, buf.data(), bytes_read)) {
+                    log_write("failed to write zip file: %s\n", file_path.s);
+                    return false;
+                }
+
+                pbox->UpdateTransfer(offset, file_size);
+                offset += bytes_read;
+            }
+
+            return true;
+        };
+
+        for (auto& e : targets) {
+            pbox->SetTitle(e.GetName());
+            if (e.IsFile()) {
+                const auto file_path = GetNewPath(e);
+                if (!zip_add(file_path)) {
+                    return false;
+                }
+            } else {
+                FsDirCollections collections;
+                get_collections(GetNewPath(e), e.name, collections);
+
+                for (const auto& collection : collections) {
+                    for (const auto& file : collection.files) {
+                        const auto file_path = fs::AppendPath(collection.path, file.name);
+                        if (!zip_add(file_path)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }, [this](bool success){
+        if (success) {
+            App::Notify("Compress success!");
+        } else {
+            App::Notify("Compress failed!");
+        }
+        Scan(m_path);
+        log_write("did compress\n");
     }));
 }
 

@@ -73,6 +73,8 @@ PopupList::PopupList(std::string title, Items items, Callback cb, s64 index)
         }})
     );
 
+    m_starting_index = m_index;
+
     m_pos.w = 1280.f;
     const float a = std::min(370.f, (60.f * static_cast<float>(m_items.size())));
     m_pos.h = 80.f + 140.f + a;
@@ -110,15 +112,21 @@ auto PopupList::Draw(NVGcontext* vg, Theme* theme) -> void {
 
     m_list->Draw(vg, theme, m_items.size(), [this](auto* vg, auto* theme, auto v, auto i) {
         const auto& [x, y, w, h] = v;
+        auto colour = ThemeEntryID_TEXT;
         if (m_index == i) {
             gfx::drawRectOutline(vg, theme, 4.f, v);
-            gfx::drawText(vg, x + m_text_xoffset, y + (h / 2.f), 20.f, m_items[i].c_str(), NULL, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_SELECTED));
         } else {
             if (i != m_items.size() - 1) {
                 gfx::drawRect(vg, x, y + h, w, 1.f, theme->GetColour(ThemeEntryID_LINE_SEPARATOR));
             }
-            gfx::drawText(vg, x + m_text_xoffset, y + (h / 2.f), 20.f, m_items[i].c_str(), NULL, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT));
         }
+
+        if (m_starting_index == i) {
+            colour = ThemeEntryID_TEXT_SELECTED;
+            gfx::drawText(vg, x + w - m_text_xoffset, y + (h / 2.f), 20.f, "\uE14B", NULL, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->GetColour(colour));
+        }
+
+        gfx::drawText(vg, x + m_text_xoffset, y + (h / 2.f), 20.f, m_items[i].c_str(), NULL, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(colour));
     });
 
     Widget::Draw(vg, theme);

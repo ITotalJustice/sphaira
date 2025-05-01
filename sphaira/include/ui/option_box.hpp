@@ -32,11 +32,9 @@ public:
     using Options = std::vector<Option>;
 
 public:
-    OptionBox(const std::string& message, const Option& a, Callback cb = [](auto){}); // confirm
-    OptionBox(const std::string& message, const Option& a, const Option& b, Callback cb); // yesno
-    OptionBox(const std::string& message, const Option& a, const Option& b, s64 index, Callback cb); // yesno
-    OptionBox(const std::string& message, const Option& a, const Option& b, const Option& c, Callback cb); // tri
-    OptionBox(const std::string& message, const Option& a, const Option& b, const Option& c, s64 index, Callback cb); // tri
+    OptionBox(const std::string& message, const Option& a, Callback cb = [](auto){}, int image = 0); // confirm
+    OptionBox(const std::string& message, const Option& a, const Option& b, Callback cb, int image = 0); // yesno
+    OptionBox(const std::string& message, const Option& a, const Option& b, s64 index, Callback cb, int image = 0); // yesno
 
     auto Update(Controller* controller, TouchInfo* touch) -> void override;
     auto Draw(NVGcontext* vg, Theme* theme) -> void override;
@@ -50,6 +48,7 @@ private:
 private:
     std::string m_message{};
     Callback m_callback{};
+    int m_image{};
 
     Vec4 m_spacer_line{};
 

@@ -23,7 +23,7 @@ auto OptionBoxEntry::Selected(bool enable) -> void {
     m_selected = enable;
 }
 
-OptionBox::OptionBox(const std::string& message, const Option& a, Callback cb)
+OptionBox::OptionBox(const std::string& message, const Option& a, Callback cb, int image)
 : m_message{message}
 , m_callback{cb} {
 
@@ -40,14 +40,15 @@ OptionBox::OptionBox(const std::string& message, const Option& a, Callback cb)
     Setup(0);
 }
 
-OptionBox::OptionBox(const std::string& message, const Option& a, const Option& b, Callback cb)
-: OptionBox{message, a, b, 0, cb} {
+OptionBox::OptionBox(const std::string& message, const Option& a, const Option& b, Callback cb, int image)
+: OptionBox{message, a, b, 0, cb, image} {
 
 }
 
-OptionBox::OptionBox(const std::string& message, const Option& a, const Option& b, s64 index, Callback cb)
+OptionBox::OptionBox(const std::string& message, const Option& a, const Option& b, s64 index, Callback cb, int image)
 : m_message{message}
-, m_callback{cb} {
+, m_callback{cb}
+, m_image{image} {
 
     m_pos.w = 770.f;
     m_pos.h = 295.f;
@@ -63,17 +64,6 @@ OptionBox::OptionBox(const std::string& message, const Option& a, const Option& 
     m_entries.emplace_back(b, box);
 
     Setup(index);
-}
-
-OptionBox::OptionBox(const std::string& message, const Option& a, const Option& b, const Option& c, Callback cb)
-: OptionBox{message, a, b, c, 0, cb} {
-
-}
-
-OptionBox::OptionBox(const std::string& message, const Option& a, const Option& b, const Option& c, s64 index, Callback cb)
-: m_message{message}
-, m_callback{cb} {
-
 }
 
 auto OptionBox::Update(Controller* controller, TouchInfo* touch) -> void {
@@ -92,13 +82,25 @@ auto OptionBox::Update(Controller* controller, TouchInfo* touch) -> void {
 }
 
 auto OptionBox::Draw(NVGcontext* vg, Theme* theme) -> void {
-    const float padding = 15;
     gfx::dimBackground(vg);
-    gfx::drawRect(vg, m_pos, theme->GetColour(ThemeEntryID_POPUP));
+    gfx::drawRect(vg, m_pos, theme->GetColour(ThemeEntryID_POPUP), 5);
 
     nvgSave(vg);
     nvgTextLineHeight(vg, 1.5);
-    gfx::drawTextBox(vg, m_pos.x + padding, m_pos.y + 110.f, 26.f, m_pos.w - padding*2, theme->GetColour(ThemeEntryID_TEXT), m_message.c_str(), NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+    if (m_image) {
+        Vec4 image{m_pos};
+        image.x += 40;
+        image.y += 40;
+        image.w = 150;
+        image.h = 150;
+
+        const float padding = 40;
+        gfx::drawImage(vg, image, m_image, 5);
+        gfx::drawTextBox(vg, image.x + image.w + padding, m_pos.y + 110.f, 22.f, m_pos.w - (image.x - m_pos.x) - image.w - padding*2, theme->GetColour(ThemeEntryID_TEXT), m_message.c_str(), NVG_ALIGN_LEFT | NVG_ALIGN_BASELINE);
+    } else {
+        const float padding = 30;
+        gfx::drawTextBox(vg, m_pos.x + padding, m_pos.y + 110.f, 24.f, m_pos.w - padding*2, theme->GetColour(ThemeEntryID_TEXT), m_message.c_str(), NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+    }
     nvgRestore(vg);
 
     gfx::drawRect(vg, m_spacer_line, theme->GetColour(ThemeEntryID_LINE_SEPARATOR));

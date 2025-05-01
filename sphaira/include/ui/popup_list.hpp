@@ -36,6 +36,7 @@ private:
     Items m_items{};
     Callback m_callback{};
     s64 m_index{}; // index in list array
+    s64 m_starting_index{};
 
     std::unique_ptr<List> m_list{};
 

@@ -11,6 +11,7 @@
 #include "download.hpp"
 #include "defines.hpp"
 #include "i18n.hpp"
+#include "ui/menus/usb_menu.hpp"
 
 #include <cstring>
 #include <minizip/unzip.h>
@@ -208,6 +209,9 @@ MainMenu::MainMenu() {
 
     this->SetActions(
         std::make_pair(Button::START, Action{App::Exit}),
+        std::make_pair(Button::SELECT, Action{"Misc"_i18n, [this](){
+            App::DisplayMiscOptions();
+        }}),
         std::make_pair(Button::Y, Action{"Menu"_i18n, [this](){
             auto options = std::make_shared<Sidebar>("Menu Options"_i18n, "v" APP_VERSION_HASH, Sidebar::Side::LEFT);
             ON_SCOPE_EXIT(App::Push(options));

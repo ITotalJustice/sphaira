@@ -10,14 +10,16 @@
 namespace sphaira::ui::menu::gc {
 
 struct GcCollection : yati::container::CollectionEntry {
-    GcCollection(const char* _name, s64 _size, u8 _type) {
+    GcCollection(const char* _name, s64 _size, u8 _type, u8 _id_offset) {
         name = _name;
         size = _size;
         type = _type;
+        id_offset = _id_offset;
     }
 
     // NcmContentType
     u8 type{};
+    u8 id_offset{};
 };
 
 using GcCollections = std::vector<GcCollection>;
@@ -48,6 +50,7 @@ private:
     Result GcMount();
     void GcUnmount();
     Result GcPoll(bool* inserted);
+    Result GcOnEvent();
     Result UpdateStorageSize();
 
     void FreeImage();
@@ -57,6 +60,8 @@ private:
     FsDeviceOperator m_dev_op{};
     FsGameCardHandle m_handle{};
     std::unique_ptr<fs::FsNativeGameCard> m_fs{};
+    FsEventNotifier m_event_notifier{};
+    Event m_event{};
 
     std::vector<ApplicationEntry> m_entries{};
     std::unique_ptr<List> m_list{};

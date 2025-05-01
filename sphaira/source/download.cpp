@@ -195,6 +195,8 @@ private:
         } else {
             const auto update_entry = [this, &hash_key](const char* tag, const std::string& value) {
                 if (value.empty()) {
+                    // workaround for appstore accepting etags but not returning them.
+                    yyjson_mut_obj_remove_str(hash_key, tag);
                     return true;
                 } else {
                     auto key = yyjson_mut_obj_get(hash_key, tag);
@@ -471,7 +473,8 @@ auto DownloadInternal(CURL* curl, const Api& e) -> ApiResult {
             return {};
         }
 
-        if (e.GetFlags() & Flag_Cache) {
+        // only add etag if the dst file still exists.
+        if ((e.GetFlags() & Flag_Cache) && fs::FileExists(&fs.m_fs, e.GetPath())) {
             g_cache.get(e.GetPath(), header_in);
         }
     }
@@ -490,6 +493,8 @@ auto DownloadInternal(CURL* curl, const Api& e) -> ApiResult {
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_BUFFERSIZE, 1024*512);
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_HEADERFUNCTION, header_callback);
     CURL_EASY_SETOPT_LOG(curl, CURLOPT_HEADERDATA, &header_out);
+    // enable all forms of compression supported by libcurl.
+    CURL_EASY_SETOPT_LOG(curl, CURLOPT_ACCEPT_ENCODING, "");
 
     if (has_post) {
         CURL_EASY_SETOPT_LOG(curl, CURLOPT_POSTFIELDS, e.GetFields().c_str());
@@ -557,6 +562,15 @@ auto DownloadInternal(CURL* curl, const Api& e) -> ApiResult {
                 if (e.GetFlags() & Flag_Cache) {
                     g_cache.set(e.GetPath(), header_out);
                 }
+
+                // enable to log received headers.
+                #if 0
+                log_write("\n\nLOGGING HEADER\n");
+                    for (auto [a, b] : header_out.m_map) {
+                        log_write("\t%s: %s\n", a.c_str(), b.c_str());
+                    }
+                log_write("\n\n");
+                #endif
 
                 fs.DeleteFile(e.GetPath());
                 fs.CreateDirectoryRecursivelyWithPath(e.GetPath());

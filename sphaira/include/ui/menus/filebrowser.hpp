@@ -137,6 +137,13 @@ private:
     void InstallForwarder();
     void InstallFile(const FileEntry& target);
     void InstallFiles(const std::vector<FileEntry>& targets);
+
+    void UnzipFile(const fs::FsPath& folder, const FileEntry& target);
+    void UnzipFiles(fs::FsPath folder, const std::vector<FileEntry>& targets);
+
+    void ZipFile(const fs::FsPath& zip_path, const FileEntry& target);
+    void ZipFiles(fs::FsPath zip_path, const std::vector<FileEntry>& targets);
+
     auto Scan(const fs::FsPath& new_path, bool is_walk_up = false) -> Result;
 
     void LoadAssocEntriesPath(const fs::FsPath& path);

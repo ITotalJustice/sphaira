@@ -49,6 +49,40 @@ The `path` field is optional. If left out, it will use the name of the ini to fi
 
 See `assets/romfs/assoc/` for more examples of file assoc entries.
 
+## Installing (applications)
+
+Sphaira can install applications (nsp, xci, nsz, xcz) from various sources (sd card, gamecard, ftp, usb).
+
+For informantion about the install options, [see the wiki](https://github.com/ITotalJustice/sphaira/wiki/Install).
+
+### Usb (install)
+
+The USB protocol is the same as tinfoil, so tools such as [ns-usbloader](https://github.com/developersu/ns-usbloader) and [fluffy](https://github.com/fourminute/Fluffy) should work with sphaira. You may also use the provided python script found [here](tools/usb_install_pc.py).
+
+### Ftp (install)
+
+Once you have connected your ftp client to your switch, you can upload files to install into the `install` folder.
+
+## Building from source
+
+You will first need to install [devkitPro](https://devkitpro.org/wiki/Getting_Started).
+
+Next you will need to install the dependencies:
+```sh
+sudo pacman -S switch-dev deko3d switch-cmake switch-curl switch-glm switch-zlib
+```
+
+Once devkitPro and all dependencies are installed, you can now build sphaira.
+
+```sh
+git clone https://github.com/ITotalJustice/sphaira.git
+cd sphaira
+cmake --preset MinSizeRel
+cmake --build --preset MinSizeRel
+```
+
+The output will be found in `build/MinSizeRel/sphaira.nro`
+
 ## Credits
 
 - borealis

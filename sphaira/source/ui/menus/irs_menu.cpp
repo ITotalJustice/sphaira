@@ -86,20 +86,7 @@ Menu::Menu() : MenuBase{"Irs"_i18n} {
 
         SidebarEntryArray::Items controller_str;
         for (u32 i = 0; i < IRS_MAX_CAMERAS; i++) {
-            const auto& e = m_entries[i];
-            std::string text = "Pad "_i18n + (i == 8 ? "HandHeld"_i18n : std::to_string(i));
-            switch (e.status) {
-                case IrsIrCameraStatus_Available:
-                    text += " (Available)"_i18n;
-                    break;
-                case IrsIrCameraStatus_Unsupported:
-                    text += " (Unsupported)"_i18n;
-                    break;
-                case IrsIrCameraStatus_Unconnected:
-                    text += " (Unconnected)"_i18n;
-                    break;
-            }
-            controller_str.emplace_back(text);
+            controller_str.emplace_back(GetEntryName(i));
         }
 
         SidebarEntryArray::Items rotation_str;
@@ -217,6 +204,17 @@ Menu::Menu() : MenuBase{"Irs"_i18n} {
     PollCameraStatus(true);
     // load default config
     LoadDefaultConfig();
+    // poll to get first available handle.
+    PollCameraStatus(false);
+
+    // find the first available entry and connect to that.
+    for (s64 i = 0; i < std::size(m_entries); i++) {
+        if (m_entries[i].status == IrsIrCameraStatus_Available) {
+            m_index = i;
+            UpdateConfig(&m_config);
+            break;
+        }
+    }
 }
 
 Menu::~Menu() {
@@ -233,6 +231,7 @@ Menu::~Menu() {
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     MenuBase::Update(controller, touch);
     PollCameraStatus();
+    SetTitleSubHeading(GetEntryName(m_index));
 }
 
 void Menu::Draw(NVGcontext* vg, Theme* theme) {
@@ -528,6 +527,23 @@ void Menu::updateColourArray() {
     }
 
     UpdateImage();
+}
+
+auto Menu::GetEntryName(s64 i) -> std::string {
+    const auto& e = m_entries[i];
+    std::string text = "Pad "_i18n + (i == 8 ? "HandHeld"_i18n : std::to_string(i));
+    switch (e.status) {
+        case IrsIrCameraStatus_Available:
+            text += " (Available)"_i18n;
+            break;
+        case IrsIrCameraStatus_Unsupported:
+            text += " (Unsupported)"_i18n;
+            break;
+        case IrsIrCameraStatus_Unconnected:
+            text += " (Unconnected)"_i18n;
+            break;
+    }
+    return text;
 }
 
 } // namespace sphaira::ui::menu::irs

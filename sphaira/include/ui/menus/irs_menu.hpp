@@ -34,12 +34,14 @@ struct Menu final : MenuBase {
     void Draw(NVGcontext* vg, Theme* theme) override;
     void OnFocusGained() override;
 
+private:
     void PollCameraStatus(bool statup = false);
     void LoadDefaultConfig();
     void UpdateConfig(const IrsImageTransferProcessorExConfig* config);
     void ResetImage();
     void UpdateImage();
     void updateColourArray();
+    auto GetEntryName(s64 i) -> std::string;
 
 private:
     Result m_init_rc{};

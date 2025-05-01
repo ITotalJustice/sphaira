@@ -226,7 +226,6 @@ struct ThemeMeta {
 
 struct Theme {
     ThemeMeta meta;
-    PLSR_BFSTM music;
     ElementEntry elements[ThemeEntryID_MAX];
 
     auto GetColour(ThemeEntryID id) const {

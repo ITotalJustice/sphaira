@@ -44,6 +44,13 @@ auto BuildGcPath(const char* name, const FsGameCardHandle* handle, FsGameCardPar
     return path;
 }
 
+Result fsOpenGameCardDetectionEventNotifier(FsEventNotifier* out) {
+    return serviceDispatch(fsGetServiceSession(), 501,
+        .out_num_objects = 1,
+        .out_objects = &out->s
+    );
+}
+
 auto InRange(u64 off, u64 offset, u64 size) -> bool {
     return off < offset + size && off >= offset;
 }
@@ -175,29 +182,24 @@ Menu::Menu() : MenuBase{"GameCard"_i18n} {
     m_list = std::make_unique<List>(1, 3, m_pos, v, pad);
 
     fsOpenDeviceOperator(std::addressof(m_dev_op));
+    fsOpenGameCardDetectionEventNotifier(std::addressof(m_event_notifier));
+    fsEventNotifierGetEventHandle(std::addressof(m_event_notifier), std::addressof(m_event), true);
+    GcOnEvent();
     UpdateStorageSize();
 }
 
 Menu::~Menu() {
     GcUnmount();
+    eventClose(std::addressof(m_event));
+    fsEventNotifierClose(std::addressof(m_event_notifier));
     fsDeviceOperatorClose(std::addressof(m_dev_op));
 }
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     // poll for the gamecard first before handling inputs as the gamecard
     // may have been removed, thus pressing A would fail.
-    bool inserted{};
-    GcPoll(&inserted);
-    if (m_mounted != inserted) {
-        log_write("gc state changed\n");
-        m_mounted = inserted;
-        if (m_mounted) {
-            log_write("trying to mount\n");
-            m_mounted = R_SUCCEEDED(GcMount());
-        } else {
-            log_write("trying to unmount\n");
-            GcUnmount();
-        }
+    if (R_SUCCEEDED(eventWait(std::addressof(m_event), 0))) {
+        GcOnEvent();
     }
 
     MenuBase::Update(controller, touch);
@@ -312,7 +314,7 @@ Result Menu::GcMount() {
         std::vector<u8> extended_header;
         std::vector<NcmPackagedContentInfo> infos;
         const auto path = BuildGcPath(e.name, &m_handle);
-        R_TRY(yati::ParseCnmtNca(path, header, extended_header, infos));
+        R_TRY(yati::ParseCnmtNca(path, 0, header, extended_header, infos));
 
         u8 key_gen;
         FsRightsId rights_id;
@@ -321,23 +323,24 @@ Result Menu::GcMount() {
         // always add tickets, yati will ignore them if not needed.
         GcCollections collections;
         // add cnmt file.
-        collections.emplace_back(e.name, e.file_size, NcmContentType_Meta);
+        collections.emplace_back(e.name, e.file_size, NcmContentType_Meta, 0);
 
-        for (const auto& info : infos) {
+        for (const auto& packed_info : infos) {
+            const auto& info = packed_info.info;
             // these don't exist for gamecards, however i may copy/paste this code
             // somewhere so i'm future proofing against myself.
-            if (info.info.content_type == NcmContentType_DeltaFragment) {
+            if (info.content_type == NcmContentType_DeltaFragment) {
                 continue;
             }
 
             // find the nca file, this will never fail for gamecards, see above comment.
-            const auto str = hexIdToStr(info.info.content_id);
+            const auto str = hexIdToStr(info.content_id);
             const auto it = std::find_if(buf.cbegin(), buf.cend(), [str](auto& e){
                 return !std::strncmp(str.str, e.name, std::strlen(str.str));
             });
 
             R_UNLESS(it != buf.cend(), yati::Result_NcaNotFound);
-            collections.emplace_back(it->name, it->file_size, info.info.content_type);
+            collections.emplace_back(it->name, it->file_size, info.content_type, info.id_offset);
         }
 
         const auto app_id = ncm::GetAppId(header);
@@ -409,6 +412,7 @@ Result Menu::GcMount() {
     }
 
     OnChangeIndex(0);
+    m_mounted = true;
     R_SUCCEED();
 }
 
@@ -433,6 +437,28 @@ Result Menu::GcPoll(bool* inserted) {
         R_TRY(fsDeviceOperatorGetGameCardHandle(std::addressof(m_dev_op), std::addressof(handle)));
         if (handle.value != m_handle.value) {
             R_TRY(GcMount());
+        }
+    }
+
+    R_SUCCEED();
+}
+
+Result Menu::GcOnEvent() {
+    bool inserted{};
+    R_TRY(GcPoll(&inserted));
+
+    if (m_mounted != inserted) {
+        log_write("gc state changed\n");
+        m_mounted = inserted;
+        if (m_mounted) {
+            log_write("trying to mount\n");
+            m_mounted = R_SUCCEEDED(GcMount());
+            if (m_mounted) {
+                App::PlaySoundEffect(SoundEffect::SoundEffect_Startup);
+            }
+        } else {
+            log_write("trying to unmount\n");
+            GcUnmount();
         }
     }
 
@@ -475,7 +501,13 @@ void Menu::OnChangeIndex(s64 new_index) {
                 NacpStruct nacp;
                 std::vector<u8> icon;
                 const auto path = BuildGcPath(collection.name.c_str(), &m_handle);
-                if (R_SUCCEEDED(yati::ParseControlNca(path, m_entries[m_entry_index].app_id, &nacp, sizeof(nacp), &icon))) {
+
+                u64 program_id = m_entries[m_entry_index].app_id | collection.id_offset;
+                if (hosversionAtLeast(17, 0, 0)) {
+                    fsGetProgramId(&program_id, path, FsContentAttributes_All);
+                }
+
+                if (R_SUCCEEDED(yati::ParseControlNca(path, program_id, &nacp, sizeof(nacp), &icon))) {
                     log_write("managed to parse control nca %s\n", path.s);
                     NacpLanguageEntry* lang_entry{};
                     nacpGetLanguageEntry(&nacp, &lang_entry);

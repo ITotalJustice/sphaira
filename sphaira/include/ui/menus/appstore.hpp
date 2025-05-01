@@ -2,6 +2,7 @@
 
 #include "ui/menus/menu_base.hpp"
 #include "ui/scrollable_text.hpp"
+#include "ui/scrolling_text.hpp"
 #include "ui/list.hpp"
 #include "nro.hpp"
 #include "fs.hpp"
@@ -168,6 +169,10 @@ private:
     std::vector<EntryMini> m_entries_index_author{};
     std::vector<EntryMini> m_entries_index_search{};
     std::span<EntryMini> m_entries_current{};
+
+    ScrollingText m_scroll_name{};
+    ScrollingText m_scroll_author{};
+    ScrollingText m_scroll_version{};
 
     Filter m_filter{Filter::Filter_All};
     SortType m_sort{SortType::SortType_Updated};

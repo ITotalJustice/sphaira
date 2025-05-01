@@ -175,7 +175,7 @@ struct Header {
     u8 old_key_gen;            // see KeyGenerationOld.
     u8 kaek_index;             // see KeyAreaEncryptionKeyIndex.
     u64 size;
-    u64 title_id;
+    u64 program_id;
     u32 context_id;
     u32 sdk_version;
     u8 key_gen;                // see KeyGeneration.
