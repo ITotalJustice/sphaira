@@ -168,7 +168,8 @@
   "More by Author": "Mais deste autor",
   "Leave Feedback": "Deixar um feedback",
 
-  "Irs": "Sensor infravermelho",
+  "Irs": "Câmera de movimento IR",
+  "Irs (Infrared Joycon Camera)": "Câmera de movimento IR",
   "Ambient Noise Level: ": "Nível de ruído ambiente: ",
   "Controller": "Controle",
   "Pad ": "Pad ",
@@ -267,7 +268,7 @@
   "Username:": "Nome de usuário:",
   "Password:": "Senha:",
   "SSID:": "SSID:",
-  "Passphrase:": "Frase-passe:",
+  "Passphrase:": "Senha:",
 
   "Installing ": "Instalando ",
   "Uninstalling ": "Desinstalando ",
@@ -307,4 +308,5 @@
   "Are you sure you wish to cancel?": "Você tem certeza que quer cancelar?",
   "Audio disabled due to suspended game": "Áudio desativado devido ao software suspenso",
   "If this message appears repeatedly, please open an issue.": "Se esta mensagem aparecer repetidamente, abra um issue."
+
 }
