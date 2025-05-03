@@ -37,6 +37,8 @@
   "Fast": "Rápida",
   "Yes": "Sim",
   "No": "Não",
+  "On": "Sim",
+  "Off": "Não",
   "Enable": "Habilitar",
   "Enabled": "Sim",
   "Disabled": "Não",
@@ -70,6 +72,7 @@
   "Shuffle": "Embaralhar temas",
   "Music": "Música",
   "12 Hour Time": "Relógio de 12 horas",
+  "Download Default Music": "Baixar música padrão",
   "Network": "Rede",
   "Network Options": "Opções de rede",
   "Ftp": "Servidor FTP",
@@ -104,6 +107,7 @@
   "Install location": "Local de instalação",
   "Show install warning": "Mostrar aviso de instalação",
   "Text scroll speed": "Rolagem do texto",
+  "Set right-side menu": "Menu direito (R)"
 
   "FileBrowser": "Arquivos",
   "%zd files": "%zd arquivo(s)",
@@ -221,6 +225,8 @@
   "Select asset to download for ": "Selecione o recurso para baixar de ",
 
   "Install Options": "Opções de instalação",
+  "Install options": "Opções de instalação",
+  "Boost CPU clock": "Aumentar clock da CPU",
   "Allow downgrade": "Permitir downgrade",
   "Skip if already installed": "Pular se já instalado",
   "Ticket only": "Instalar apenas ticket",
@@ -230,7 +236,7 @@
   "Skip addon": "Pular addon",
   "Skip data patch": "Pular patch de dados",
   "Skip ticket": "Pular ticket",
-  "Skip NCA hash verify": "Pular verificação de hash NCA",
+  "skip NCA hash verify": "Pular verificação de hash NCA",
   "Skip RSA header verify": "Pular verificação de header RSA",
   "Skip RSA NPDM verify": "Pular verificação de NPDM RSA",
   "Ignore distribution bit": "Ignorar bit de distribuição",
