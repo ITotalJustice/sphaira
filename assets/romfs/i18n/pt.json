@@ -107,7 +107,7 @@
   "Install location": "Local de instalação",
   "Show install warning": "Mostrar aviso de instalação",
   "Text scroll speed": "Rolagem do texto",
-  "Set right-side menu": "Menu direito (R)"
+  "Set right-side menu": "Menu direito (R)",
 
   "FileBrowser": "Arquivos",
   "%zd files": "%zd arquivo(s)",
@@ -122,6 +122,7 @@
   "Paste ": "Colar ",
   " file(s)?": " arquivo(s)?",
   "Rename": "Renomear",
+  "Compress to zip": "Comprimir em zip",
   "Set New File Name": "Defina o nome do novo arquivo",
   "Advanced": "Avançado",
   "Advanced Options": "Opções avançadas",
@@ -139,7 +140,7 @@
   "Select launcher for: ": "Selecionar launcher para: ",
 
   "Homebrew": "Aplicativos",
-  "Homebrew Options": "Opções do aplicativo",
+  "Homebrew Options": "Opções de aplicativo",
   "Hide Sphaira": "Esconder sphaira",
   "Install Forwarder": "Instalar atalho (forwarder)",
   "WARNING: Installing forwarders will lead to a ban!": "AVISO: Instalar atalhos pode\nresultar em um banimento!",
@@ -171,6 +172,13 @@
   "app_dls: %s": "downloads: %s",
   "More by Author": "Mais deste autor",
   "Leave Feedback": "Deixar um feedback",
+  
+  "Game Options": "Opções de jogo",
+  "Launch random game": "Iniciar jogo aleatório",
+  "List meta records": "Listar registro de metadados",
+  "Entries": "Entradas",
+  "Delete entity": "Excluir entidade",
+  "Hide forwarders": "Ocultar atalhos (forwarders)",
 
   "Irs": "Câmera de movimento IR",
   "Irs (Infrared Joycon Camera)": "Câmera de movimento IR",
