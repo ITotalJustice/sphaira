@@ -181,7 +181,7 @@
   "Hide forwarders": "Ocultar atalhos (forwarders)",
 
   "Irs": "Câmera de movimento IR",
-  "Irs (Infrared Joycon Camera)": "Câmera de movimento IR",
+  "IRS (Infrared Joycon Camera)": "Câmera de movimento IR",
   "Ambient Noise Level: ": "Nível de ruído ambiente: ",
   "Controller": "Controle",
   "Pad ": "Pad ",
@@ -241,7 +241,7 @@
   "Patch ticket": "Fazer patch de ticket",
   "Skip base": "Pular base",
   "Skip patch": "Pular patch",
-  "Skip addon": "Pular addon",
+  "Skip dlc": "Pular DLC",
   "Skip data patch": "Pular patch de dados",
   "Skip ticket": "Pular ticket",
   "skip NCA hash verify": "Pular verificação de hash NCA",
@@ -253,8 +253,8 @@
   "Lower system version": "Reduzir versão do sistema",
   "Install Selected files?": "Instalar os arquivos selecionados?",
   "Installed ": "Instalado ",
-  "Ftp Install": "Instalação via FTP",
-  "Usb Install": "Instalação via USB",
+  "FTP Install": "Instalação via FTP",
+  "USB Install": "Instalação via USB",
   "GameCard Install": "Instalação de cartão de jogo",
 
   "FTP Install (EXPERIMENTAL)": "Instalação via FTP (EXPERIMENTAL)",
