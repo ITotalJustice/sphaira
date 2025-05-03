@@ -113,7 +113,8 @@ auto PopupList::Draw(NVGcontext* vg, Theme* theme) -> void {
     m_list->Draw(vg, theme, m_items.size(), [this](auto* vg, auto* theme, auto v, auto i) {
         const auto& [x, y, w, h] = v;
         auto colour = ThemeEntryID_TEXT;
-        if (m_index == i) {
+        const auto selected = m_index == i;
+        if (selected) {
             gfx::drawRectOutline(vg, theme, 4.f, v);
         } else {
             if (i != m_items.size() - 1) {
@@ -126,7 +127,9 @@ auto PopupList::Draw(NVGcontext* vg, Theme* theme) -> void {
             gfx::drawText(vg, x + w - m_text_xoffset, y + (h / 2.f), 20.f, "\uE14B", NULL, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->GetColour(colour));
         }
 
-        gfx::drawText(vg, x + m_text_xoffset, y + (h / 2.f), 20.f, m_items[i].c_str(), NULL, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(colour));
+        const auto text_x = x + m_text_xoffset;
+        const auto text_clip_w = w - 60.f - m_text_xoffset;
+        m_scroll_text.Draw(vg, selected, text_x, y + (h / 2.f), text_clip_w, 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(colour), m_items[i]);
     });
 
     Widget::Draw(vg, theme);

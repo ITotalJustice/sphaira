@@ -857,7 +857,8 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
     u64 hash_data[SHA256_HASH_SIZE / sizeof(u64)];
     const auto hash_path = config.nro_path + config.args;
     sha256CalculateHash(hash_data, hash_path.data(), hash_path.length());
-    const u64 tid = 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
+    const u64 old_tid = 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
+    const u64 tid = 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
 
     std::vector<NcaEntry> nca_entries;
 
@@ -978,6 +979,12 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
 
         if (hosversionAtLeast(2,0,0)) {
             R_TRY(nsIsAnyApplicationEntityInstalled(tid, &already_installed));
+        }
+
+        // remove old id for forwarders.
+        const auto rc = nsDeleteApplicationCompletely(old_tid);
+        if (R_FAILED(rc) && rc != 0x410) { // not found
+            App::Notify("Failed to remove old forwarder, please manually remove it!");
         }
 
         // remove previous application record

@@ -19,6 +19,7 @@ struct Usb final : Base {
         Result_BadCount = MAKERESULT(USBModule, 2),
         Result_BadTransferSize = MAKERESULT(USBModule, 3),
         Result_BadTotalSize = MAKERESULT(USBModule, 4),
+        Result_Cancelled = MAKERESULT(USBModule, 11),
     };
 
     Usb(u64 transfer_timeout);
@@ -28,9 +29,17 @@ struct Usb final : Base {
     Result Finished();
 
     Result Init();
-    Result IsUsbConnected(u64 timeout) const;
+    Result IsUsbConnected(u64 timeout);
     Result WaitForConnection(u64 timeout, std::vector<std::string>& out_names);
     void SetFileNameForTranfser(const std::string& name);
+
+    auto GetCancelEvent() {
+        return &m_uevent;
+    }
+
+    void SignalCancel() override {
+        ueventSignal(GetCancelEvent());
+    }
 
 public:
     // custom allocator for std::vector that respects alignment.
@@ -69,16 +78,18 @@ private:
     Result SendFileRangeCmd(u64 offset, u64 size);
 
     Event *GetCompletionEvent(UsbSessionEndpoint ep) const;
-    Result WaitTransferCompletion(UsbSessionEndpoint ep, u64 timeout) const;
+    Result WaitTransferCompletion(UsbSessionEndpoint ep, u64 timeout);
     Result TransferAsync(UsbSessionEndpoint ep, void *buffer, u32 size, u32 *out_urb_id) const;
     Result GetTransferResult(UsbSessionEndpoint ep, u32 urb_id, u32 *out_requested_size, u32 *out_transferred_size) const;
-    Result TransferPacketImpl(bool read, void *page, u32 size, u32 *out_size_transferred, u64 timeout) const;
+    Result TransferPacketImpl(bool read, void *page, u32 size, u32 *out_size_transferred, u64 timeout);
     Result TransferAll(bool read, void *data, u32 size, u64 timeout);
 
 private:
     UsbDsInterface* m_interface{};
     UsbDsEndpoint* m_endpoints[2]{};
     u64 m_transfer_timeout{};
+    UEvent m_uevent{};
+    // std::vector<UEvent*> m_cancel_events{};
     // aligned buffer that transfer data is copied to and from.
     // a vector is used to avoid multiple alloc within the transfer loop.
     PageAlignedVector m_aligned{};

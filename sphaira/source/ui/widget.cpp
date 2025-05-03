@@ -86,6 +86,11 @@ auto Widget::GetUiButtons() const -> uiButtons {
     uiButtons draw_actions;
     draw_actions.reserve(m_actions.size());
 
+    const std::pair<Button, Button> swap_buttons[] = {
+        {Button::L, Button::R},
+        {Button::L2, Button::R2},
+    };
+
     // build array
     for (const auto& [button, action] : m_actions) {
         if (action.IsHidden() || action.m_hint.empty()) {
@@ -94,13 +99,19 @@ auto Widget::GetUiButtons() const -> uiButtons {
 
         uiButton ui_button{button, action};
 
-        // swap
-        if (button == Button::R && draw_actions.size() && draw_actions.back().m_button == Button::L) {
-            const auto s = draw_actions.back();
-            draw_actions.back().m_button = button;
-            draw_actions.back().m_action = action;
-            draw_actions.emplace_back(s);
-        } else {
+        bool should_swap = false;
+        for (auto [left, right] : swap_buttons) {
+            if (button == right && draw_actions.size() && draw_actions.back().m_button == left) {
+                const auto s = draw_actions.back();
+                draw_actions.back().m_button = button;
+                draw_actions.back().m_action = action;
+                draw_actions.emplace_back(s);
+                should_swap = true;
+                break;
+            }
+        }
+
+        if (!should_swap) {
             draw_actions.emplace_back(ui_button);
         }
     }

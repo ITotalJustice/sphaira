@@ -176,7 +176,7 @@ Menu::Menu() : MenuBase{"Irs"_i18n} {
             options->Add(std::make_shared<SidebarEntryBool>("External Light Filter"_i18n, m_config.is_external_light_filter_enabled, [this](bool& enable){
                 m_config.is_external_light_filter_enabled = enable;
                 UpdateConfig(&m_config);
-            }, "Enabled"_i18n, "Disabled"_i18n));
+            }));
         }
 
         options->Add(std::make_shared<SidebarEntryCallback>("Load Default"_i18n, [this](){
@@ -204,17 +204,6 @@ Menu::Menu() : MenuBase{"Irs"_i18n} {
     PollCameraStatus(true);
     // load default config
     LoadDefaultConfig();
-    // poll to get first available handle.
-    PollCameraStatus(false);
-
-    // find the first available entry and connect to that.
-    for (s64 i = 0; i < std::size(m_entries); i++) {
-        if (m_entries[i].status == IrsIrCameraStatus_Available) {
-            m_index = i;
-            UpdateConfig(&m_config);
-            break;
-        }
-    }
 }
 
 Menu::~Menu() {
@@ -307,6 +296,20 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
 void Menu::OnFocusGained() {
     MenuBase::OnFocusGained();
+
+    if (m_entries[m_index].status != IrsIrCameraStatus_Available) {
+        // poll to get first available handle.
+        PollCameraStatus(false);
+
+        // find the first available entry and connect to that.
+        for (s64 i = 0; i < std::size(m_entries); i++) {
+            if (m_entries[i].status == IrsIrCameraStatus_Available) {
+                m_index = i;
+                UpdateConfig(&m_config);
+                break;
+            }
+        }
+    }
 }
 
 void Menu::PollCameraStatus(bool statup) {

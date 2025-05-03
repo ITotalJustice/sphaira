@@ -7,13 +7,6 @@
 #include "ui/error_box.hpp"
 
 #include "ui/menus/main_menu.hpp"
-#include "ui/menus/irs_menu.hpp"
-#include "ui/menus/themezer.hpp"
-#include "ui/menus/ghdl.hpp"
-#include "ui/menus/usb_menu.hpp"
-#include "ui/menus/ftp_menu.hpp"
-#include "ui/menus/gc_menu.hpp"
-#include "ui/menus/game_menu.hpp"
 
 #include "app.hpp"
 #include "log.hpp"
@@ -1487,11 +1480,11 @@ void App::DisplayThemeOptions(bool left_side) {
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Music"_i18n, App::GetThemeMusicEnable(), [](bool& enable){
         App::SetThemeMusicEnable(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("12 Hour Time"_i18n, App::Get12HourTimeEnable(), [](bool& enable){
         App::Set12HourTimeEnable(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryCallback>("Download Default Music"_i18n, [](){
         // check if we already have music
@@ -1519,37 +1512,19 @@ void App::DisplayMiscOptions(bool left_side) {
     auto options = std::make_shared<ui::Sidebar>("Misc Options"_i18n, left_side ? ui::Sidebar::Side::LEFT : ui::Sidebar::Side::RIGHT);
     ON_SCOPE_EXIT(App::Push(options));
 
-    options->Add(std::make_shared<ui::SidebarEntryCallback>("Games"_i18n, [](){
-        App::Push(std::make_shared<ui::menu::game::Menu>());
-    }));
-
-    options->Add(std::make_shared<ui::SidebarEntryCallback>("Themezer"_i18n, [](){
-        App::Push(std::make_shared<ui::menu::themezer::Menu>());
-    }));
-
-    options->Add(std::make_shared<ui::SidebarEntryCallback>("GitHub"_i18n, [](){
-        App::Push(std::make_shared<ui::menu::gh::Menu>());
-    }));
-
-    if (App::GetApp()->m_install.Get()) {
-        if (App::GetFtpEnable()) {
-            options->Add(std::make_shared<ui::SidebarEntryCallback>("Ftp Install"_i18n, [](){
-                App::Push(std::make_shared<ui::menu::ftp::Menu>());
-            }));
+    for (auto& e : ui::menu::main::GetMiscMenuEntries()) {
+        if (e.name == g_app->m_right_side_menu.Get()) {
+            continue;
         }
 
-        options->Add(std::make_shared<ui::SidebarEntryCallback>("Usb Install"_i18n, [](){
-            App::Push(std::make_shared<ui::menu::usb::Menu>());
-        }));
+        if (e.IsInstall() && !App::GetInstallEnable()) {
+            continue;
+        }
 
-        options->Add(std::make_shared<ui::SidebarEntryCallback>("GameCard Install"_i18n, [](){
-            App::Push(std::make_shared<ui::menu::gc::Menu>());
+        options->Add(std::make_shared<ui::SidebarEntryCallback>(i18n::get(e.title), [e](){
+            App::Push(e.func());
         }));
     }
-
-    options->Add(std::make_shared<ui::SidebarEntryCallback>("Irs (Infrared Joycon Camera)"_i18n, [](){
-        App::Push(std::make_shared<ui::menu::irs::Menu>());
-    }));
 }
 
 void App::DisplayAdvancedOptions(bool left_side) {
@@ -1561,17 +1536,52 @@ void App::DisplayAdvancedOptions(bool left_side) {
     text_scroll_speed_items.push_back("Normal"_i18n);
     text_scroll_speed_items.push_back("Fast"_i18n);
 
+    std::vector<const char*> menu_names;
+    for (auto& e : ui::menu::main::GetMiscMenuEntries()) {
+        if (!e.IsShortcut()) {
+            continue;
+        }
+
+        if (e.IsInstall() && !App::GetInstallEnable()) {
+            continue;
+        }
+
+        menu_names.emplace_back(e.name);
+    }
+
+    ui::SidebarEntryArray::Items right_side_menu_items;
+    for (auto& str : menu_names) {
+        right_side_menu_items.push_back(i18n::get(str));
+    }
+
+    const auto it = std::find(menu_names.cbegin(), menu_names.cend(), g_app->m_right_side_menu.Get());
+    if (it == menu_names.cend()) {
+        g_app->m_right_side_menu.Set(menu_names[0]);
+    }
+
     options->Add(std::make_shared<ui::SidebarEntryBool>("Logging"_i18n, App::GetLogEnable(), [](bool& enable){
         App::SetLogEnable(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Replace hbmenu on exit"_i18n, App::GetReplaceHbmenuEnable(), [](bool& enable){
         App::SetReplaceHbmenuEnable(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryArray>("Text scroll speed"_i18n, text_scroll_speed_items, [](s64& index_out){
         App::SetTextScrollSpeed(index_out);
-    }, (s64)App::GetTextScrollSpeed()));
+    }, App::GetTextScrollSpeed()));
+
+    options->Add(std::make_shared<ui::SidebarEntryArray>("Set right-side menu"_i18n, right_side_menu_items, [menu_names](s64& index_out){
+        const auto e = menu_names[index_out];
+        if (g_app->m_right_side_menu.Get() != e) {
+            g_app->m_right_side_menu.Set(e);
+            App::Push(std::make_shared<ui::OptionBox>(
+                "Press OK to restart Sphaira"_i18n, "OK"_i18n, [](auto){
+                    App::ExitRestart();
+                }
+            ));
+        }
+    }, i18n::get(g_app->m_right_side_menu.Get())));
 
     options->Add(std::make_shared<ui::SidebarEntryCallback>("Install options"_i18n, [left_side](){
         App::DisplayInstallOptions(left_side);
@@ -1588,11 +1598,11 @@ void App::DisplayInstallOptions(bool left_side) {
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Enable"_i18n, App::GetApp()->m_install.Get(), [](bool& enable){
         App::GetApp()->m_install.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Show install warning"_i18n, App::GetApp()->m_install_prompt.Get(), [](bool& enable){
         App::GetApp()->m_install_prompt.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryArray>("Install location"_i18n, install_items, [](s64& index_out){
         App::SetInstallSdEnable(index_out);
@@ -1600,67 +1610,67 @@ void App::DisplayInstallOptions(bool left_side) {
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Boost CPU clock"_i18n, App::GetApp()->m_boost_mode.Get(), [](bool& enable){
         App::GetApp()->m_boost_mode.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Allow downgrade"_i18n, App::GetApp()->m_allow_downgrade.Get(), [](bool& enable){
         App::GetApp()->m_allow_downgrade.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip if already installed"_i18n, App::GetApp()->m_skip_if_already_installed.Get(), [](bool& enable){
         App::GetApp()->m_skip_if_already_installed.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Ticket only"_i18n, App::GetApp()->m_ticket_only.Get(), [](bool& enable){
         App::GetApp()->m_ticket_only.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip base"_i18n, App::GetApp()->m_skip_base.Get(), [](bool& enable){
         App::GetApp()->m_skip_base.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip patch"_i18n, App::GetApp()->m_skip_patch.Get(), [](bool& enable){
         App::GetApp()->m_skip_patch.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip dlc"_i18n, App::GetApp()->m_skip_addon.Get(), [](bool& enable){
         App::GetApp()->m_skip_addon.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip data patch"_i18n, App::GetApp()->m_skip_data_patch.Get(), [](bool& enable){
         App::GetApp()->m_skip_data_patch.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip ticket"_i18n, App::GetApp()->m_skip_ticket.Get(), [](bool& enable){
         App::GetApp()->m_skip_ticket.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("skip NCA hash verify"_i18n, App::GetApp()->m_skip_nca_hash_verify.Get(), [](bool& enable){
         App::GetApp()->m_skip_nca_hash_verify.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip RSA header verify"_i18n, App::GetApp()->m_skip_rsa_header_fixed_key_verify.Get(), [](bool& enable){
         App::GetApp()->m_skip_rsa_header_fixed_key_verify.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Skip RSA NPDM verify"_i18n, App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Get(), [](bool& enable){
         App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Ignore distribution bit"_i18n, App::GetApp()->m_ignore_distribution_bit.Get(), [](bool& enable){
         App::GetApp()->m_ignore_distribution_bit.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Convert to standard crypto"_i18n, App::GetApp()->m_convert_to_standard_crypto.Get(), [](bool& enable){
         App::GetApp()->m_convert_to_standard_crypto.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Lower master key"_i18n, App::GetApp()->m_lower_master_key.Get(), [](bool& enable){
         App::GetApp()->m_lower_master_key.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Lower system version"_i18n, App::GetApp()->m_lower_system_version.Get(), [](bool& enable){
         App::GetApp()->m_lower_system_version.Set(enable);
-    }, "Enabled"_i18n, "Disabled"_i18n));
+    }));
 }
 
 App::~App() {

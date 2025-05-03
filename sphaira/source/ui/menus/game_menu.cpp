@@ -6,9 +6,11 @@
 #include "ui/error_box.hpp"
 #include "ui/option_box.hpp"
 #include "ui/progress_box.hpp"
+#include "ui/popup_list.hpp"
 #include "ui/nvg_util.hpp"
 #include "defines.hpp"
 #include "i18n.hpp"
+#include "yati/nx/ncm.hpp"
 
 #include <utility>
 #include <cstring>
@@ -16,16 +18,44 @@
 namespace sphaira::ui::menu::game {
 namespace {
 
+// thank you Shchmue ^^
+struct ApplicationOccupiedSizeEntry {
+    u8 storageId;
+    u8 padding[0x7];
+    u64 sizeApplication;
+    u64 sizePatch;
+    u64 sizeAddOnContent;
+};
+
+struct ApplicationOccupiedSize {
+    ApplicationOccupiedSizeEntry entry[4];
+};
+
+static_assert(sizeof(ApplicationOccupiedSize) == sizeof(NsApplicationOccupiedSize));
+
+using MetaEntries = std::vector<NsApplicationContentMetaStatus>;
+
 Result Notify(Result rc, const std::string& error_message) {
     if (R_FAILED(rc)) {
         App::Push(std::make_shared<ui::ErrorBox>(rc,
-            i18n::get(error_message.c_str())
+            i18n::get(error_message)
         ));
     } else {
         App::Notify("Success");
     }
 
     return rc;
+}
+
+Result GetMetaEntries(const Entry& e, MetaEntries& out) {
+    s32 count;
+    R_TRY(nsCountApplicationContentMeta(e.app_id, &count));
+
+    out.resize(count);
+    R_TRY(nsListApplicationContentMetaStatus(e.app_id, 0, out.data(), out.size(), &count));
+
+    out.resize(count);
+    R_SUCCEED();
 }
 
 // also sets the status to error.
@@ -89,13 +119,43 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
             SetPop();
         }}),
         std::make_pair(Button::A, Action{"Launch"_i18n, [this](){
+            if (m_entries.empty()) {
+                return;
+            }
             LaunchEntry(m_entries[m_index]);
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){
-            auto options = std::make_shared<Sidebar>("Homebrew Options"_i18n, Sidebar::Side::RIGHT);
+            auto options = std::make_shared<Sidebar>("Game Options"_i18n, Sidebar::Side::RIGHT);
             ON_SCOPE_EXIT(App::Push(options));
 
             if (m_entries.size()) {
+                options->Add(std::make_shared<SidebarEntryCallback>("Sort By"_i18n, [this](){
+                    auto options = std::make_shared<Sidebar>("Sort Options"_i18n, Sidebar::Side::RIGHT);
+                    ON_SCOPE_EXIT(App::Push(options));
+
+                    SidebarEntryArray::Items sort_items;
+                    sort_items.push_back("Updated"_i18n);
+
+                    SidebarEntryArray::Items order_items;
+                    order_items.push_back("Descending"_i18n);
+                    order_items.push_back("Ascending"_i18n);
+
+                    options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
+                        m_sort.Set(index_out);
+                        SortAndFindLastFile();
+                    }, m_sort.Get()));
+
+                    options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
+                        m_order.Set(index_out);
+                        SortAndFindLastFile();
+                    }, m_order.Get()));
+
+                    options->Add(std::make_shared<SidebarEntryBool>("Hide forwarders"_i18n, m_hide_forwarders.Get(), [this](bool& v_out){
+                        m_hide_forwarders.Set(v_out);
+                        m_dirty = true;
+                    }));
+                }));
+
                 #if 0
                 options->Add(std::make_shared<SidebarEntryCallback>("Info"_i18n, [this](){
 
@@ -117,6 +177,40 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
                     ));
                 }));
 
+                options->Add(std::make_shared<SidebarEntryCallback>("List meta records"_i18n, [this](){
+                    MetaEntries meta_entries;
+                    const auto rc = GetMetaEntries(m_entries[m_index], meta_entries);
+                    if (R_FAILED(rc)) {
+                        App::Push(std::make_shared<ui::ErrorBox>(rc,
+                            i18n::get("Failed to list application meta entries")
+                        ));
+                        return;
+                    }
+
+                    if (meta_entries.empty()) {
+                        App::Notify("No meta entries found...\n");
+                        return;
+                    }
+
+                    PopupList::Items items;
+                    for (auto& e : meta_entries) {
+                        char buf[256];
+                        std::snprintf(buf, sizeof(buf), "Type: %s Storage: %s [%016lX][v%u]", ncm::GetMetaTypeStr(e.meta_type), ncm::GetStorageIdStr(e.storageID), e.application_id, e.version);
+                        items.emplace_back(buf);
+                    }
+
+                    App::Push(std::make_shared<PopupList>(
+                        "Entries", items, [this, meta_entries](auto op_index){
+                            #if 0
+                            if (op_index) {
+                                const auto& e = meta_entries[*op_index];
+                            }
+                            #endif
+                        }
+                    ));
+                }));
+
+                // completely deletes the application record and all data.
                 options->Add(std::make_shared<SidebarEntryCallback>("Delete"_i18n, [this](){
                     const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].GetName() + "?";
                     App::Push(std::make_shared<OptionBox>(
@@ -129,6 +223,20 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
                                     m_entries.erase(m_entries.begin() + m_index);
                                     SetIndex(m_index ? m_index - 1 : 0);
                                 }
+                            }
+                        }, m_entries[m_index].image
+                    ));
+                }, true));
+
+                // removes installed data but keeps the record, basically archiving.
+                options->Add(std::make_shared<SidebarEntryCallback>("Delete entity"_i18n, [this](){
+                    const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].GetName() + "?";
+                    App::Push(std::make_shared<OptionBox>(
+                        buf,
+                        "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
+                            if (op_index && *op_index) {
+                                const auto rc = nsDeleteApplicationEntity(m_entries[m_index].app_id);
+                                Notify(rc, "Failed to delete application");
                             }
                         }, m_entries[m_index].image
                     ));
@@ -197,21 +305,16 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         const auto text_off = 148;
         const auto text_x = x + text_off;
         const auto text_clip_w = w - 30.f - text_off;
-        nvgSave(vg);
-        nvgIntersectScissor(vg, text_x, y, text_clip_w, h); // clip
-        {
-            const float font_size = 18;
-            m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetName());
-            m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
-            m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
-        }
-        nvgRestore(vg);
+        const float font_size = 18;
+        m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetName());
+        m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
+        m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
     });
 }
 
 void Menu::OnFocusGained() {
     MenuBase::OnFocusGained();
-    if (m_entries.empty()) {
+    if (m_dirty || m_entries.empty()) {
         ScanHomebrew();
     }
 }
@@ -230,6 +333,7 @@ void Menu::SetIndex(s64 index) {
 
 void Menu::ScanHomebrew() {
     constexpr auto ENTRY_CHUNK_COUNT = 1000;
+    const auto hide_forwarders = m_hide_forwarders.Get();
     TimeStamp ts;
 
     FreeEntries();
@@ -249,15 +353,90 @@ void Menu::ScanHomebrew() {
         }
 
         for (s32 i = 0; i < record_count; i++) {
-            // log_write("ID: %016lx got type: %u\n", record_list[i].application_id, record_list[i].type);
-            m_entries.emplace_back(record_list[i].application_id);
+            const auto& e = record_list[i];
+            #if 0
+            u8 unk_x09 = e.unk_x09;
+            u64 unk_x0a;// = e.unk_x0a;
+            u8 unk_x10 = e.unk_x10;
+            u64 unk_x11;// = e.unk_x11;
+            memcpy(&unk_x0a, e.unk_x0a, sizeof(e.unk_x0a));
+            memcpy(&unk_x11, e.unk_x11, sizeof(e.unk_x11));
+            log_write("ID: %016lx got type: %u unk_x09: %u unk_x0a: %zu unk_x10: %u unk_x11: %zu\n", e.application_id, e.type,
+                unk_x09,
+                unk_x0a,
+                unk_x10,
+                unk_x11
+            );
+            #endif
+            if (hide_forwarders && (e.application_id & 0x0500000000000000) == 0x0500000000000000) {
+                continue;
+            }
+
+            s64 size{};
+            // code for sorting by size, it's too slow however...
+            #if 0
+            ApplicationOccupiedSize occupied_size;
+            if (R_SUCCEEDED(nsCalculateApplicationOccupiedSize(e.application_id, (NsApplicationOccupiedSize*)&occupied_size))) {
+                for (auto& s : occupied_size.entry) {
+                    size += s.sizeApplication;
+                    size += s.sizePatch;
+                    size += s.sizeAddOnContent;
+                }
+            }
+            #endif
+
+            m_entries.emplace_back(e.application_id, size);
         }
 
         offset += record_count;
     }
 
+    m_is_reversed = false;
+    m_dirty = false;
     log_write("games found: %zu time_taken: %.2f seconds %zu ms %zu ns\n", m_entries.size(), ts.GetSecondsD(), ts.GetMs(), ts.GetNs());
+    this->Sort();
     SetIndex(0);
+}
+
+void Menu::Sort() {
+    // const auto sort = m_sort.Get();
+    const auto order = m_order.Get();
+
+    if (order == OrderType_Ascending) {
+        if (!m_is_reversed) {
+            std::reverse(m_entries.begin(), m_entries.end());
+            m_is_reversed = true;
+        }
+    } else {
+        if (m_is_reversed) {
+            std::reverse(m_entries.begin(), m_entries.end());
+            m_is_reversed = false;
+        }
+    }
+}
+
+void Menu::SortAndFindLastFile() {
+    const auto app_id = m_entries[m_index].app_id;
+    Sort();
+    SetIndex(0);
+
+    s64 index = -1;
+    for (u64 i = 0; i < m_entries.size(); i++) {
+        if (app_id == m_entries[i].app_id) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index >= 0) {
+        // guesstimate where the position is
+        if (index >= 9) {
+            m_list->SetYoff((((index - 9) + 3) / 3) * m_list->GetMaxY());
+        } else {
+            m_list->SetYoff(0);
+        }
+        SetIndex(index);
+    }
 }
 
 void Menu::FreeEntries() {

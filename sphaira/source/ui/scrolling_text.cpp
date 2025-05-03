@@ -14,11 +14,20 @@ auto GetTextScrollSpeed() -> float {
     }
 }
 
+void DrawClipped(NVGcontext* vg, const Vec4& clip, float x, float y, float size, int align, const NVGcolor& colour, const std::string& str) {
+        nvgSave(vg);
+    nvgIntersectScissor(vg, clip.x, clip.y, clip.w, clip.h); // clip
+        gfx::drawText(vg, x, y, size, colour, str.c_str(), align);
+    nvgRestore(vg);
+}
+
 } // namespace
 
 void ScrollingText::Draw(NVGcontext* vg, bool focus, float x, float y, float w, float size, int align, const NVGcolor& colour, const std::string& text_entry) {
+    const Vec4 clip{x, 0, w, 720};
+
     if (!focus) {
-        gfx::drawText(vg, x, y, size, colour, text_entry.c_str(), align);
+        DrawClipped(vg, clip, x, y, size, align, colour, text_entry);
         return;
     }
 
@@ -56,8 +65,8 @@ void ScrollingText::Draw(NVGcontext* vg, bool focus, float x, float y, float w, 
         }
     }
 
-    const Vec2 pos{x - m_text_xoff, y};
-    gfx::drawText(vg, pos, size, colour, value_str.c_str(), align);
+    x -= m_text_xoff;
+    DrawClipped(vg, clip, x, y, size, align, colour, value_str);
 }
 
 void ScrollingText::DrawArgs(NVGcontext* vg, bool focus, float x, float y, float w, float size, int align, const NVGcolor& colour, const char* s, ...) {

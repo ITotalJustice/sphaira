@@ -1,13 +1,14 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 namespace sphaira::i18n {
 
 bool init(long index);
 void exit();
 
-std::string get(const char* str);
+std::string get(std::string_view str);
 
 } // namespace sphaira::i18n
 

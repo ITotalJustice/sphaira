@@ -14,6 +14,10 @@ struct Base {
         return false;
     }
 
+    virtual void SignalCancel() {
+
+    }
+
     Result GetOpenResult() const {
         return m_open_result;
     }

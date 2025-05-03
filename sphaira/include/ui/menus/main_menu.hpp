@@ -3,7 +3,6 @@
 #include "ui/widget.hpp"
 #include "ui/menus/homebrew.hpp"
 #include "ui/menus/filebrowser.hpp"
-#include "ui/menus/appstore.hpp"
 
 namespace sphaira::ui::menu::main {
 
@@ -17,6 +16,32 @@ enum class UpdateState {
     // there was an error whilst checking for updates.
     Error,
 };
+
+using MiscMenuFunction = std::function<std::shared_ptr<ui::menu::MenuBase>(void)>;
+
+enum MiscMenuFlag : u8 {
+    // can be set as the rightside menu.
+    MiscMenuFlag_Shortcut = 1 << 0,
+    // needs install option to be enabled.
+    MiscMenuFlag_Install = 1 << 1,
+};
+
+struct MiscMenuEntry {
+    const char* name;
+    const char* title;
+    MiscMenuFunction func;
+    u8 flag;
+
+    auto IsShortcut() const -> bool {
+        return flag & MiscMenuFlag_Shortcut;
+    }
+
+    auto IsInstall() const -> bool {
+        return flag & MiscMenuFlag_Install;
+    }
+};
+
+auto GetMiscMenuEntries() -> std::span<const MiscMenuEntry>;
 
 // this holds 2 menus and allows for switching between them
 struct MainMenu final : Widget {
@@ -39,7 +64,7 @@ private:
 private:
     std::shared_ptr<homebrew::Menu> m_homebrew_menu{};
     std::shared_ptr<filebrowser::Menu> m_filebrowser_menu{};
-    std::shared_ptr<appstore::Menu> m_app_store_menu{};
+    std::shared_ptr<MenuBase> m_right_side_menu{};
     std::shared_ptr<MenuBase> m_current_menu{};
 
     std::string m_update_url{};

@@ -124,6 +124,7 @@ struct Menu final : MenuBase {
     Menu(const std::vector<NroEntry>& nro_entries);
     ~Menu();
 
+    auto GetShortTitle() const -> const char* override { return "Files"; };
     void Update(Controller* controller, TouchInfo* touch) override;
     void Draw(NVGcontext* vg, Theme* theme) override;
     void OnFocusGained() override;

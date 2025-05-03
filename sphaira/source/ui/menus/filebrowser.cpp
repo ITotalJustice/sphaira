@@ -283,7 +283,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
             const auto set = m_selected_count != m_entries_current.size();
 
-            for (const auto& i : m_entries_current) {
+            for (u32 i = 0; i < m_entries_current.size(); i++) {
                 auto& e = GetEntry(i);
                 if (e.selected != set) {
                     e.selected = set;
@@ -412,17 +412,17 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 options->Add(std::make_shared<SidebarEntryBool>("Show Hidden"_i18n, m_show_hidden.Get(), [this](bool& v_out){
                     m_show_hidden.Set(v_out);
                     SortAndFindLastFile();
-                }, "Yes"_i18n, "No"_i18n));
+                }));
 
                 options->Add(std::make_shared<SidebarEntryBool>("Folders First"_i18n, m_folders_first.Get(), [this](bool& v_out){
                     m_folders_first.Set(v_out);
                     SortAndFindLastFile();
-                }, "Yes"_i18n, "No"_i18n));
+                }));
 
                 options->Add(std::make_shared<SidebarEntryBool>("Hidden Last"_i18n, m_hidden_last.Get(), [this](bool& v_out){
                     m_hidden_last.Set(v_out);
                     SortAndFindLastFile();
-                }, "Yes"_i18n, "No"_i18n));
+                }));
             }));
 
             if (m_entries_current.size()) {
@@ -552,7 +552,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
             if (m_entries_current.size()) {
                 if (check_all_ext(ZIP_EXTENSIONS)) {
-                    options->Add(std::make_shared<SidebarEntryCallback>("Extract"_i18n, [this](){
+                    options->Add(std::make_shared<SidebarEntryCallback>("Extract zip"_i18n, [this](){
                         auto options = std::make_shared<Sidebar>("Extract Options"_i18n, Sidebar::Side::RIGHT);
                         ON_SCOPE_EXIT(App::Push(options));
 
@@ -562,6 +562,19 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                             } else {
                                 UnzipFiles("", GetSelectedEntries());
                             }
+                        }));
+
+                        options->Add(std::make_shared<SidebarEntryCallback>("Extract to root"_i18n, [this](){
+                            App::Push(std::make_shared<OptionBox>("Are you sure you want to extract to root?"_i18n,
+                                "No"_i18n, "Yes"_i18n, 0, [this](auto op_index){
+                                if (op_index && *op_index) {
+                                    if (!m_selected_count) {
+                                        UnzipFile("/", GetEntry());
+                                    } else {
+                                        UnzipFiles("/", GetSelectedEntries());
+                                    }
+                                }
+                            }));
                         }));
 
                         options->Add(std::make_shared<SidebarEntryCallback>("Extract to..."_i18n, [this](){
@@ -578,7 +591,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 }
 
                 if (!check_all_ext(ZIP_EXTENSIONS) || m_selected_count) {
-                    options->Add(std::make_shared<SidebarEntryCallback>("Compress"_i18n, [this](){
+                    options->Add(std::make_shared<SidebarEntryCallback>("Compress to zip"_i18n, [this](){
                         auto options = std::make_shared<Sidebar>("Compress Options"_i18n, Sidebar::Side::RIGHT);
                         ON_SCOPE_EXIT(App::Push(options));
 
@@ -660,7 +673,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 options->Add(std::make_shared<SidebarEntryBool>("Ignore read only"_i18n, m_ignore_read_only.Get(), [this](bool& v_out){
                     m_ignore_read_only.Set(v_out);
                     m_fs->SetIgnoreReadOnly(v_out);
-                }, "Yes"_i18n, "No"_i18n));
+                }));
 
                 SidebarEntryArray::Items mount_items;
                 mount_items.push_back("Sd"_i18n);

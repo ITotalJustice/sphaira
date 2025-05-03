@@ -184,6 +184,7 @@ public:
     option::OptionBool m_theme_music{INI_SECTION, "theme_music", true};
     option::OptionBool m_12hour_time{INI_SECTION, "12hour_time", false};
     option::OptionLong m_language{INI_SECTION, "language", 0}; // auto
+    option::OptionString m_right_side_menu{INI_SECTION, "right_side_menu", "Appstore"};
 
     // install options
     option::OptionBool m_install{INI_SECTION, "install", false};

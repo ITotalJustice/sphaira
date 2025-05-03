@@ -69,7 +69,7 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
 
                     options->Add(std::make_shared<SidebarEntryBool>("Hide Sphaira"_i18n, m_hide_sphaira.Get(), [this](bool& enable){
                         m_hide_sphaira.Set(enable);
-                    }, "Enabled"_i18n, "Disabled"_i18n));
+                    }));
                 }));
 
                 #if 0
@@ -176,23 +176,18 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         const auto text_off = 148;
         const auto text_x = x + text_off;
         const auto text_clip_w = w - 30.f - text_off;
-        nvgSave(vg);
-        nvgIntersectScissor(vg, text_x, y, text_clip_w, h); // clip
-        {
-            bool has_star = false;
-            if (IsStarEnabled()) {
-                if (!e.has_star.has_value()) {
-                    e.has_star = fs::FsNativeSd().FileExists(GenerateStarPath(e.path));
-                }
-                has_star = e.has_star.value();
+        bool has_star = false;
+        if (IsStarEnabled()) {
+            if (!e.has_star.has_value()) {
+                e.has_star = fs::FsNativeSd().FileExists(GenerateStarPath(e.path));
             }
-
-            const float font_size = 18;
-            m_scroll_name.DrawArgs(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), "%s%s", has_star ? "\u2605 " : "", e.GetName());
-            m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
-            m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
+            has_star = e.has_star.value();
         }
-        nvgRestore(vg);
+
+        const float font_size = 18;
+        m_scroll_name.DrawArgs(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), "%s%s", has_star ? "\u2605 " : "", e.GetName());
+        m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
+        m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
     });
 }
 

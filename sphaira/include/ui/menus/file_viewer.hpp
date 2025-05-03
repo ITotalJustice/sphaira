@@ -10,6 +10,7 @@ struct Menu final : MenuBase {
     Menu(const fs::FsPath& path);
     ~Menu();
 
+    auto GetShortTitle() const -> const char* override { return "File"; };
     void Update(Controller* controller, TouchInfo* touch) override;
     void Draw(NVGcontext* vg, Theme* theme) override;
     void OnFocusGained() override;

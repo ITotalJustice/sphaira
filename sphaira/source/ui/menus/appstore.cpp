@@ -846,13 +846,42 @@ void EntryMenu::SetIndex(s64 index) {
     }
 }
 
-Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"AppStore"_i18n}, m_nro_entries{nro_entries} {
+Menu::Menu() : MenuBase{"AppStore"_i18n} {
     fs::FsNativeSd fs;
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/icons");
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/banners");
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/screens");
 
     this->SetActions(
+        std::make_pair(Button::B, Action{"Back"_i18n, [this](){
+            if (m_is_author) {
+                m_is_author = false;
+                if (m_is_search) {
+                    SetSearch(m_search_term);
+                } else {
+                    SetFilter(m_filter);
+                }
+
+                SetIndex(m_entry_author_jump_back);
+                if (m_entry_author_jump_back >= 9) {
+                    m_list->SetYoff((((m_entry_author_jump_back - 9) + 3) / 3) * m_list->GetMaxY());
+                } else {
+                    m_list->SetYoff(0);
+                }
+            } else if (m_is_search) {
+                m_is_search = false;
+                SetFilter(m_filter);
+                SetIndex(m_entry_search_jump_back);
+                if (m_entry_search_jump_back >= 9) {
+                    m_list->SetYoff(0);
+                    m_list->SetYoff((((m_entry_search_jump_back - 9) + 3) / 3) * m_list->GetMaxY());
+                } else {
+                    m_list->SetYoff(0);
+                }
+            } else {
+                SetPop();
+            }
+        }}),
         std::make_pair(Button::A, Action{"Info"_i18n, [this](){
             if (m_entries_current.empty()) {
                 // log_write("pushing A when empty: size: %zu count: %zu\n", repo_json.size(), m_entries_current.size());
@@ -1044,15 +1073,10 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         const auto text_off = 148;
         const auto text_x = x + text_off;
         const auto text_clip_w = w - 30.f - text_off;
-        nvgSave(vg);
-        nvgIntersectScissor(vg, text_x, y, text_clip_w, h); // clip
-        {
-            const float font_size = 18;
-            m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.title.c_str());
-            m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.author.c_str());
-            m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.version.c_str());
-        }
-        nvgRestore(vg);
+        const float font_size = 18;
+        m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.title.c_str());
+        m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.author.c_str());
+        m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.version.c_str());
 
         float i_size = 22;
         switch (e.status) {
@@ -1269,7 +1293,6 @@ void Menu::Sort() {
 void Menu::SetFilter(Filter filter) {
     m_is_search = false;
     m_is_author = false;
-    RemoveAction(Button::B);
 
     m_filter = filter;
     m_entries_current = m_entries_index[m_filter];
@@ -1308,17 +1331,6 @@ void Menu::SetSearch(const std::string& term) {
         }
     }
 
-    SetAction(Button::B, Action{"Back"_i18n, [this](){
-        SetFilter(m_filter);
-        SetIndex(m_entry_search_jump_back);
-        if (m_entry_search_jump_back >= 9) {
-            m_list->SetYoff(0);
-            m_list->SetYoff((((m_entry_search_jump_back - 9) + 3) / 3) * m_list->GetMaxY());
-        } else {
-            m_list->SetYoff(0);
-        }
-    }});
-
     m_is_search = true;
     m_entries_current = m_entries_index_search;
     SetIndex(0);
@@ -1340,21 +1352,6 @@ void Menu::SetAuthor() {
             m_entries_index_author.emplace_back(i);
         }
     }
-
-    SetAction(Button::B, Action{"Back"_i18n, [this](){
-        if (m_is_search) {
-            SetSearch(m_search_term);
-        } else {
-            SetFilter(m_filter);
-        }
-
-        SetIndex(m_entry_author_jump_back);
-        if (m_entry_author_jump_back >= 9) {
-            m_list->SetYoff((((m_entry_author_jump_back - 9) + 3) / 3) * m_list->GetMaxY());
-        } else {
-            m_list->SetYoff(0);
-        }
-    }});
 
     m_is_author = true;
     m_entries_current = m_entries_index_author;

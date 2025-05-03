@@ -27,6 +27,7 @@ struct Menu final : MenuBase {
     Menu();
     ~Menu();
 
+    auto GetShortTitle() const -> const char* override { return "Apps"; };
     void Update(Controller* controller, TouchInfo* touch) override;
     void Draw(NVGcontext* vg, Theme* theme) override;
     void OnFocusGained() override;

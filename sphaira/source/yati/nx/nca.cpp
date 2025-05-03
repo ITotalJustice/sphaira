@@ -172,6 +172,7 @@ auto GetKeyGenStr(u8 key_gen) -> const char* {
         case KeyGeneration_1700: return "17.0.0";
         case KeyGeneration_1800: return "18.0.0";
         case KeyGeneration_1900: return "19.0.0";
+        case KeyGeneration_2000: return "20.0.0";
     }
 
     return "Unknown";

@@ -415,7 +415,7 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
             options->Add(std::make_shared<SidebarEntryBool>("Nsfw"_i18n, m_nsfw.Get(), [this](bool& v_out){
                 m_nsfw.Set(v_out);
                 InvalidateAllPages();
-            }, "Enabled"_i18n, "Disabled"_i18n));
+            }));
 
             options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
                 if (m_sort.Get() != index_out) {
@@ -453,7 +453,7 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
                 }
             }));
         }}),
-        std::make_pair(Button::R, Action{"Next Page"_i18n, [this](){
+        std::make_pair(Button::R2, Action{"Next"_i18n, [this](){
             m_page_index++;
             if (m_page_index >= m_page_index_max) {
                 m_page_index = m_page_index_max - 1;
@@ -461,7 +461,7 @@ Menu::Menu() : MenuBase{"Themezer"_i18n} {
                 PackListDownload();
             }
         }}),
-        std::make_pair(Button::L, Action{"Prev Page"_i18n, [this](){
+        std::make_pair(Button::L2, Action{"Prev"_i18n, [this](){
             if (m_page_index) {
                 m_page_index--;
                 PackListDownload();
@@ -610,14 +610,9 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
         const auto text_x = x + xoff;
         const auto text_clip_w = w - 30.f - xoff;
-        nvgSave(vg);
-        nvgIntersectScissor(vg, text_x, y, text_clip_w, h); // clip
-        {
-            const float font_size = 18;
-            m_scroll_name.Draw(vg, selected, text_x, y + 180 + 20, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.details.name.c_str());
-            m_scroll_author.Draw(vg, selected, text_x, y + 180 + 55, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.creator.display_name.c_str());
-        }
-        nvgRestore(vg);
+        const float font_size = 18;
+        m_scroll_name.Draw(vg, selected, text_x, y + 180 + 20, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.details.name.c_str());
+        m_scroll_author.Draw(vg, selected, text_x, y + 180 + 55, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.creator.display_name.c_str());
     });
 }
 

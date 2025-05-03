@@ -184,8 +184,6 @@ Menu::Menu() : MenuBase{"GameCard"_i18n} {
     fsOpenDeviceOperator(std::addressof(m_dev_op));
     fsOpenGameCardDetectionEventNotifier(std::addressof(m_event_notifier));
     fsEventNotifierGetEventHandle(std::addressof(m_event_notifier), std::addressof(m_event), true);
-    GcOnEvent();
-    UpdateStorageSize();
 }
 
 Menu::~Menu() {
@@ -267,6 +265,13 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
         gfx::drawTextArgs(vg, x + 15, y + (h / 2.f), 23.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(colour), "%s", g_option_list[i]);
     });
+}
+
+void Menu::OnFocusGained() {
+    MenuBase::OnFocusGained();
+
+    GcOnEvent();
+    UpdateStorageSize();
 }
 
 Result Menu::GcMount() {
@@ -391,20 +396,18 @@ Result Menu::GcMount() {
                     } else {
                         App::Notify("Gc install failed!"_i18n);
                     }
-
-                    UpdateStorageSize();
                 }));
             }
         }
     }});
 
     if (m_entries.size() > 1) {
-        SetAction(Button::L, Action{"Prev"_i18n, [this](){
+        SetAction(Button::L2, Action{"Prev"_i18n, [this](){
             if (m_entry_index != 0) {
                 OnChangeIndex(m_entry_index - 1);
             }
         }});
-        SetAction(Button::R, Action{"Next"_i18n, [this](){
+        SetAction(Button::R2, Action{"Next"_i18n, [this](){
             if (m_entry_index < m_entries.size()) {
                 OnChangeIndex(m_entry_index + 1);
             }
@@ -424,8 +427,8 @@ void Menu::GcUnmount() {
     m_lang_entry = {};
     FreeImage();
 
-    RemoveAction(Button::L);
-    RemoveAction(Button::R);
+    RemoveAction(Button::L2);
+    RemoveAction(Button::R2);
 }
 
 Result Menu::GcPoll(bool* inserted) {

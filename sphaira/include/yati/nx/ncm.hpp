@@ -31,6 +31,9 @@ union ExtendedHeader {
     NcmDataPatchMetaExtendedHeader data_patch;
 };
 
+auto GetMetaTypeStr(u8 meta_type) -> const char*;
+auto GetStorageIdStr(u8 storage_id) -> const char*;
+
 auto GetAppId(u8 meta_type, u64 id) -> u64;
 auto GetAppId(const NcmContentMetaKey& key) -> u64;
 auto GetAppId(const PackagedContentMeta& meta) -> u64;

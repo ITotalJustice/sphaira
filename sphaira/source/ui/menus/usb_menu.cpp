@@ -10,8 +10,8 @@
 namespace sphaira::ui::menu::usb {
 namespace {
 
-constexpr u64 CONNECTION_TIMEOUT = 1e+9 * 1; // 1 second
-constexpr u64 TRANSFER_TIMEOUT = 1e+9 * 5; // 5 seconds
+constexpr u64 CONNECTION_TIMEOUT = UINT64_MAX;
+constexpr u64 TRANSFER_TIMEOUT = UINT64_MAX;
 
 void thread_func(void* user) {
     auto app = static_cast<Menu*>(user);
@@ -22,6 +22,9 @@ void thread_func(void* user) {
         }
 
         const auto rc = app->m_usb_source->IsUsbConnected(CONNECTION_TIMEOUT);
+        if (rc == app->m_usb_source->Result_Cancelled) {
+            break;
+        }
 
         // set connected status
         mutexLock(&app->m_mutex);
@@ -76,6 +79,7 @@ Menu::Menu() : MenuBase{"USB"_i18n} {
     }
 
     mutexInit(&m_mutex);
+
     if (m_state != State::Failed) {
         threadCreate(&m_thread, thread_func, this, nullptr, 1024*32, 0x2C, 1);
         threadStart(&m_thread);
@@ -85,6 +89,7 @@ Menu::Menu() : MenuBase{"USB"_i18n} {
 Menu::~Menu() {
     // signal for thread to exit and wait.
     m_stop_source.request_stop();
+    m_usb_source->SignalCancel();
     threadWaitForExit(&m_thread);
     threadClose(&m_thread);
 
@@ -117,6 +122,8 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
 
                 const auto rc = yati::InstallFromSource(pbox, m_usb_source, file_name);
                 if (R_FAILED(rc)) {
+                    m_usb_source->SignalCancel();
+                    log_write("exiting usb install\n");
                     return false;
                 }
 

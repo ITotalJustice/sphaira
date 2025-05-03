@@ -6,12 +6,20 @@
 #include "ui/progress_box.hpp"
 #include "ui/error_box.hpp"
 
+#include "ui/menus/irs_menu.hpp"
+#include "ui/menus/themezer.hpp"
+#include "ui/menus/ghdl.hpp"
+#include "ui/menus/usb_menu.hpp"
+#include "ui/menus/ftp_menu.hpp"
+#include "ui/menus/gc_menu.hpp"
+#include "ui/menus/game_menu.hpp"
+#include "ui/menus/appstore.hpp"
+
 #include "app.hpp"
 #include "log.hpp"
 #include "download.hpp"
 #include "defines.hpp"
 #include "i18n.hpp"
-#include "ui/menus/usb_menu.hpp"
 
 #include <cstring>
 #include <minizip/unzip.h>
@@ -22,6 +30,22 @@ namespace {
 
 constexpr const char* GITHUB_URL{"https://api.github.com/repos/ITotalJustice/sphaira/releases/latest"};
 constexpr fs::FsPath CACHE_PATH{"/switch/sphaira/cache/sphaira_latest.json"};
+
+template<typename T>
+auto MiscMenuFuncGenerator() {
+    return std::make_shared<T>();
+}
+
+const MiscMenuEntry MISC_MENU_ENTRIES[] = {
+    { .name = "Appstore", .title = "Appstore", .func = MiscMenuFuncGenerator<ui::menu::appstore::Menu>, .flag = MiscMenuFlag_Shortcut },
+    { .name = "Games", .title = "Games", .func = MiscMenuFuncGenerator<ui::menu::game::Menu>, .flag = MiscMenuFlag_Shortcut },
+    { .name = "Themezer", .title = "Themezer", .func = MiscMenuFuncGenerator<ui::menu::themezer::Menu>, .flag = MiscMenuFlag_Shortcut },
+    { .name = "GitHub", .title = "GitHub", .func = MiscMenuFuncGenerator<ui::menu::gh::Menu>, .flag = MiscMenuFlag_Shortcut },
+    { .name = "FTP", .title = "FTP Install", .func = MiscMenuFuncGenerator<ui::menu::ftp::Menu>, .flag = MiscMenuFlag_Install },
+    { .name = "USB", .title = "USB Install", .func = MiscMenuFuncGenerator<ui::menu::usb::Menu>, .flag = MiscMenuFlag_Install },
+    { .name = "GameCard", .title = "GameCard Install", .func = MiscMenuFuncGenerator<ui::menu::gc::Menu>, .flag = MiscMenuFlag_Shortcut|MiscMenuFlag_Install },
+    { .name = "IRS", .title = "IRS (Infrared Joycon Camera)", .func = MiscMenuFuncGenerator<ui::menu::irs::Menu>, .flag = MiscMenuFlag_Shortcut },
+};
 
 auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string version) -> bool {
     static fs::FsPath zip_out{"/switch/sphaira/cache/update.zip"};
@@ -140,7 +164,23 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
     return true;
 }
 
+auto CreateRightSideMenu() -> std::shared_ptr<MenuBase> {
+    const auto name = App::GetApp()->m_right_side_menu.Get();
+
+    for (auto& e : GetMiscMenuEntries()) {
+        if (e.name == name) {
+            return e.func();
+        }
+    }
+
+    return std::make_shared<ui::menu::appstore::Menu>();
+}
+
 } // namespace
+
+auto GetMiscMenuEntries() -> std::span<const MiscMenuEntry> {
+    return MISC_MENU_ENTRIES;
+}
 
 MainMenu::MainMenu() {
     curl::Api().ToFileAsync(
@@ -209,9 +249,7 @@ MainMenu::MainMenu() {
 
     this->SetActions(
         std::make_pair(Button::START, Action{App::Exit}),
-        std::make_pair(Button::SELECT, Action{"Misc"_i18n, [this](){
-            App::DisplayMiscOptions();
-        }}),
+        std::make_pair(Button::SELECT, Action{App::DisplayMiscOptions}),
         std::make_pair(Button::Y, Action{"Menu"_i18n, [this](){
             auto options = std::make_shared<Sidebar>("Menu Options"_i18n, "v" APP_VERSION_HASH, Sidebar::Side::LEFT);
             ON_SCOPE_EXIT(App::Push(options));
@@ -242,15 +280,15 @@ MainMenu::MainMenu() {
 
                 options->Add(std::make_shared<SidebarEntryBool>("Ftp"_i18n, App::GetFtpEnable(), [](bool& enable){
                     App::SetFtpEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
+                }));
 
                 options->Add(std::make_shared<SidebarEntryBool>("Mtp"_i18n, App::GetMtpEnable(), [](bool& enable){
                     App::SetMtpEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
+                }));
 
                 options->Add(std::make_shared<SidebarEntryBool>("Nxlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
                     App::SetNxlinkEnable(enable);
-                }, "Enabled"_i18n, "Disabled"_i18n));
+                }));
 
                 if (m_update_state == UpdateState::Update) {
                     options->Add(std::make_shared<SidebarEntryCallback>("Download update: "_i18n + m_update_version, [this](){
@@ -289,7 +327,7 @@ MainMenu::MainMenu() {
 
     m_homebrew_menu = std::make_shared<homebrew::Menu>();
     m_filebrowser_menu = std::make_shared<filebrowser::Menu>(m_homebrew_menu->GetHomebrewList());
-    m_app_store_menu = std::make_shared<appstore::Menu>(m_homebrew_menu->GetHomebrewList());
+    m_right_side_menu = CreateRightSideMenu();
     m_current_menu = m_homebrew_menu;
 
     AddOnLRPress();
@@ -340,16 +378,16 @@ void MainMenu::OnLRPress(std::shared_ptr<MenuBase> menu, Button b) {
 
 void MainMenu::AddOnLRPress() {
     if (m_current_menu != m_filebrowser_menu) {
-        const auto label = m_current_menu == m_homebrew_menu ? "Files" : "Apps";
+        const auto label = m_current_menu == m_homebrew_menu ? m_filebrowser_menu->GetShortTitle() : m_homebrew_menu->GetShortTitle();
         SetAction(Button::L, Action{i18n::get(label), [this]{
             OnLRPress(m_filebrowser_menu, Button::L);
         }});
     }
 
-    if (m_current_menu != m_app_store_menu) {
-        const auto label = m_current_menu == m_homebrew_menu ? "Store" : "Apps";
+    if (m_current_menu != m_right_side_menu) {
+        const auto label = m_current_menu == m_homebrew_menu ? m_right_side_menu->GetShortTitle() : m_homebrew_menu->GetShortTitle();
         SetAction(Button::R, Action{i18n::get(label), [this]{
-            OnLRPress(m_app_store_menu, Button::R);
+            OnLRPress(m_right_side_menu, Button::R);
         }});
     }
 }

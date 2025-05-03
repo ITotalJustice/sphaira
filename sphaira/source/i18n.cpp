@@ -13,8 +13,8 @@ yyjson_doc* json;
 yyjson_val* root;
 std::unordered_map<std::string, std::string> g_tr_cache;
 
-std::string get_internal(const char* str, size_t len) {
-    const std::string kkey = {str, len};
+std::string get_internal(std::string_view str) {
+    const std::string kkey = {str.data(), str.length()};
 
     if (auto it = g_tr_cache.find(kkey); it != g_tr_cache.end()) {
         return it->second;
@@ -28,7 +28,7 @@ std::string get_internal(const char* str, size_t len) {
         return kkey;
     }
 
-    auto key = yyjson_obj_getn(root, str, len);
+    auto key = yyjson_obj_getn(root, str.data(), str.length());
     if (!key) {
         log_write("\tfailed to find key: [%s]\n", kkey.c_str());
         return kkey;
@@ -134,8 +134,8 @@ void exit() {
     g_i18n_data.clear();
 }
 
-std::string get(const char* str) {
-    return get_internal(str, std::strlen(str));
+std::string get(std::string_view str) {
+    return get_internal(str);
 }
 
 } // namespace sphaira::i18n
@@ -143,7 +143,7 @@ std::string get(const char* str) {
 namespace literals {
 
 std::string operator"" _i18n(const char* str, size_t len) {
-    return sphaira::i18n::get_internal(str, len);
+    return sphaira::i18n::get_internal({str, len});
 }
 
 } // namespace literals

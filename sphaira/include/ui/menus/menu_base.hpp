@@ -10,6 +10,7 @@ struct MenuBase : Widget {
     MenuBase(std::string title);
     virtual ~MenuBase();
 
+    virtual auto GetShortTitle() const -> const char* = 0;
     virtual void Update(Controller* controller, TouchInfo* touch);
     virtual void Draw(NVGcontext* vg, Theme* theme);
 
@@ -20,6 +21,10 @@ struct MenuBase : Widget {
     void SetTitle(std::string title);
     void SetTitleSubHeading(std::string sub_heading);
     void SetSubHeading(std::string sub_heading);
+
+    auto GetTitle() const {
+        return m_title;
+    }
 
 private:
     void UpdateVars();
