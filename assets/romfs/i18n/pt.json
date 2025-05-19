@@ -48,7 +48,7 @@
   "Filter": "Filtro",
   "Sort": "Organizar por",
   "Order": "Ordem",
-  "Layout": "Layout",
+  "Layout": "Exibição",
   "Search": "Buscar",
   "Updated": "Atualizado",
   "Updated (Star)": "Atualizado (favoritos)",
@@ -147,7 +147,7 @@
   "Homebrew Options": "Opções de aplicativo",
   "Hide Sphaira": "Esconder sphaira",
   "Install Forwarder": "Instalar atalho (forwarder)",
-  "WARNING: Installing forwarders will lead to a ban!": "AVISO: Instalar atalhos pode\nresultar em um banimento!",
+  "WARNING: Installing forwarders will lead to a ban!": "AVISO: Instalar atalhos pode resultar em um banimento!",
   "Installing Forwarder": "Instalando forwarder...",
   "Creating Program": "Criando Program",
   "Creating Control": "Criando Control",
@@ -180,7 +180,7 @@
   
   "Game Options": "Opções de software",
   "Launch random game": "Iniciar um software aleatório",
-  "List meta records": "Conteúdo registrados",
+  "List meta records": "Registro de conteúdos",
   "Entries": "Entradas",
   "Hide forwarders": "Ocultar atalhos (forwarders)",
   
@@ -254,6 +254,8 @@
 
   "Install Options": "Opções de instalação",
   "Install options": "Opções de instalação",
+  "Enable sysmmc": "Habilitar sysMMC",
+  "Enable emummc": "Habilitar emuMMC",
   "Boost CPU clock": "Aumentar clock da CPU",
   "Allow downgrade": "Permitir downgrade",
   "Skip if already installed": "Pular se já instalado",
