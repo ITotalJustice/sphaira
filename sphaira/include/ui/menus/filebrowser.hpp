@@ -136,14 +136,11 @@ struct Menu final : MenuBase {
 private:
     void SetIndex(s64 index);
     void InstallForwarder();
-    void InstallFile(const FileEntry& target);
-    void InstallFiles(const std::vector<FileEntry>& targets);
 
-    void UnzipFile(const fs::FsPath& folder, const FileEntry& target);
-    void UnzipFiles(fs::FsPath folder, const std::vector<FileEntry>& targets);
-
-    void ZipFile(const fs::FsPath& zip_path, const FileEntry& target);
-    void ZipFiles(fs::FsPath zip_path, const std::vector<FileEntry>& targets);
+    void InstallFiles();
+    void UnzipFiles(fs::FsPath folder);
+    void ZipFiles(fs::FsPath zip_path);
+    void UploadFiles();
 
     auto Scan(const fs::FsPath& new_path, bool is_walk_up = false) -> Result;
 
@@ -164,15 +161,15 @@ private:
     }
 
     auto GetSelectedEntries() const -> std::vector<FileEntry> {
-        if (!m_selected_count) {
-            return {};
-        }
-
         std::vector<FileEntry> out;
 
-        for (auto&e : m_entries) {
-            if (e.IsSelected()) {
-                out.emplace_back(e);
+        if (!m_selected_count) {
+            out.emplace_back(GetEntry());
+        } else {
+            for (auto&e : m_entries) {
+                if (e.IsSelected()) {
+                    out.emplace_back(e);
+                }
             }
         }
 
@@ -188,13 +185,6 @@ private:
 
         m_selected_type = type;
         m_selected_files = entries;
-        m_selected_path = m_path;
-    }
-
-    void AddCurrentFileToSelection(SelectedType type) {
-        m_selected_files.emplace_back(GetEntry());
-        m_selected_count++;
-        m_selected_type = type;
         m_selected_path = m_path;
     }
 

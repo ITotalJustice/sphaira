@@ -12,6 +12,7 @@ namespace {
 
 constexpr u64 CONNECTION_TIMEOUT = UINT64_MAX;
 constexpr u64 TRANSFER_TIMEOUT = UINT64_MAX;
+constexpr u64 FINISHED_TIMEOUT = 1e+9 * 3; // 3 seconds.
 
 void thread_func(void* user) {
     auto app = static_cast<Menu*>(user);
@@ -22,7 +23,7 @@ void thread_func(void* user) {
         }
 
         const auto rc = app->m_usb_source->IsUsbConnected(CONNECTION_TIMEOUT);
-        if (rc == app->m_usb_source->Result_Cancelled) {
+        if (rc == ::sphaira::usb::UsbDs::Result_Cancelled) {
             break;
         }
 
@@ -71,11 +72,6 @@ Menu::Menu() : MenuBase{"USB"_i18n} {
     if (R_FAILED(m_usb_source->GetOpenResult())) {
         log_write("usb init open\n");
         m_state = State::Failed;
-    } else {
-        if (R_FAILED(m_usb_source->Init())) {
-            log_write("usb init failed\n");
-            m_state = State::Failed;
-        }
     }
 
     mutexInit(&m_mutex);
@@ -114,7 +110,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         m_state = State::Progress;
         log_write("got connection\n");
         App::Push(std::make_shared<ui::ProgressBox>(0, "Installing "_i18n, "", [this](auto pbox) mutable -> bool {
-            ON_SCOPE_EXIT(m_usb_source->Finished());
+            ON_SCOPE_EXIT(m_usb_source->Finished(FINISHED_TIMEOUT));
 
             log_write("inside progress box\n");
             for (const auto& file_name : m_names) {

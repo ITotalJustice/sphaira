@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(sphaira_VERSION 0.9.1)
+set(sphaira_VERSION 0.10.2)
 
 project(sphaira
     VERSION ${sphaira_VERSION}
@@ -50,6 +50,7 @@ add_executable(sphaira
     source/ui/menus/ftp_menu.cpp
     source/ui/menus/gc_menu.cpp
     source/ui/menus/game_menu.cpp
+    source/ui/menus/grid_menu_base.cpp
 
     source/ui/error_box.cpp
     source/ui/notification.cpp
@@ -61,7 +62,6 @@ add_executable(sphaira
     source/ui/sidebar.cpp
     source/ui/widget.cpp
     source/ui/list.cpp
-    source/ui/bubbles.cpp
     source/ui/scrolling_text.cpp
 
     source/app.cpp
@@ -70,6 +70,7 @@ add_executable(sphaira
     source/evman.cpp
     source/fs.cpp
     source/image.cpp
+    source/location.cpp
     source/log.cpp
     source/main.cpp
     source/nro.cpp
@@ -78,6 +79,11 @@ add_executable(sphaira
     source/swkbd.cpp
     source/i18n.cpp
     source/ftpsrv_helper.cpp
+
+    source/usb/base.cpp
+    source/usb/usbds.cpp
+    source/usb/usbhs.cpp
+    source/usb/usb_uploader.cpp
 
     source/yati/yati.cpp
     source/yati/container/nsp.cpp
@@ -99,6 +105,7 @@ add_executable(sphaira
 target_compile_definitions(sphaira PRIVATE
     -DAPP_VERSION="${sphaira_VERSION}"
     -DAPP_VERSION_HASH="${sphaira_VERSION_HASH}"
+    -DCURL_NO_OLDIES=1
 )
 
 target_compile_options(sphaira PRIVATE
@@ -154,7 +161,7 @@ FetchContent_Declare(ftpsrv
 
 FetchContent_Declare(libhaze
     GIT_REPOSITORY https://github.com/ITotalJustice/libhaze.git
-    GIT_TAG 3244b9e
+    GIT_TAG 04f1526
 )
 
 FetchContent_Declare(libpulsar
@@ -277,31 +284,6 @@ if (USE_VFS_GC)
         ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_gc.c
     )
 endif()
-
-# todo: upstream cmake
-add_library(libhaze
-    ${libhaze_SOURCE_DIR}/source/async_usb_server.cpp
-    ${libhaze_SOURCE_DIR}/source/device_properties.cpp
-    ${libhaze_SOURCE_DIR}/source/event_reactor.cpp
-    ${libhaze_SOURCE_DIR}/source/haze.cpp
-    ${libhaze_SOURCE_DIR}/source/ptp_object_database.cpp
-    ${libhaze_SOURCE_DIR}/source/ptp_object_heap.cpp
-    ${libhaze_SOURCE_DIR}/source/ptp_responder_android_operations.cpp
-    ${libhaze_SOURCE_DIR}/source/ptp_responder_mtp_operations.cpp
-    ${libhaze_SOURCE_DIR}/source/ptp_responder_ptp_operations.cpp
-    ${libhaze_SOURCE_DIR}/source/ptp_responder.cpp
-    ${libhaze_SOURCE_DIR}/source/usb_session.cpp
-)
-target_include_directories(libhaze PUBLIC ${libhaze_SOURCE_DIR}/include)
-set_target_properties(libhaze PROPERTIES
-    C_STANDARD 11
-    C_EXTENSIONS ON
-    CXX_STANDARD 20
-    CXX_EXTENSIONS ON
-    # force optimisations in debug mode as otherwise vapor errors
-    # due to force_inline attribute failing...
-    COMPILE_OPTIONS "$<$<CONFIG:Debug>:-Os>"
-)
 
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})

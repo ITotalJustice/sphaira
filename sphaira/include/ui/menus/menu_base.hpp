@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ui/widget.hpp"
-#include "nro.hpp"
 #include <string>
 
 namespace sphaira::ui::menu {

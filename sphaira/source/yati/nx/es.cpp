@@ -1,6 +1,7 @@
 #include "yati/nx/es.hpp"
 #include "yati/nx/crypto.hpp"
 #include "yati/nx/nxdumptool_rsa.h"
+#include "yati/nx/service_guard.h"
 #include "defines.hpp"
 #include "log.hpp"
 #include <memory>
@@ -9,12 +10,124 @@
 namespace sphaira::es {
 namespace {
 
+Service g_esSrv;
+
+NX_GENERATE_SERVICE_GUARD(es);
+
+Result _esInitialize() {
+    return smGetService(&g_esSrv, "es");
+}
+
+void _esCleanup() {
+    serviceClose(&g_esSrv);
+}
+
+Result ListTicket(u32 cmd_id, s32 *out_entries_written, FsRightsId* out_ids, s32 count) {
+    struct {
+        u32 num_rights_ids_written;
+    } out;
+
+    const Result rc = serviceDispatchInOut(&g_esSrv, cmd_id, *out_entries_written, out,
+        .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+        .buffers = { { out_ids, count * sizeof(*out_ids) } },
+    );
+
+    if (R_SUCCEEDED(rc) && out_entries_written) *out_entries_written = out.num_rights_ids_written;
+    return rc;
+}
+
 } // namespace
 
-Result ImportTicket(Service* srv, const void* tik_buf, u64 tik_size, const void* cert_buf, u64 cert_size) {
-    return serviceDispatch(srv, 1,
+Result Initialize() {
+    return esInitialize();
+}
+
+void Exit() {
+    esExit();
+}
+
+Service* GetServiceSession() {
+    return &g_esSrv;
+}
+
+Result ImportTicket(const void* tik_buf, u64 tik_size, const void* cert_buf, u64 cert_size) {
+    return serviceDispatch(&g_esSrv, 1,
         .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_In, SfBufferAttr_HipcMapAlias | SfBufferAttr_In },
-        .buffers = { { tik_buf, tik_size }, { cert_buf, cert_size } });
+        .buffers = { { tik_buf, tik_size }, { cert_buf, cert_size } }
+    );
+}
+
+Result CountCommonTicket(s32* count) {
+    return serviceDispatchOut(&g_esSrv, 9, *count);
+}
+
+Result CountPersonalizedTicket(s32* count) {
+    return serviceDispatchOut(&g_esSrv, 10, *count);
+}
+
+Result ListCommonTicket(s32 *out_entries_written, FsRightsId* out_ids, s32 count) {
+    return ListTicket(11, out_entries_written, out_ids, count);
+}
+
+Result ListPersonalizedTicket(s32 *out_entries_written, FsRightsId* out_ids, s32 count) {
+    return ListTicket(12, out_entries_written, out_ids, count);
+}
+
+Result ListMissingPersonalizedTicket(s32 *out_entries_written, FsRightsId* out_ids, s32 count) {
+    return ListTicket(13, out_entries_written, out_ids, count);
+}
+
+Result GetCommonTicketSize(u64 *size_out, const FsRightsId* rightsId) {
+    return serviceDispatchInOut(&g_esSrv, 14, *rightsId, *size_out);
+}
+
+Result GetCommonTicketData(u64 *size_out, void *tik_data, u64 tik_size, const FsRightsId* rightsId) {
+    return serviceDispatchInOut(&g_esSrv, 16, *rightsId, *size_out,
+        .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+        .buffers = { { tik_data, tik_size } },
+    );
+}
+
+Result GetCommonTicketAndCertificateSize(u64 *tik_size_out, u64 *cert_size_out, const FsRightsId* rightsId) {
+    if (hosversionBefore(4,0,0)) {
+        return MAKERESULT(Module_Libnx, LibnxError_IncompatSysVer);
+    }
+
+    struct {
+        u64 ticket_size;
+        u64 cert_size;
+    } out;
+
+    const Result rc = serviceDispatchInOut(&g_esSrv, 22, *rightsId, out);
+    if (R_SUCCEEDED(rc)) {
+        *tik_size_out = out.ticket_size;
+        *cert_size_out = out.cert_size;
+    }
+
+    return rc;
+}
+
+Result GetCommonTicketAndCertificateData(u64 *tik_size_out, u64 *cert_size_out, void* tik_buf, u64 tik_size, void* cert_buf, u64 cert_size, const FsRightsId* rightsId) {
+    if (hosversionBefore(4,0,0)) {
+        return MAKERESULT(Module_Libnx, LibnxError_IncompatSysVer);
+    }
+
+    struct {
+        u64 ticket_size;
+        u64 cert_size;
+    } out;
+
+    const Result rc = serviceDispatchInOut(&g_esSrv, 23, *rightsId, out,
+        .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out, SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+        .buffers = { { tik_buf, tik_size }, { cert_buf, cert_size } }
+    );
+
+    if (R_SUCCEEDED(rc)) {
+        *tik_size_out = out.ticket_size;
+        *cert_size_out = out.cert_size;
+    }
+
+    return rc;
 }
 
 typedef enum {

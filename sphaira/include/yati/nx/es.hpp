@@ -69,7 +69,25 @@ struct EticketRsaDeviceKey {
 static_assert(sizeof(EticketRsaDeviceKey) == 0x240);
 
 // es functions.
-Result ImportTicket(Service* srv, const void* tik_buf, u64 tik_size, const void* cert_buf, u64 cert_size);
+Result Initialize();
+void Exit();
+Service* GetServiceSession();
+
+// todo: find the ipc that gets personalised tickets.
+// todo: if ipc doesn't exist, manually parse es personalised save.
+// todo: add personalised -> common ticket conversion.
+// todo: make the above an option for both dump and install.
+
+Result ImportTicket(const void* tik_buf, u64 tik_size, const void* cert_buf, u64 cert_size);
+Result CountCommonTicket(s32* count);
+Result CountPersonalizedTicket(s32* count);
+Result ListCommonTicket(s32 *out_entries_written, FsRightsId* out_ids, s32 count);
+Result ListPersonalizedTicket(s32 *out_entries_written, FsRightsId* out_ids, s32 count);
+Result ListMissingPersonalizedTicket(s32 *out_entries_written, FsRightsId* out_ids, s32 count); // untested
+Result GetCommonTicketSize(u64 *size_out, const FsRightsId* rightsId);
+Result GetCommonTicketData(u64 *size_out, void *tik_data, u64 tik_size, const FsRightsId* rightsId);
+Result GetCommonTicketAndCertificateSize(u64 *tik_size_out, u64 *cert_size_out, const FsRightsId* rightsId); // [4.0.0+]
+Result GetCommonTicketAndCertificateData(u64 *tik_size_out, u64 *cert_size_out, void* tik_buf, u64 tik_size, void* cert_buf, u64 cert_size, const FsRightsId* rightsId); // [4.0.0+]
 
 // ticket functions.
 Result GetTicketDataOffset(std::span<const u8> ticket, u64& out);

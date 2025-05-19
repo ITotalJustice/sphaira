@@ -101,25 +101,26 @@ Result parse_keys(Keys& out, bool read_from_file) {
         ON_SCOPE_EXIT(setcalExit());
         R_TRY(setcalGetEticketDeviceKey(std::addressof(out.eticket_device_key)));
 
-        R_UNLESS(ini_browse(cb, std::addressof(out), "/switch/prod.keys"), 0x1);
+        // it doesn't matter if this fails, its just that title decryption will also fail.
+        if (ini_browse(cb, std::addressof(out), "/switch/prod.keys")) {
+            // decrypt eticket device key.
+            if (out.eticket_rsa_kek.IsValid()) {
+                auto rsa_key = (es::EticketRsaDeviceKey*)out.eticket_device_key.key;
 
-        // decrypt eticket device key.
-        if (out.eticket_rsa_kek.IsValid()) {
-            auto rsa_key = (es::EticketRsaDeviceKey*)out.eticket_device_key.key;
+                Aes128CtrContext eticket_aes_ctx{};
+                aes128CtrContextCreate(&eticket_aes_ctx, &out.eticket_rsa_kek, rsa_key->ctr);
+                aes128CtrCrypt(&eticket_aes_ctx, &(rsa_key->private_exponent), &(rsa_key->private_exponent), sizeof(es::EticketRsaDeviceKey) - sizeof(rsa_key->ctr));
 
-            Aes128CtrContext eticket_aes_ctx{};
-            aes128CtrContextCreate(&eticket_aes_ctx, &out.eticket_rsa_kek, rsa_key->ctr);
-            aes128CtrCrypt(&eticket_aes_ctx, &(rsa_key->private_exponent), &(rsa_key->private_exponent), sizeof(es::EticketRsaDeviceKey) - sizeof(rsa_key->ctr));
-
-            const auto public_exponent = std::byteswap(rsa_key->public_exponent);
-            if (public_exponent != 0x10001) {
-                log_write("etick decryption fail: 0x%X\n", public_exponent);
-                if (public_exponent == 0) {
-                    log_write("eticket device id is NULL\n");
+                const auto public_exponent = std::byteswap(rsa_key->public_exponent);
+                if (public_exponent != 0x10001) {
+                    log_write("etick decryption fail: 0x%X\n", public_exponent);
+                    if (public_exponent == 0) {
+                        log_write("eticket device id is NULL\n");
+                    }
+                    R_THROW(0x1);
+                } else {
+                    log_write("eticket match\n");
                 }
-                R_THROW(0x1);
-            } else {
-                log_write("eticket match\n");
             }
         }
     }

@@ -13,6 +13,7 @@
 #include "yyjson_helper.hpp"
 #include "swkbd.hpp"
 #include "i18n.hpp"
+#include "nro.hpp"
 
 #include <minIni.h>
 #include <string>
@@ -33,8 +34,6 @@ constexpr auto URL_BASE = "https://switch.cdn.fortheusers.org";
 constexpr auto URL_JSON = "https://switch.cdn.fortheusers.org/repo.json";
 constexpr auto URL_POST_FEEDBACK = "http://switchbru.com/appstore/feedback";
 constexpr auto URL_GET_FEEDACK = "http://switchbru.com/appstore/feedback";
-
-constexpr const char* INI_SECTION = "appstore";
 
 constexpr const char* FILTER_STR[] = {
     "All",
@@ -846,7 +845,7 @@ void EntryMenu::SetIndex(s64 index) {
     }
 }
 
-Menu::Menu() : MenuBase{"AppStore"_i18n} {
+Menu::Menu() : grid::Menu{"AppStore"_i18n} {
     fs::FsNativeSd fs;
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/icons");
     fs.CreateDirectoryRecursively("/switch/sphaira/cache/appstore/banners");
@@ -859,7 +858,7 @@ Menu::Menu() : MenuBase{"AppStore"_i18n} {
                 if (m_is_search) {
                     SetSearch(m_search_term);
                 } else {
-                    SetFilter(m_filter);
+                    SetFilter();
                 }
 
                 SetIndex(m_entry_author_jump_back);
@@ -870,7 +869,7 @@ Menu::Menu() : MenuBase{"AppStore"_i18n} {
                 }
             } else if (m_is_search) {
                 m_is_search = false;
-                SetFilter(m_filter);
+                SetFilter();
                 SetIndex(m_entry_search_jump_back);
                 if (m_entry_search_jump_back >= 9) {
                     m_list->SetYoff(0);
@@ -913,17 +912,30 @@ Menu::Menu() : MenuBase{"AppStore"_i18n} {
             order_items.push_back("Descending"_i18n);
             order_items.push_back("Ascending"_i18n);
 
-            options->Add(std::make_shared<SidebarEntryArray>("Filter"_i18n, filter_items, [this, filter_items](s64& index_out){
-                SetFilter((Filter)index_out);
-            }, (s64)m_filter));
+            SidebarEntryArray::Items layout_items;
+            layout_items.push_back("List"_i18n);
+            layout_items.push_back("Icon"_i18n);
+            layout_items.push_back("Grid"_i18n);
 
-            options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
-                SetSort((SortType)index_out);
-            }, (s64)m_sort));
+            options->Add(std::make_shared<SidebarEntryArray>("Filter"_i18n, filter_items, [this](s64& index_out){
+                m_filter.Set(index_out);
+                SetFilter();
+            }, m_filter.Get()));
 
-            options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
-                SetOrder((OrderType)index_out);
-            }, (s64)m_order));
+            options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this](s64& index_out){
+                m_sort.Set(index_out);
+                SortAndFindLastFile();
+            }, m_sort.Get()));
+
+            options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this](s64& index_out){
+                m_order.Set(index_out);
+                SortAndFindLastFile();
+            }, m_order.Get()));
+
+            options->Add(std::make_shared<SidebarEntryArray>("Layout"_i18n, layout_items, [this](s64& index_out){
+                m_layout.Set(index_out);
+                OnLayoutChange();
+            }, m_layout.Get()));
 
             options->Add(std::make_shared<SidebarEntryCallback>("Search"_i18n, [this](){
                 std::string out;
@@ -953,14 +965,7 @@ Menu::Menu() : MenuBase{"AppStore"_i18n} {
         }
     });
 
-    m_filter = (Filter)ini_getl(INI_SECTION, "filter", m_filter, App::CONFIG_PATH);
-    m_sort = (SortType)ini_getl(INI_SECTION, "sort", m_sort, App::CONFIG_PATH);
-    m_order = (OrderType)ini_getl(INI_SECTION, "order", m_order, App::CONFIG_PATH);
-
-    const Vec4 v{75, 110, 370, 155};
-    const Vec2 pad{10, 10};
-    m_list = std::make_unique<List>(3, 9, m_pos, v, pad);
-    Sort();
+    OnLayoutChange();
 }
 
 Menu::~Menu() {
@@ -1055,42 +1060,27 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             }
         }
 
-        auto text_id = ThemeEntryID_TEXT;
         const auto selected = pos == m_index;
-        if (selected) {
-            text_id = ThemeEntryID_TEXT_SELECTED;
-            gfx::drawRectOutline(vg, theme, 4.f, v);
-        } else {
-            DrawElement(x, y, w, h, ThemeEntryID_GRID);
-        }
+        const auto image_vec = DrawEntryNoImage(vg, theme, m_layout.Get(), v, selected, e.title.c_str(), e.author.c_str(), e.version.c_str());
 
-        constexpr double image_scale = 256.0 / 115.0;
-        // const float image_size = 256 / image_scale;
-        // const float image_size_h = 150 / image_scale;
-        DrawIcon(vg, e.image, m_default_image, x + 20, y + 20, 115, 115, true, image_scale);
+        const auto image_scale = 256.0 / image_vec.w;
+        DrawIcon(vg, e.image, m_default_image, image_vec.x, image_vec.y, image_vec.w, image_vec.h, true, image_scale);
         // gfx::drawImage(vg, x + 20, y + 20, image_size, image_size_h, image.image ? image.image : m_default_image);
 
-        const auto text_off = 148;
-        const auto text_x = x + text_off;
-        const auto text_clip_w = w - 30.f - text_off;
-        const float font_size = 18;
-        m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.title.c_str());
-        m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.author.c_str());
-        m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.version.c_str());
-
+        // todo: fix position on non-grid layout.
         float i_size = 22;
         switch (e.status) {
             case EntryStatus::Get:
-                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_get.image, 15);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_get.image, 20);
                 break;
             case EntryStatus::Installed:
-                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_installed.image, 15);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_installed.image, 20);
                 break;
             case EntryStatus::Local:
-                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_local.image, 15);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_local.image, 20);
                 break;
             case EntryStatus::Update:
-                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_update.image, 15);
+                gfx::drawImage(vg, x + w - 30.f, y + 110, i_size, i_size, m_update.image, 20);
                 break;
         }
     });
@@ -1126,12 +1116,16 @@ void Menu::OnFocusGained() {
 
             for (u32 i = 0; i < m_entries_current.size(); i++) {
                 if (current_entry.name == m_entries[m_entries_current[i]].name) {
-                    SetIndex(i);
-                    if (i >= 9) {
-                        m_list->SetYoff((((i - 9) + 3) / 3) * m_list->GetMaxY());
+                    const auto index = i;
+                    const auto row = m_list->GetRow();
+                    const auto page = m_list->GetPage();
+                    // guesstimate where the position is
+                    if (index >= page) {
+                        m_list->SetYoff((((index - page) + row) / row) * m_list->GetMaxY());
                     } else {
                         m_list->SetYoff(0);
                     }
+                    SetIndex(i);
                     break;
                 }
             }
@@ -1215,15 +1209,20 @@ void Menu::ScanHomebrew() {
         index.shrink_to_fit();
     }
 
-    SetFilter(Filter_All);
+    SetFilter();
     SetIndex(0);
+    Sort();
 }
 
 void Menu::Sort() {
     // log_write("doing sort: size: %zu count: %zu\n", repo_json.size(), m_entries.size());
 
+    const auto sort = m_sort.Get();
+    const auto order = m_order.Get();
+    const auto filter = m_filter.Get();
+
     // returns true if lhs should be before rhs
-    const auto sorter = [this](EntryMini _lhs, EntryMini _rhs) -> bool {
+    const auto sorter = [this, sort, order](EntryMini _lhs, EntryMini _rhs) -> bool {
         const auto& lhs = m_entries[_lhs];
         const auto& rhs = m_entries[_rhs];
 
@@ -1241,11 +1240,11 @@ void Menu::Sort() {
         } else if (!(lhs.status == EntryStatus::Local) && rhs.status == EntryStatus::Local) {
             return false;
         } else {
-            switch (m_sort) {
+            switch (sort) {
                 case SortType_Updated: {
                     if (lhs.updated_num == rhs.updated_num) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
-                    } else if (m_order == OrderType_Descending) {
+                    } else if (order == OrderType_Descending) {
                         return lhs.updated_num > rhs.updated_num;
                     } else {
                         return lhs.updated_num < rhs.updated_num;
@@ -1254,7 +1253,7 @@ void Menu::Sort() {
                 case SortType_Downloads: {
                     if (lhs.app_dls == rhs.app_dls) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
-                    } else if (m_order == OrderType_Descending) {
+                    } else if (order == OrderType_Descending) {
                         return lhs.app_dls > rhs.app_dls;
                     } else {
                         return lhs.app_dls < rhs.app_dls;
@@ -1263,14 +1262,14 @@ void Menu::Sort() {
                 case SortType_Size: {
                     if (lhs.extracted == rhs.extracted) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
-                    } else if (m_order == OrderType_Descending) {
+                    } else if (order == OrderType_Descending) {
                         return lhs.extracted > rhs.extracted;
                     } else {
                         return lhs.extracted < rhs.extracted;
                     }
                 } break;
                 case SortType_Alphabetical: {
-                    if (m_order == OrderType_Descending) {
+                    if (order == OrderType_Descending) {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
                     } else {
                         return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) > 0;
@@ -1284,33 +1283,43 @@ void Menu::Sort() {
 
 
     char subheader[128]{};
-    std::snprintf(subheader, sizeof(subheader), "Filter: %s | Sort: %s | Order: %s"_i18n.c_str(), i18n::get(FILTER_STR[m_filter]).c_str(), i18n::get(SORT_STR[m_sort]).c_str(), i18n::get(ORDER_STR[m_order]).c_str());
+    std::snprintf(subheader, sizeof(subheader), "Filter: %s | Sort: %s | Order: %s"_i18n.c_str(), i18n::get(FILTER_STR[filter]).c_str(), i18n::get(SORT_STR[sort]).c_str(), i18n::get(ORDER_STR[order]).c_str());
     SetTitleSubHeading(subheader);
 
     std::sort(m_entries_current.begin(), m_entries_current.end(), sorter);
 }
 
-void Menu::SetFilter(Filter filter) {
+void Menu::SortAndFindLastFile() {
+    const auto name = GetEntry().name;
+    Sort();
+    SetIndex(0);
+
+    s64 index = -1;
+    for (u64 i = 0; i < m_entries_current.size(); i++) {
+        if (name == GetEntry(i).name) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index >= 0) {
+        const auto row = m_list->GetRow();
+        const auto page = m_list->GetPage();
+        // guesstimate where the position is
+        if (index >= page) {
+            m_list->SetYoff((((index - page) + row) / row) * m_list->GetMaxY());
+        } else {
+            m_list->SetYoff(0);
+        }
+        SetIndex(index);
+    }
+}
+
+void Menu::SetFilter() {
     m_is_search = false;
     m_is_author = false;
 
-    m_filter = filter;
-    m_entries_current = m_entries_index[m_filter];
-    ini_putl(INI_SECTION, "filter", m_filter, App::CONFIG_PATH);
-    SetIndex(0);
-    Sort();
-}
-
-void Menu::SetSort(SortType sort) {
-    m_sort = sort;
-    ini_putl(INI_SECTION, "sort", m_sort, App::CONFIG_PATH);
-    SetIndex(0);
-    Sort();
-}
-
-void Menu::SetOrder(OrderType order) {
-    m_order = order;
-    ini_putl(INI_SECTION, "order", m_order, App::CONFIG_PATH);
+    m_entries_current = m_entries_index[m_filter.Get()];
     SetIndex(0);
     Sort();
 }
@@ -1357,6 +1366,11 @@ void Menu::SetAuthor() {
     m_entries_current = m_entries_index_author;
     SetIndex(0);
     Sort();
+}
+
+void Menu::OnLayoutChange() {
+    m_index = 0;
+    grid::Menu::OnLayoutChange(m_list, m_layout.Get());
 }
 
 LazyImage::~LazyImage() {

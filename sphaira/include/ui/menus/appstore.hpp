@@ -1,10 +1,11 @@
 #pragma once
 
-#include "ui/menus/menu_base.hpp"
+#include "ui/menus/grid_menu_base.hpp"
 #include "ui/scrollable_text.hpp"
 #include "ui/scrolling_text.hpp"
 #include "ui/list.hpp"
 #include "fs.hpp"
+#include "option.hpp"
 #include <span>
 
 namespace sphaira::ui::menu::appstore {
@@ -135,7 +136,9 @@ enum OrderType {
     OrderType_Ascending,
 };
 
-struct Menu final : MenuBase {
+using LayoutType = grid::LayoutType;
+
+struct Menu final : grid::Menu {
     Menu();
     ~Menu();
 
@@ -144,19 +147,14 @@ struct Menu final : MenuBase {
     void Draw(NVGcontext* vg, Theme* theme) override;
     void OnFocusGained() override;
 
-    void SetIndex(s64 index);
-    void ScanHomebrew();
-    void Sort();
-
-    void SetFilter(Filter filter);
-    void SetSort(SortType sort);
-    void SetOrder(OrderType order);
-
-    void SetSearch(const std::string& term);
     void SetAuthor();
 
+    auto GetEntry(s64 i) -> Entry& {
+        return m_entries[m_entries_current[i]];
+    }
+
     auto GetEntry() -> Entry& {
-        return m_entries[m_entries_current[m_index]];
+        return GetEntry(m_index);
     }
 
     auto SetDirty() {
@@ -164,19 +162,27 @@ struct Menu final : MenuBase {
     }
 
 private:
+    void SetIndex(s64 index);
+    void ScanHomebrew();
+    void Sort();
+    void SortAndFindLastFile();
+    void SetFilter();
+    void SetSearch(const std::string& term);
+    void OnLayoutChange();
+
+private:
+    static constexpr inline const char* INI_SECTION = "appstore";
+
     std::vector<Entry> m_entries{};
     std::vector<EntryMini> m_entries_index[Filter_MAX]{};
     std::vector<EntryMini> m_entries_index_author{};
     std::vector<EntryMini> m_entries_index_search{};
     std::span<EntryMini> m_entries_current{};
 
-    ScrollingText m_scroll_name{};
-    ScrollingText m_scroll_author{};
-    ScrollingText m_scroll_version{};
-
-    Filter m_filter{Filter::Filter_All};
-    SortType m_sort{SortType::SortType_Updated};
-    OrderType m_order{OrderType::OrderType_Descending};
+    option::OptionLong m_filter{INI_SECTION, "filter", Filter::Filter_All};
+    option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_Updated};
+    option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
+    option::OptionLong m_layout{INI_SECTION, "layout", LayoutType::LayoutType_GridDetail};
 
     s64 m_index{}; // where i am in the array
     LazyImage m_default_image{};

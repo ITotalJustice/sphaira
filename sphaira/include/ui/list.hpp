@@ -5,6 +5,11 @@
 namespace sphaira::ui {
 
 struct List final : Object {
+    enum class Layout {
+        HOME,
+        GRID,
+    };
+
     using Callback = std::function<void(NVGcontext* vg, Theme* theme, Vec4 v, s64 index)>;
     using TouchCallback = std::function<void(bool touch, s64 index)>;
 
@@ -35,9 +40,35 @@ struct List final : Object {
         return m_v.h + m_pad.y;
     }
 
+    auto GetMaxX() const {
+        return m_v.w + m_pad.x;
+    }
+
+    auto GetLayout() const {
+        return m_layout;
+    }
+
+    void SetLayout(Layout layout) {
+        m_layout = layout;
+    }
+
+    auto GetRow() const {
+        return m_row;
+    }
+
+    auto GetPage() const {
+        return m_page;
+    }
+
 private:
     auto Draw(NVGcontext* vg, Theme* theme) -> void override {}
+    auto ClampX(float x, s64 count) const -> float;
     auto ClampY(float y, s64 count) const -> float;
+
+    void OnUpdateHome(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback);
+    void OnUpdateGrid(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback);
+    void DrawHome(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const;
+    void DrawGrid(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const;
 
 private:
     const s64 m_row;
@@ -52,6 +83,8 @@ private:
     float m_yoff{};
     // in progress y offset, used when scrolling.
     float m_y_prog{};
+
+    Layout m_layout{Layout::GRID};
 };
 
 } // namespace sphaira::ui

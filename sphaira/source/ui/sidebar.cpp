@@ -3,6 +3,7 @@
 #include "ui/popup_list.hpp"
 #include "ui/nvg_util.hpp"
 #include "i18n.hpp"
+#include <algorithm>
 
 namespace sphaira::ui {
 namespace {

@@ -45,7 +45,7 @@ struct Menu final : MenuBase {
 
 // this should be private
 // private:
-    std::shared_ptr<StreamFtp> m_source;
+    std::shared_ptr<StreamFtp> m_source{};
     Thread m_thread{};
     Mutex m_mutex{};
     // the below are shared across threads, lock with the above mutex!
@@ -55,6 +55,7 @@ struct Menu final : MenuBase {
     const char* m_pass{};
     unsigned m_port{};
     bool m_anon{};
+    bool m_was_ftp_enabled{};
 };
 
 } // namespace sphaira::ui::menu::ftp

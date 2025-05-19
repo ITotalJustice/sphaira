@@ -7,6 +7,7 @@
 #include "ui/nvg_util.hpp"
 #include "i18n.hpp"
 #include <cstring>
+#include <algorithm>
 
 namespace sphaira::ui::menu::gc {
 namespace {
@@ -181,6 +182,7 @@ Menu::Menu() : MenuBase{"GameCard"_i18n} {
     const Vec2 pad{0, 125 - v.h};
     m_list = std::make_unique<List>(1, 3, m_pos, v, pad);
 
+    nsInitialize();
     fsOpenDeviceOperator(std::addressof(m_dev_op));
     fsOpenGameCardDetectionEventNotifier(std::addressof(m_event_notifier));
     fsEventNotifierGetEventHandle(std::addressof(m_event_notifier), std::addressof(m_event), true);
@@ -319,7 +321,7 @@ Result Menu::GcMount() {
         std::vector<u8> extended_header;
         std::vector<NcmPackagedContentInfo> infos;
         const auto path = BuildGcPath(e.name, &m_handle);
-        R_TRY(yati::ParseCnmtNca(path, 0, header, extended_header, infos));
+        R_TRY(nca::ParseCnmt(path, 0, header, extended_header, infos));
 
         u8 key_gen;
         FsRightsId rights_id;
@@ -493,6 +495,31 @@ void Menu::OnChangeIndex(s64 new_index) {
     const auto index = m_entries.empty() ? 0 : m_entry_index + 1;
     this->SetSubHeading(std::to_string(index) + " / " + std::to_string(m_entries.size()));
 
+    const auto id = m_entries[m_entry_index].app_id;
+
+    if (hosversionBefore(20,0,0)) {
+        TimeStamp ts;
+        auto control = std::make_unique<NsApplicationControlData>();
+        u64 control_size;
+
+        if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_CacheOnly, id, control.get(), sizeof(NsApplicationControlData), &control_size))) {
+            log_write("\t\t[ns control cache] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
+
+            NacpLanguageEntry* lang_entry{};
+            nacpGetLanguageEntry(&control->nacp, &lang_entry);
+
+            if (lang_entry) {
+                m_lang_entry = *lang_entry;
+            }
+
+            const auto jpeg_size = control_size - sizeof(NacpStruct);
+            m_icon = nvgCreateImageMem(App::GetVg(), 0, control->icon, jpeg_size);
+            if (m_icon > 0) {
+                return;
+            }
+        }
+    }
+
     // nsGetApplicationControlData() will fail if it's the first time
     // mounting a gamecard if the image is not already cached.
     // waiting 1-2s after mount, then calling seems to work.
@@ -505,12 +532,15 @@ void Menu::OnChangeIndex(s64 new_index) {
                 std::vector<u8> icon;
                 const auto path = BuildGcPath(collection.name.c_str(), &m_handle);
 
-                u64 program_id = m_entries[m_entry_index].app_id | collection.id_offset;
+                u64 program_id = id | collection.id_offset;
                 if (hosversionAtLeast(17, 0, 0)) {
                     fsGetProgramId(&program_id, path, FsContentAttributes_All);
                 }
 
-                if (R_SUCCEEDED(yati::ParseControlNca(path, program_id, &nacp, sizeof(nacp), &icon))) {
+                TimeStamp ts;
+                if (R_SUCCEEDED(nca::ParseControl(path, program_id, &nacp, sizeof(nacp), &icon))) {
+                    log_write("\t\tnca::ParseControl(): %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
+
                     log_write("managed to parse control nca %s\n", path.s);
                     NacpLanguageEntry* lang_entry{};
                     nacpGetLanguageEntry(&nacp, &lang_entry);

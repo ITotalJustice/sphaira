@@ -212,7 +212,7 @@ MainMenu::MainMenu() {
 
             const auto version = yyjson_get_str(tag_key);
             R_UNLESS(version, false);
-            if (std::strcmp(APP_VERSION, version) >= 0) {
+            if (!App::IsVersionNewer(APP_VERSION, version)) {
                 m_update_state = UpdateState::None;
                 return true;
             }
@@ -269,6 +269,7 @@ MainMenu::MainMenu() {
             language_items.push_back("Russian"_i18n);
             language_items.push_back("Swedish"_i18n);
             language_items.push_back("Vietnamese"_i18n);
+            language_items.push_back("Ukrainian"_i18n);
 
             options->Add(std::make_shared<SidebarEntryCallback>("Theme"_i18n, [](){
                 App::DisplayThemeOptions();

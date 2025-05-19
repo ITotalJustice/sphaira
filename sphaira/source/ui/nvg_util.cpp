@@ -171,6 +171,24 @@ void drawTextIntenal(NVGcontext* vg, const Vec2& v, float size, const char* str,
     nvgText(vg, v.x, v.y, str, end);
 }
 
+void drawTriangleInternal(NVGcontext* vg, float aX, float aY, float bX, float bY, float cX, float cY, const NVGcolor& c) {
+    nvgBeginPath(vg);
+    nvgMoveTo(vg, aX, aY);
+    nvgLineTo(vg, bX, bY);
+    nvgLineTo(vg, cX, cY);
+    nvgFillColor(vg, c);
+    nvgFill(vg);
+}
+
+void drawTriangleInternal(NVGcontext* vg, float aX, float aY, float bX, float bY, float cX, float cY, const NVGpaint& p) {
+    nvgBeginPath(vg);
+    nvgMoveTo(vg, aX, aY);
+    nvgLineTo(vg, bX, bY);
+    nvgLineTo(vg, cX, cY);
+    nvgFillPaint(vg, p);
+    nvgFill(vg);
+}
+
 } // namespace
 
 const char* getButton(const Button want) {
@@ -307,6 +325,63 @@ void drawScrollbar2(NVGcontext* vg, const Theme* theme, float x, float y, float 
 
 void drawScrollbar2(NVGcontext* vg, const Theme* theme, s64 index_off, s64 count, s64 row, s64 page) {
     drawScrollbar2(vg, theme, SCREEN_WIDTH - 50, 100, SCREEN_HEIGHT-200, index_off, count, row, page);
+}
+
+void drawTriangle(NVGcontext* vg, float aX, float aY, float bX, float bY, float cX, float cY, const NVGcolor& c) {
+    drawTriangleInternal(vg, aX, aY, bX, bY, cX, cY, c);
+}
+
+void drawTriangle(NVGcontext* vg, float aX, float aY, float bX, float bY, float cX, float cY, const NVGpaint& p) {
+    drawTriangleInternal(vg, aX, aY, bX, bY, cX, cY, p);
+}
+
+void drawAppLable(NVGcontext* vg, const Theme* theme, ScrollingText& st, float x, float y, float w, const char* name) {
+    // todo: no more 5am code
+    const float max_box_w = 392.f;
+    const float box_h = 48.f;
+    // used for adjusting the position of the box.
+    const float clip_pad = 25.f;
+    const float clip_left = clip_pad;
+    const float clip_right = 1220.f - clip_pad;
+    const float text_pad = 25.f;
+    const float font_size = 22.f;
+
+    nvgTextAlign(vg, NVG_ALIGN_LEFT);
+    nvgFontSize(vg, font_size);
+    float bounds[4]{};
+    nvgTextBounds(vg, 0, 0, name, NULL, bounds);
+
+    const float trinaglex = x + (w / 2.f) - 9.f;
+    const float trinagley = y - 14.f;
+    const float center_x = x + (w / 2.f);
+    const float y_offset = y - 62.f; // top of box
+    const float text_width = bounds[2];
+    float box_w = text_width + text_pad * 2;
+    if (box_w > max_box_w) {
+        box_w = max_box_w;
+    }
+
+    float box_x = center_x - (box_w / 2.f);
+    if (box_x < clip_left) {
+        box_x = clip_left;
+    }
+    if ((box_x + box_w) > clip_right) {
+        // box_x -= ((box_x + box_w) - clip_right) / 2;
+        box_x = (clip_right - box_w);
+    }
+
+    const float text_x = box_x + text_pad;
+    const float text_y = y_offset + (box_h / 2.f);
+
+    drawRect(vg, {x-4, y-4, w+8, w+8}, theme->GetColour(ThemeEntryID_GRID));
+    nvgBeginPath(vg);
+
+    nvgRoundedRect(vg, box_x, y_offset, box_w, box_h, 3.f);
+    nvgFillColor(vg, theme->GetColour(ThemeEntryID_SELECTED_BACKGROUND));
+    nvgFill(vg);
+
+    drawTriangle(vg, trinaglex, trinagley, trinaglex + 18.f, trinagley, trinaglex + 9.f, trinagley + 12.f, theme->GetColour(ThemeEntryID_SELECTED_BACKGROUND));
+    st.Draw(vg, true, text_x, text_y, box_w - text_pad * 2, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_SELECTED), name);
 }
 
 #define HIGHLIGHT_SPEED 350.0

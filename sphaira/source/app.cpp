@@ -1,5 +1,4 @@
 #include "ui/option_box.hpp"
-#include "ui/bubbles.hpp"
 #include "ui/sidebar.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/option_box.hpp"
@@ -301,29 +300,32 @@ auto GetNroIcon(const std::vector<u8>& nro_icon) -> std::vector<u8> {
 auto LoadThemeMeta(const fs::FsPath& path, ThemeMeta& meta) -> bool {
     meta = {};
 
-    char buf[FS_MAX_PATH]{};
-    int len{};
-    len = ini_gets("meta", "name", "", buf, sizeof(buf) - 1, path);
-    if (len <= 1) {
+    auto cb = [](const mTCHAR *Section, const mTCHAR *Key, const mTCHAR *Value, void *UserData) -> int {
+        auto meta = static_cast<ThemeMeta*>(UserData);
+
+        if (!std::strcmp(Section, "meta")) {
+            if (!std::strcmp(Key, "name")) {
+                meta->name = Value;
+            } else if (!std::strcmp(Key, "author")) {
+                meta->author = Value;
+            } else if (!std::strcmp(Key, "version")) {
+                meta->version = Value;
+            } else if (!std::strcmp(Key, "inherit")) {
+                meta->inherit = Value;
+            }
+
+            return 1;
+        }
+
+        return 0;
+    };
+
+    if (!ini_browse(cb, &meta, path)) {
         return false;
     }
-    meta.name = buf;
 
-    len = ini_gets("meta", "author", "", buf, sizeof(buf) - 1, path);
-    if (len <= 1) {
+    if (meta.name.empty() || meta.author.empty() || meta.version.empty()) {
         return false;
-    }
-    meta.author = buf;
-
-    len = ini_gets("meta", "version", "", buf, sizeof(buf) - 1, path);
-    if (len <= 1) {
-        return false;
-    }
-    meta.version = buf;
-
-    len = ini_gets("meta", "inherit", "", buf, sizeof(buf) - 1, path);
-    if (len > 1) {
-        meta.inherit = buf;
     }
 
     log_write("loaded meta from: %s\n", path.s);
@@ -357,7 +359,7 @@ void LoadThemeInternal(ThemeMeta meta, ThemeData& theme_data, int inherit_level 
         }
     }
 
-    static constexpr auto cb = [](const mTCHAR *Section, const mTCHAR *Key, const mTCHAR *Value, void *UserData) -> int {
+    auto cb = [](const mTCHAR *Section, const mTCHAR *Key, const mTCHAR *Value, void *UserData) -> int {
         auto theme_data = static_cast<ThemeData*>(UserData);
 
         if (!std::strcmp(Section, "theme")) {
@@ -599,7 +601,19 @@ auto App::GetReplaceHbmenuEnable() -> bool {
 }
 
 auto App::GetInstallEnable() -> bool {
-    return g_app->m_install.Get();
+    if (IsEmunand()) {
+        return GetInstallEmummcEnable();
+    } else {
+        return GetInstallSysmmcEnable();
+    }
+}
+
+auto App::GetInstallSysmmcEnable() -> bool {
+    return g_app->m_install_sysmmc.GetOr("install");
+}
+
+auto App::GetInstallEmummcEnable() -> bool {
+    return g_app->m_install_emummc.GetOr("install");
 }
 
 auto App::GetInstallSdEnable() -> bool {
@@ -705,7 +719,7 @@ void App::SetReplaceHbmenuEnable(bool enable) {
                     }
 
                     if (R_SUCCEEDED(rc) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira")) {
-                        if (std::strcmp(sphaira_nacp.display_version, hbmenu_nacp.display_version) < 0) {
+                        if (IsVersionNewer(sphaira_nacp.display_version, hbmenu_nacp.display_version)) {
                             if (R_FAILED(rc = fs.copy_entire_file(sphaira_path, "/hbmenu.nro"))) {
                                 log_write("failed to copy entire file: %s 0x%X module: %u desc: %u\n", sphaira_path.s, rc, R_MODULE(rc), R_DESCRIPTION(rc));
                             } else {
@@ -755,8 +769,12 @@ void App::SetReplaceHbmenuEnable(bool enable) {
     }
 }
 
-void App::SetInstallEnable(bool enable) {
-    g_app->m_install.Set(enable);
+void App::SetInstallSysmmcEnable(bool enable) {
+    g_app->m_install_sysmmc.Set(enable);
+}
+
+void App::SetInstallEmummcEnable(bool enable) {
+    g_app->m_install_emummc.Set(enable);
 }
 
 void App::SetInstallSdEnable(bool enable) {
@@ -780,7 +798,7 @@ void App::SetMtpEnable(bool enable) {
     if (App::GetMtpEnable() != enable) {
         g_app->m_mtp_enabled.Set(enable);
         if (enable) {
-            hazeInitialize(haze_callback);
+            hazeInitialize(haze_callback, 0x2C, 2);
         } else {
             hazeExit();
         }
@@ -1031,7 +1049,6 @@ void App::Draw() {
     }
 
     m_notif_manager.Draw(vg, &m_theme);
-    ui::bubble::Draw(vg, &m_theme);
 
     nvgResetTransform(vg);
     nvgEndFrame(this->vg);
@@ -1212,11 +1229,14 @@ void App::ScanThemeEntries() {
         ScanThemes("romfs:/themes/");
         romfsExit();
     }
+
     // then load custom entries
     ScanThemes("/config/sphaira/themes/");
 }
 
 App::App(const char* argv0) {
+    TimeStamp ts;
+
     g_app = this;
     m_start_timestamp = armGetSystemTick();
     if (!std::strncmp(argv0, "sdmc:/", 6)) {
@@ -1240,10 +1260,11 @@ App::App(const char* argv0) {
     if (App::GetLogEnable()) {
         log_file_init();
         log_write("hello world\n");
+        App::Notify("Warning! Logs are enabled, Sphaira will run slowly!"_i18n);
     }
 
     if (App::GetMtpEnable()) {
-        hazeInitialize(haze_callback);
+        hazeInitialize(haze_callback, 0x2C, 2);
     }
 
     if (App::GetFtpEnable()) {
@@ -1386,6 +1407,10 @@ App::App(const char* argv0) {
     // padInitializeDefault(&m_pad);
     padInitializeAny(&m_pad);
 
+    // usbHsFsSetFileSystemMountFlags(UsbHsFsMountFlags_ReadOnly);
+    // usbHsFsSetPopulateCallback();
+    // usbHsFsInitialize(0);
+
     m_prev_timestamp = ini_getl("paths", "timestamp", 0, App::CONFIG_PATH);
     const auto last_launch_path_size = ini_gets("paths", "last_launch_path", "", m_prev_last_launch, sizeof(m_prev_last_launch), App::CONFIG_PATH);
     fs::FsPath last_launch_path;
@@ -1419,36 +1444,8 @@ App::App(const char* argv0) {
         }
     }
 
-    struct EventDay {
-        u8 day;
-        u8 month;
-    };
-
-    static constexpr EventDay event_days[] = {
-        { .day = 1, .month = 1 }, // New years
-
-        { .day = 3, .month = 3 }, // March 3 (switch 1)
-        { .day = 10, .month = 5 }, // June 10 (switch 2)
-        { .day = 15, .month = 5 }, // June 15
-
-        { .day = 25, .month = 12 }, // Christmas
-        { .day = 26, .month = 12 },
-        { .day = 27, .month = 12 },
-        { .day = 28, .month = 12 },
-    };
-
-    const auto time = std::time(nullptr);
-    const auto tm = std::localtime(&time);
-
-    for (auto e : event_days) {
-        if (e.day == tm->tm_mday && e.month == (tm->tm_mon + 1)) {
-            ui::bubble::Init();
-            break;
-        }
-    }
-
     App::Push(std::make_shared<ui::menu::main::MainMenu>());
-    log_write("finished app constructor\n");
+    log_write("finished app constructor, time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
 }
 
 void App::PlaySoundEffect(SoundEffect effect) {
@@ -1596,8 +1593,12 @@ void App::DisplayInstallOptions(bool left_side) {
     install_items.push_back("System memory"_i18n);
     install_items.push_back("microSD card"_i18n);
 
-    options->Add(std::make_shared<ui::SidebarEntryBool>("Enable"_i18n, App::GetApp()->m_install.Get(), [](bool& enable){
-        App::GetApp()->m_install.Set(enable);
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Enable sysmmc"_i18n, App::GetInstallSysmmcEnable(), [](bool& enable){
+        App::SetInstallSysmmcEnable(enable);
+    }));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Enable emummc"_i18n, App::GetInstallEmummcEnable(), [](bool& enable){
+        App::SetInstallEmummcEnable(enable);
     }));
 
     options->Add(std::make_shared<ui::SidebarEntryBool>("Show install warning"_i18n, App::GetApp()->m_install_prompt.Get(), [](bool& enable){
@@ -1679,8 +1680,6 @@ App::~App() {
     i18n::exit();
     curl::Exit();
 
-    ui::bubble::Exit();
-
     // this has to be called before any cleanup to ensure the lifetime of
     // nvg is still active as some widgets may need to free images.
     m_widgets.clear();
@@ -1745,7 +1744,7 @@ App::~App() {
 
             // found sphaira, now lets get compare version
             if (R_SUCCEEDED(rc) && !std::strcmp(sphaira_nacp.lang[0].name, "sphaira")) {
-                if (std::strcmp(hbmenu_nacp.display_version, sphaira_nacp.display_version) < 0) {
+                if (IsVersionNewer(hbmenu_nacp.display_version, sphaira_nacp.display_version)) {
                     if (R_FAILED(rc = fs.copy_entire_file(GetExePath(), sphaira_path))) {
                         log_write("failed to copy entire file: %s 0x%X module: %u desc: %u\n", sphaira_path.s, rc, R_MODULE(rc), R_DESCRIPTION(rc));
                     } else {
@@ -1781,6 +1780,16 @@ App::~App() {
     u64 timestamp;
     timeGetCurrentTime(TimeType_LocalSystemClock, &timestamp);
     ini_putl("paths", "timestamp", timestamp, App::CONFIG_PATH);
+}
+
+auto App::GetVersionFromString(const char* str) -> u32 {
+    u32 major{}, minor{}, macro{};
+    std::sscanf(str, "%u.%u.%u", &major, &minor, &macro);
+    return MAKEHOSVERSION(major, minor, macro);
+}
+
+auto App::IsVersionNewer(const char* current, const char* new_version) -> u32 {
+    return GetVersionFromString(current) < GetVersionFromString(new_version);
 }
 
 void App::createFramebufferResources() {

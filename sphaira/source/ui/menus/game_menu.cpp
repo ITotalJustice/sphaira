@@ -1,6 +1,11 @@
 #include "app.hpp"
 #include "log.hpp"
 #include "fs.hpp"
+#include "download.hpp"
+#include "defines.hpp"
+#include "i18n.hpp"
+#include "location.hpp"
+
 #include "ui/menus/game_menu.hpp"
 #include "ui/sidebar.hpp"
 #include "ui/error_box.hpp"
@@ -8,32 +13,433 @@
 #include "ui/progress_box.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/nvg_util.hpp"
-#include "defines.hpp"
-#include "i18n.hpp"
+
 #include "yati/nx/ncm.hpp"
+#include "yati/nx/nca.hpp"
+#include "yati/nx/es.hpp"
+#include "yati/container/base.hpp"
+#include "yati/container/nsp.hpp"
+
+#include "usb/usb_uploader.hpp"
 
 #include <utility>
 #include <cstring>
+#include <algorithm>
+#include <minIni.h>
 
 namespace sphaira::ui::menu::game {
 namespace {
 
-// thank you Shchmue ^^
-struct ApplicationOccupiedSizeEntry {
-    u8 storageId;
-    u8 padding[0x7];
-    u64 sizeApplication;
-    u64 sizePatch;
-    u64 sizeAddOnContent;
+constexpr u32 ContentMetaTypeToContentFlag(u8 meta_type) {
+    if (meta_type & 0x80) {
+        return 1 << (meta_type - 0x80);
+    }
+
+    return 0;
+}
+
+enum ContentFlag {
+    ContentFlag_Application = ContentMetaTypeToContentFlag(NcmContentMetaType_Application),
+    ContentFlag_Patch = ContentMetaTypeToContentFlag(NcmContentMetaType_Patch),
+    ContentFlag_AddOnContent = ContentMetaTypeToContentFlag(NcmContentMetaType_AddOnContent),
+    ContentFlag_DataPatch = ContentMetaTypeToContentFlag(NcmContentMetaType_DataPatch),
+    ContentFlag_All = ContentFlag_Application | ContentFlag_Patch | ContentFlag_AddOnContent | ContentFlag_DataPatch,
 };
 
-struct ApplicationOccupiedSize {
-    ApplicationOccupiedSizeEntry entry[4];
+enum DumpLocationType {
+    DumpLocationType_SdCard,
+    DumpLocationType_UsbS2S,
+    DumpLocationType_DevNull,
 };
 
-static_assert(sizeof(ApplicationOccupiedSize) == sizeof(NsApplicationOccupiedSize));
+struct DumpLocation {
+    const DumpLocationType type;
+    const char* display_name;
+};
+
+constexpr DumpLocation DUMP_LOCATIONS[]{
+    { DumpLocationType_SdCard, "microSD card (/dumps/NSP/)" },
+    { DumpLocationType_UsbS2S, "USB transfer (Switch 2 Switch)" },
+    { DumpLocationType_DevNull, "/dev/null (Speed Test)" },
+};
+
+struct NcmEntry {
+    const NcmStorageId storage_id;
+    NcmContentStorage cs{};
+    NcmContentMetaDatabase db{};
+
+    void Open() {
+        if (R_FAILED(ncmOpenContentMetaDatabase(std::addressof(db), storage_id))) {
+            log_write("\tncmOpenContentMetaDatabase() failed. storage_id: %u\n", storage_id);
+        } else {
+            log_write("\tncmOpenContentMetaDatabase() success. storage_id: %u\n", storage_id);
+        }
+
+        if (R_FAILED(ncmOpenContentStorage(std::addressof(cs), storage_id))) {
+            log_write("\tncmOpenContentStorage() failed. storage_id: %u\n", storage_id);
+        } else {
+            log_write("\tncmOpenContentStorage() success. storage_id: %u\n", storage_id);
+        }
+    }
+
+    void Close() {
+        ncmContentMetaDatabaseClose(std::addressof(db));
+        ncmContentStorageClose(std::addressof(cs));
+
+        db = {};
+        cs = {};
+    }
+};
+
+constinit NcmEntry ncm_entries[] = {
+    // on memory, will become invalid on the gamecard being inserted / removed.
+    { NcmStorageId_GameCard },
+    // normal (save), will remain valid.
+    { NcmStorageId_BuiltInUser },
+    { NcmStorageId_SdCard },
+};
+
+auto& GetNcmEntry(u8 storage_id) {
+    auto it = std::ranges::find_if(ncm_entries, [storage_id](auto& e){
+        return storage_id == e.storage_id;
+    });
+
+    if (it == std::end(ncm_entries)) {
+        log_write("unable to find valid ncm entry: %u\n", storage_id);
+        return ncm_entries[0];
+    }
+
+    return *it;
+}
+
+auto& GetNcmCs(u8 storage_id) {
+    return GetNcmEntry(storage_id).cs;
+}
+
+auto& GetNcmDb(u8 storage_id) {
+    return GetNcmEntry(storage_id).db;
+}
 
 using MetaEntries = std::vector<NsApplicationContentMetaStatus>;
+
+struct ContentInfoEntry {
+    NsApplicationContentMetaStatus status{};
+    std::vector<NcmContentInfo> content_infos{};
+    std::vector<FsRightsId> rights_ids{};
+};
+
+struct TikEntry {
+    FsRightsId id{};
+    std::vector<u8> tik_data{};
+    std::vector<u8> cert_data{};
+};
+
+struct NspEntry {
+    // application name.
+    std::string application_name{};
+    // name of the nsp (name [id][v0][BASE].nsp).
+    fs::FsPath path{};
+    // tickets and cert data, will be empty if title key crypto isn't used.
+    std::vector<TikEntry> tickets{};
+    // all the collections for this nsp, such as nca's and tickets.
+    std::vector<yati::container::CollectionEntry> collections{};
+    // raw nsp data (header, file table and string table).
+    std::vector<u8> nsp_data{};
+    // size of the entier nsp.
+    s64 nsp_size{};
+    // copy of ncm cs, it is not closed.
+    NcmContentStorage cs{};
+
+    // todo: benchmark manual sdcard read and decryption vs ncm.
+    Result Read(void* buf, s64 off, s64 size, u64* bytes_read) {
+        if (off < nsp_data.size()) {
+            *bytes_read = size = ClipSize(off, size, nsp_data.size());
+            std::memcpy(buf, nsp_data.data() + off, size);
+            R_SUCCEED();
+        }
+
+        // adjust offset.
+        off -= nsp_data.size();
+
+        for (const auto& collection : collections) {
+            if (InRange(off, collection.offset, collection.size)) {
+                // adjust offset relative to the collection.
+                off -= collection.offset;
+                *bytes_read = size = ClipSize(off, size, collection.size);
+
+                if (collection.name.ends_with(".nca")) {
+                    const auto id = ncm::GetContentIdFromStr(collection.name.c_str());
+                    return ncmContentStorageReadContentIdFile(&cs, buf, size, &id, off);
+                } else if (collection.name.ends_with(".tik") || collection.name.ends_with(".cert")) {
+                    FsRightsId id;
+                    keys::parse_hex_key(&id, collection.name.c_str());
+
+                    const auto it = std::ranges::find_if(tickets, [&id](auto& e){
+                        return !std::memcmp(&id, &e.id, sizeof(id));
+                    });
+                    R_UNLESS(it != tickets.end(), 0x1);
+
+                    const auto& data = collection.name.ends_with(".tik") ? it->tik_data : it->cert_data;
+                    std::memcpy(buf, data.data() + off, size);
+                    R_SUCCEED();
+                }
+            }
+        }
+
+        log_write("did not find collection...\n");
+        return 0x1;
+    }
+
+private:
+    static auto InRange(s64 off, s64 offset, s64 size) -> bool {
+        return off < offset + size && off >= offset;
+    }
+
+    static auto ClipSize(s64 off, s64 size, s64 file_size) -> s64 {
+        return std::min(size, file_size - off);
+    }
+};
+
+struct BaseSource {
+    virtual ~BaseSource() = default;
+    virtual Result Read(const std::string& path, void* buf, s64 off, s64 size, u64* bytes_read) = 0;
+};
+
+struct NspSource final : BaseSource {
+    NspSource(std::span<NspEntry> entries) : m_entries{entries} { }
+
+    Result Read(const std::string& path, void* buf, s64 off, s64 size, u64* bytes_read) override {
+        const auto it = std::ranges::find_if(m_entries, [&path](auto& e){
+            return path == e.path;
+        });
+        R_UNLESS(it != m_entries.end(), 0x1);
+
+        return it->Read(buf, off, size, bytes_read);
+    }
+
+    auto GetEntries() const -> std::span<const NspEntry> {
+        return m_entries;
+    }
+
+    auto GetName(const std::string& path) const -> std::string {
+        const auto it = std::ranges::find_if(m_entries, [&path](auto& e){
+            return path == e.path;
+        });
+
+        if (it != m_entries.end()) {
+            return it->application_name;
+        }
+
+        return {};
+    }
+
+    auto GetSize(const std::string& path) const -> s64 {
+        const auto it = std::ranges::find_if(m_entries, [&path](auto& e){
+            return path == e.path;
+        });
+
+        if (it != m_entries.end()) {
+            return it->nsp_size;
+        }
+
+        return 0;
+    }
+
+private:
+    std::span<NspEntry> m_entries{};
+};
+
+struct UsbTest final : usb::upload::Usb {
+    UsbTest(ProgressBox* pbox, std::span<NspEntry> entries) : Usb{UINT64_MAX} {
+        m_source = std::make_unique<NspSource>(entries);
+        m_pbox = pbox;
+    }
+
+    Result Read(const std::string& path, void* buf, s64 off, s64 size, u64* bytes_read) override {
+        if (m_path != path) {
+            m_path = path;
+            m_progress = 0;
+            m_size = m_source->GetSize(path);
+            m_pbox->SetTitle(m_source->GetName(path));
+            m_pbox->NewTransfer(m_path);
+        }
+
+        R_TRY(m_source->Read(path, buf, off, size, bytes_read));
+
+        m_offset += *bytes_read;
+        m_progress += *bytes_read;
+        m_pbox->UpdateTransfer(m_progress, m_size);
+
+        R_SUCCEED();
+    }
+
+private:
+    std::unique_ptr<NspSource> m_source{};
+    ProgressBox* m_pbox{};
+    std::string m_path{};
+    s64 m_offset{};
+    s64 m_size{};
+    s64 m_progress{};
+};
+
+Result DumpNspToFile(ProgressBox* pbox, std::span<NspEntry> entries) {
+    static constexpr fs::FsPath DUMP_PATH{"/dumps/NSP"};
+    constexpr s64 BIG_FILE_SIZE = 1024ULL*1024ULL*1024ULL*4ULL;
+
+    fs::FsNativeSd fs{};
+    R_TRY(fs.GetFsOpenResult());
+
+    auto source = std::make_unique<NspSource>(entries);
+    for (const auto& e : entries) {
+        pbox->SetTitle(e.application_name);
+        pbox->NewTransfer(e.path);
+
+        const auto temp_path = fs::AppendPath(DUMP_PATH, e.path + ".temp");
+        fs.CreateDirectoryRecursivelyWithPath(temp_path);
+        fs.DeleteFile(temp_path);
+
+        const auto flags = e.nsp_size >= BIG_FILE_SIZE ? FsCreateOption_BigFile : 0;
+        R_TRY(fs.CreateFile(temp_path, e.nsp_size, flags));
+        ON_SCOPE_EXIT(fs.DeleteFile(temp_path));
+
+        {
+            FsFile file;
+            R_TRY(fs.OpenFile(temp_path, FsOpenMode_Write, &file));
+            ON_SCOPE_EXIT(fsFileClose(&file));
+
+            s64 offset{};
+            std::vector<u8> buf(1024*1024*4); // 4MiB
+
+            while (offset < e.nsp_size) {
+                if (pbox->ShouldExit()) {
+                    R_THROW(0xFFFF);
+                }
+
+                u64 bytes_read;
+                R_TRY(source->Read(e.path, buf.data(), offset, buf.size(), &bytes_read));
+                pbox->Yield();
+
+                R_TRY(fsFileWrite(&file, offset, buf.data(), bytes_read, FsWriteOption_None));
+                pbox->Yield();
+
+                pbox->UpdateTransfer(offset, e.nsp_size);
+                offset += bytes_read;
+            }
+        }
+
+        const auto path = fs::AppendPath(DUMP_PATH, e.path);
+        fs.DeleteFile(path);
+        R_TRY(fs.RenameFile(temp_path, path));
+    }
+
+    R_SUCCEED();
+}
+
+Result DumpNspToUsbS2S(ProgressBox* pbox, std::span<NspEntry> entries) {
+    std::vector<std::string> file_list;
+    for (auto& e : entries) {
+        file_list.emplace_back(e.path);
+    }
+
+    auto usb = std::make_unique<UsbTest>(pbox, entries);
+    constexpr u64 timeout = 1e+9;
+
+    // todo: display progress bar during usb transfer.
+    while (!pbox->ShouldExit()) {
+        if (R_SUCCEEDED(usb->IsUsbConnected(timeout))) {
+            pbox->NewTransfer("USB connected, sending file list");
+            if (R_SUCCEEDED(usb->WaitForConnection(timeout, file_list))) {
+                pbox->NewTransfer("Sent file list, waiting for command...");
+
+                while (!pbox->ShouldExit()) {
+                    const auto rc = usb->PollCommands();
+                    if (rc == usb->Result_Exit) {
+                        log_write("got exit command\n");
+                        R_SUCCEED();
+                    }
+
+                    R_TRY(rc);
+                }
+            }
+
+        } else {
+            pbox->NewTransfer("waiting for usb connection...");
+        }
+    }
+
+    R_SUCCEED();
+}
+
+Result DumpNspToDevNull(ProgressBox* pbox, std::span<NspEntry> entries) {
+    auto source = std::make_unique<NspSource>(entries);
+    for (const auto& e : entries) {
+        pbox->SetTitle(e.application_name);
+        pbox->NewTransfer(e.path);
+
+        s64 offset{};
+        std::vector<u8> buf(1024*1024*4); // 4MiB
+
+        while (offset < e.nsp_size) {
+            if (pbox->ShouldExit()) {
+                R_THROW(0xFFFF);
+            }
+
+            u64 bytes_read;
+            R_TRY(source->Read(e.path, buf.data(), offset, buf.size(), &bytes_read));
+            pbox->Yield();
+
+            pbox->UpdateTransfer(offset, e.nsp_size);
+            offset += bytes_read;
+        }
+    }
+
+    R_SUCCEED();
+}
+
+Result DumpNspToNetwork(ProgressBox* pbox, const location::Entry& loc, std::span<NspEntry> entries) {
+    auto source = std::make_unique<NspSource>(entries);
+    for (const auto& e : entries) {
+        if (pbox->ShouldExit()) {
+            R_THROW(0xFFFF);
+        }
+
+        pbox->SetTitle(e.application_name);
+        pbox->NewTransfer(e.path);
+
+        s64 offset{};
+        const auto result = curl::Api().FromMemory(
+            CURL_LOCATION_TO_API(loc),
+            curl::OnProgress{pbox->OnDownloadProgressCallback()},
+            curl::UploadInfo{
+                e.path, e.nsp_size,
+                [&pbox, &e, &source, &offset](void *ptr, size_t size) -> size_t {
+                    u64 bytes_read{};
+                    if (R_FAILED(source->Read(e.path, ptr, offset, size, &bytes_read))) {
+                        // curl will request past the size of the file, causing an error.
+                        // only log the error if it failed in the middle of a transfer.
+                        if (offset != e.nsp_size) {
+                            log_write("failed to read in custom callback: %zd size: %zd\n", offset, e.nsp_size);
+                        }
+                        return 0;
+                    }
+
+                    offset += bytes_read;
+                    return bytes_read;
+                }
+            },
+            curl::OnUploadSeek{
+                [&e, &offset](s64 new_offset){
+                    offset = new_offset;
+                    return true;
+                }
+            }
+        );
+
+        R_UNLESS(result.success, 0x1);
+    }
+
+    R_SUCCEED();
+}
 
 Result Notify(Result rc, const std::string& error_message) {
     if (R_FAILED(rc)) {
@@ -47,19 +453,30 @@ Result Notify(Result rc, const std::string& error_message) {
     return rc;
 }
 
-Result GetMetaEntries(const Entry& e, MetaEntries& out) {
-    s32 count;
-    R_TRY(nsCountApplicationContentMeta(e.app_id, &count));
+Result GetMetaEntries(u64 id, MetaEntries& out, u32 flags = ContentFlag_All) {
+    for (s32 i = 0; ; i++) {
+        s32 count;
+        NsApplicationContentMetaStatus status;
+        R_TRY(nsListApplicationContentMetaStatus(id, i, &status, 1, &count));
 
-    out.resize(count);
-    R_TRY(nsListApplicationContentMetaStatus(e.app_id, 0, out.data(), out.size(), &count));
+        if (!count) {
+            break;
+        }
 
-    out.resize(count);
+        if (flags & ContentMetaTypeToContentFlag(status.meta_type)) {
+            out.emplace_back(status);
+        }
+    }
+
     R_SUCCEED();
 }
 
+Result GetMetaEntries(const Entry& e, MetaEntries& out, u32 flags = ContentFlag_All) {
+    return GetMetaEntries(e.app_id, out, flags);
+}
+
 // also sets the status to error.
-void FakeNacpEntry(Entry& e) {
+void FakeNacpEntry(ThreadResultData& e) {
     e.status = NacpLoadStatus::Error;
     // fake the nacp entry
     std::strcpy(e.lang.name, "Corrupted");
@@ -70,35 +487,308 @@ void FakeNacpEntry(Entry& e) {
 
 bool LoadControlImage(Entry& e) {
     if (!e.image && e.control) {
+        TimeStamp ts;
         const auto jpeg_size = e.control_size - sizeof(NacpStruct);
         e.image = nvgCreateImageMem(App::GetVg(), 0, e.control->icon, jpeg_size);
         e.control.reset();
+        log_write("\t\t[image load] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
         return true;
     }
 
     return false;
 }
 
-void LoadControlEntry(Entry& e, bool force_image_load = false) {
-    if (e.status == NacpLoadStatus::None) {
-        e.control = std::make_unique<NsApplicationControlData>();
-        if (R_FAILED(nsGetApplicationControlData(NsApplicationControlSource_Storage, e.app_id, e.control.get(), sizeof(NsApplicationControlData), &e.control_size))) {
-            FakeNacpEntry(e);
-        } else {
-            NacpLanguageEntry* lang{};
-            if (R_FAILED(nsGetApplicationDesiredLanguage(&e.control->nacp, &lang)) || !lang) {
-                FakeNacpEntry(e);
-            } else {
-                e.lang = *lang;
-                std::memcpy(e.display_version, e.control->nacp.display_version, sizeof(e.display_version));
-                e.status = NacpLoadStatus::Loaded;
+Result LoadControlManual(u64 id, ThreadResultData& data) {
+    TimeStamp ts;
 
-                if (force_image_load) {
-                    LoadControlImage(e);
-                }
-            }
+    MetaEntries entries;
+    R_TRY(GetMetaEntries(id, entries));
+    R_UNLESS(!entries.empty(), 0x1);
+
+    const auto& ee = entries.back();
+    if (ee.storageID != NcmStorageId_SdCard && ee.storageID != NcmStorageId_BuiltInUser && ee.storageID != NcmStorageId_GameCard) {
+        return 0x1;
+    }
+
+    auto& db = GetNcmDb(ee.storageID);
+    auto& cs = GetNcmCs(ee.storageID);
+
+    NcmContentMetaKey key;
+    R_TRY(ncmContentMetaDatabaseGetLatestContentMetaKey(&db, &key, ee.application_id));
+
+    NcmContentId content_id;
+    R_TRY(ncmContentMetaDatabaseGetContentIdByType(&db, &content_id, &key, NcmContentType_Control));
+
+    u64 program_id;
+    R_TRY(ncmContentStorageGetProgramId(&cs, &program_id, &content_id, FsContentAttributes_All));
+
+    fs::FsPath path;
+    R_TRY(ncmContentStorageGetPath(&cs, path, sizeof(path), &content_id));
+
+    std::vector<u8> icon;
+    R_TRY(nca::ParseControl(path, program_id, &data.control->nacp, sizeof(data.control->nacp), &icon));
+    std::memcpy(data.control->icon, icon.data(), icon.size());
+
+    data.control_size = sizeof(data.control->nacp) + icon.size();
+    log_write("\t\t[manual control] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
+
+    R_SUCCEED();
+}
+
+auto LoadControlEntry(u64 id) -> ThreadResultData {
+    ThreadResultData data{};
+    data.id = id;
+    data.control = std::make_shared<NsApplicationControlData>();
+    data.status = NacpLoadStatus::Error;
+
+    bool manual_load = true;
+    if (hosversionBefore(20,0,0)) {
+        TimeStamp ts;
+        if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_CacheOnly, id, data.control.get(), sizeof(NsApplicationControlData), &data.control_size))) {
+            manual_load = false;
+            log_write("\t\t[ns control cache] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
         }
     }
+
+    if (manual_load) {
+        manual_load = R_SUCCEEDED(LoadControlManual(id, data));
+    }
+
+    Result rc{};
+    if (!manual_load) {
+        TimeStamp ts;
+        rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, id, data.control.get(), sizeof(NsApplicationControlData), &data.control_size);
+        log_write("\t\t[ns control storage] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
+    }
+
+    if (R_SUCCEEDED(rc)) {
+        NacpLanguageEntry* lang{};
+        if (R_SUCCEEDED(rc = nsGetApplicationDesiredLanguage(&data.control->nacp, &lang)) && lang) {
+            data.lang = *lang;
+            std::memcpy(data.display_version, data.control->nacp.display_version, sizeof(data.display_version));
+            data.status = NacpLoadStatus::Loaded;
+        }
+    }
+
+    if (R_FAILED(rc)) {
+        FakeNacpEntry(data);
+    }
+
+    return data;
+}
+
+void LoadResultIntoEntry(Entry& e, const ThreadResultData& result) {
+    e.status = result.status;
+    e.control = result.control;
+    e.control_size = result.control_size;
+    std::memcpy(e.display_version, result.display_version, sizeof(result.display_version));
+    e.lang = result.lang;
+    e.status = result.status;
+}
+
+void LoadControlEntry(Entry& e, bool force_image_load = false) {
+    if (e.status == NacpLoadStatus::None) {
+        const auto result = LoadControlEntry(e.app_id);
+        LoadResultIntoEntry(e, result);
+    }
+
+    if (force_image_load && e.status == NacpLoadStatus::Loaded) {
+        LoadControlImage(e);
+    }
+}
+
+// taken from nxdumptool.
+void utilsReplaceIllegalCharacters(char *str, bool ascii_only)
+{
+    static const char g_illegalFileSystemChars[] = "\\/:*?\"<>|";
+
+    size_t str_size = 0, cur_pos = 0;
+
+    if (!str || !(str_size = strlen(str))) return;
+
+    u8 *ptr1 = (u8*)str, *ptr2 = ptr1;
+    ssize_t units = 0;
+    u32 code = 0;
+    bool repl = false;
+
+    while(cur_pos < str_size)
+    {
+        units = decode_utf8(&code, ptr1);
+        if (units < 0) break;
+
+        if (code < 0x20 || (!ascii_only && code == 0x7F) || (ascii_only && code >= 0x7F) || \
+            (units == 1 && memchr(g_illegalFileSystemChars, (int)code, std::size(g_illegalFileSystemChars))))
+        {
+            if (!repl)
+            {
+                *ptr2++ = '_';
+                repl = true;
+            }
+        } else {
+            if (ptr2 != ptr1) memmove(ptr2, ptr1, (size_t)units);
+            ptr2 += units;
+            repl = false;
+        }
+
+        ptr1 += units;
+        cur_pos += (size_t)units;
+    }
+
+    *ptr2 = '\0';
+}
+
+auto isRightsIdValid(FsRightsId id) -> bool {
+    FsRightsId empty_id{};
+    return 0 != std::memcmp(std::addressof(id), std::addressof(empty_id), sizeof(id));
+}
+
+struct HashStr {
+    char str[0x21];
+};
+
+HashStr hexIdToStr(auto id) {
+    HashStr str{};
+    const auto id_lower = std::byteswap(*(u64*)id.c);
+    const auto id_upper = std::byteswap(*(u64*)(id.c + 0x8));
+    std::snprintf(str.str, 0x21, "%016lx%016lx", id_lower, id_upper);
+    return str;
+}
+
+auto BuildNspPath(const Entry& e, const NsApplicationContentMetaStatus& status) -> fs::FsPath {
+    fs::FsPath name_buf = e.GetName();
+    utilsReplaceIllegalCharacters(name_buf, true);
+
+    char version[sizeof(NacpStruct::display_version) + 1]{};
+    if (status.meta_type == NcmContentMetaType_Patch) {
+        std::snprintf(version, sizeof(version), "%s ", e.GetDisplayVersion());
+    }
+
+    fs::FsPath path;
+    std::snprintf(path, sizeof(path), "%s/%s %s[%016lX][v%u][%s].nsp", name_buf.s, name_buf.s, version, status.application_id, status.version, ncm::GetMetaTypeShortStr(status.meta_type));
+    return path;
+}
+
+Result BuildContentEntry(const NsApplicationContentMetaStatus& status, ContentInfoEntry& out) {
+    auto& cs = GetNcmCs(status.storageID);
+    auto& db = GetNcmDb(status.storageID);
+    const auto app_id = ncm::GetAppId(status.meta_type, status.application_id);
+
+    auto id_min = status.application_id;
+    auto id_max = status.application_id;
+    // workaround N bug where they don't check the full range in the ID filter.
+    // https://github.com/Atmosphere-NX/Atmosphere/blob/1d3f3c6e56b994b544fc8cd330c400205d166159/libraries/libstratosphere/source/ncm/ncm_on_memory_content_meta_database_impl.cpp#L22
+    if (status.storageID == NcmStorageId_None || status.storageID == NcmStorageId_GameCard) {
+        id_min -= 1;
+        id_max += 1;
+    }
+
+    s32 meta_total;
+    s32 meta_entries_written;
+    NcmContentMetaKey key;
+    R_TRY(ncmContentMetaDatabaseList(std::addressof(db), std::addressof(meta_total), std::addressof(meta_entries_written), std::addressof(key), 1, (NcmContentMetaType)status.meta_type, app_id, id_min, id_max, NcmContentInstallType_Full));
+    log_write("ncmContentMetaDatabaseList(): AppId: %016lX Id: %016lX total: %d written: %d storageID: %u key.id %016lX\n", app_id, status.application_id, meta_total, meta_entries_written, status.storageID, key.id);
+    R_UNLESS(meta_total == 1, 0x1);
+    R_UNLESS(meta_entries_written == 1, 0x1);
+
+    for (s32 i = 0; ; i++) {
+        s32 entries_written;
+        NcmContentInfo info_out;
+        R_TRY(ncmContentMetaDatabaseListContentInfo(std::addressof(db), std::addressof(entries_written), std::addressof(info_out), 1, std::addressof(key), i));
+
+        if (!entries_written) {
+            break;
+        }
+
+        // check if we need to fetch tickets.
+        NcmRightsId ncm_rights_id;
+        R_TRY(ncmContentStorageGetRightsIdFromContentId(std::addressof(cs), std::addressof(ncm_rights_id), std::addressof(info_out.content_id), FsContentAttributes_All));
+
+        const auto rights_id = ncm_rights_id.rights_id;
+        if (isRightsIdValid(rights_id)) {
+            const auto it = std::ranges::find_if(out.rights_ids, [&rights_id](auto& e){
+                return !std::memcmp(&e, &rights_id, sizeof(rights_id));
+            });
+
+            if (it == out.rights_ids.end()) {
+                out.rights_ids.emplace_back(rights_id);
+            }
+        }
+
+        out.content_infos.emplace_back(info_out);
+    }
+
+    out.status = status;
+    R_SUCCEED();
+}
+
+Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, NspEntry& out) {
+    out.application_name = e.GetName();
+    out.path = BuildNspPath(e, info.status);
+    s64 offset{};
+
+    for (auto& rights_id : info.rights_ids) {
+        TikEntry entry{rights_id};
+        log_write("rights id is valid, fetching common ticket and cert\n");
+
+        u64 tik_size;
+        u64 cert_size;
+        R_TRY(es::GetCommonTicketAndCertificateSize(&tik_size, &cert_size, &rights_id));
+        log_write("got tik_size: %zu cert_size: %zu\n", tik_size, cert_size);
+
+        entry.tik_data.resize(tik_size);
+        entry.cert_data.resize(cert_size);
+        R_TRY(es::GetCommonTicketAndCertificateData(&tik_size, &cert_size, entry.tik_data.data(), entry.tik_data.size(), entry.cert_data.data(), entry.cert_data.size(), &rights_id));
+        log_write("got tik_data: %zu cert_data: %zu\n", tik_size, cert_size);
+
+        char tik_name[0x200];
+        std::snprintf(tik_name, sizeof(tik_name), "%s%s", hexIdToStr(rights_id).str, ".tik");
+
+        char cert_name[0x200];
+        std::snprintf(cert_name, sizeof(cert_name), "%s%s", hexIdToStr(rights_id).str, ".cert");
+
+        out.collections.emplace_back(tik_name, offset, entry.tik_data.size());
+        offset += entry.tik_data.size();
+
+        out.collections.emplace_back(cert_name, offset, entry.cert_data.size());
+        offset += entry.cert_data.size();
+
+        out.tickets.emplace_back(entry);
+    }
+
+    for (auto& e : info.content_infos) {
+        char nca_name[0x200];
+        std::snprintf(nca_name, sizeof(nca_name), "%s%s", hexIdToStr(e.content_id).str, e.content_type == NcmContentType_Meta ? ".cnmt.nca" : ".nca");
+
+        u64 size;
+        ncmContentInfoSizeToU64(std::addressof(e), std::addressof(size));
+
+        out.collections.emplace_back(nca_name, offset, size);
+        offset += size;
+    }
+
+    out.nsp_data = yati::container::Nsp::Build(out.collections, out.nsp_size);
+    out.cs = GetNcmCs(info.status.storageID);
+
+    R_SUCCEED();
+}
+
+Result BuildNspEntries(Entry& e, u32 flags, std::vector<NspEntry>& out) {
+    LoadControlEntry(e);
+
+    MetaEntries meta_entries;
+    R_TRY(GetMetaEntries(e, meta_entries, flags));
+
+    for (const auto& status : meta_entries) {
+        ContentInfoEntry info;
+        R_TRY(BuildContentEntry(status, info));
+
+        NspEntry nsp;
+        R_TRY(BuildNspEntry(e, info, nsp));
+        out.emplace_back(nsp);
+    }
+
+    R_UNLESS(!out.empty(), 0x1);
+    R_SUCCEED();
 }
 
 void FreeEntry(NVGcontext* vg, Entry& e) {
@@ -111,10 +801,120 @@ void LaunchEntry(const Entry& e) {
     Notify(rc, "Failed to launch application");
 }
 
+void ThreadFunc(void* user) {
+    auto data = static_cast<ThreadData*>(user);
+
+    while (data->IsRunning()) {
+        data->Run();
+    }
+}
+
 } // namespace
 
-Menu::Menu() : MenuBase{"Games"_i18n} {
+ThreadData::ThreadData() {
+    ueventCreate(&m_uevent, true);
+    mutexInit(&m_mutex_id);
+    mutexInit(&m_mutex_result);
+    m_running = true;
+}
+
+auto ThreadData::IsRunning() const -> bool {
+    return m_running;
+}
+
+void ThreadData::Run() {
+    while (IsRunning()) {
+        const auto waiter = waiterForUEvent(&m_uevent);
+        waitSingle(waiter, UINT64_MAX);
+
+        if (!IsRunning()) {
+            return;
+        }
+
+        std::vector<u64> ids;
+        {
+            mutexLock(&m_mutex_id);
+            ON_SCOPE_EXIT(mutexUnlock(&m_mutex_id));
+            std::swap(ids, m_ids);
+        }
+
+        for (u64 i = 0; i < std::size(ids); i++) {
+            if (!IsRunning()) {
+                return;
+            }
+
+            // sleep after every other entry loaded.
+            if (i) {
+                svcSleepThread(1e+6*2); // 2ms
+            }
+
+            const auto result = LoadControlEntry(ids[i]);
+            mutexLock(&m_mutex_result);
+            ON_SCOPE_EXIT(mutexUnlock(&m_mutex_result));
+            m_result.emplace_back(result);
+        }
+    }
+}
+
+void ThreadData::Close() {
+    m_running = false;
+    ueventSignal(&m_uevent);
+}
+
+void ThreadData::Push(u64 id) {
+    mutexLock(&m_mutex_id);
+    ON_SCOPE_EXIT(mutexUnlock(&m_mutex_id));
+
+    const auto it = std::ranges::find(m_ids, id);
+    if (it == m_ids.end()) {
+        m_ids.emplace_back(id);
+        ueventSignal(&m_uevent);
+    }
+}
+
+void ThreadData::Push(std::span<const Entry> entries) {
+    for (auto& e : entries) {
+        Push(e.app_id);
+    }
+}
+
+void ThreadData::Pop(std::vector<ThreadResultData>& out) {
+    mutexLock(&m_mutex_result);
+    ON_SCOPE_EXIT(mutexUnlock(&m_mutex_result));
+
+    std::swap(out, m_result);
+    m_result.clear();
+}
+
+Menu::Menu() : grid::Menu{"Games"_i18n} {
     this->SetActions(
+        std::make_pair(Button::L3, Action{[this](){
+            if (m_entries.empty()) {
+                return;
+            }
+
+            m_entries[m_index].selected ^= 1;
+
+            if (m_entries[m_index].selected) {
+                m_selected_count++;
+            } else {
+                m_selected_count--;
+            }
+        }}),
+        std::make_pair(Button::R3, Action{[this](){
+            if (m_entries.empty()) {
+                return;
+            }
+
+            if (m_selected_count == m_entries.size()) {
+                ClearSelection();
+            } else {
+                m_selected_count = m_entries.size();
+                for (auto& e : m_entries) {
+                    e.selected = true;
+                }
+            }
+        }}),
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
             SetPop();
         }}),
@@ -140,15 +940,25 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
                     order_items.push_back("Descending"_i18n);
                     order_items.push_back("Ascending"_i18n);
 
-                    options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
+                    SidebarEntryArray::Items layout_items;
+                    layout_items.push_back("List"_i18n);
+                    layout_items.push_back("Icon"_i18n);
+                    layout_items.push_back("Grid"_i18n);
+
+                    options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this](s64& index_out){
                         m_sort.Set(index_out);
-                        SortAndFindLastFile();
+                        SortAndFindLastFile(false);
                     }, m_sort.Get()));
 
-                    options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
+                    options->Add(std::make_shared<SidebarEntryArray>("Order"_i18n, order_items, [this](s64& index_out){
                         m_order.Set(index_out);
-                        SortAndFindLastFile();
+                        SortAndFindLastFile(false);
                     }, m_order.Get()));
+
+                    options->Add(std::make_shared<SidebarEntryArray>("Layout"_i18n, layout_items, [this](s64& index_out){
+                        m_layout.Set(index_out);
+                        OnLayoutChange();
+                    }, m_layout.Get()));
 
                     options->Add(std::make_shared<SidebarEntryBool>("Hide forwarders"_i18n, m_hide_forwarders.Get(), [this](bool& v_out){
                         m_hide_forwarders.Set(v_out);
@@ -210,6 +1020,27 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
                     ));
                 }));
 
+                options->Add(std::make_shared<SidebarEntryCallback>("Dump"_i18n, [this](){
+                    auto options = std::make_shared<Sidebar>("Select content to dump"_i18n, Sidebar::Side::RIGHT);
+                    ON_SCOPE_EXIT(App::Push(options));
+
+                    options->Add(std::make_shared<SidebarEntryCallback>("Dump All"_i18n, [this](){
+                        DumpGames(ContentFlag_All);
+                    }, true));
+                    options->Add(std::make_shared<SidebarEntryCallback>("Dump Application"_i18n, [this](){
+                        DumpGames(ContentFlag_Application);
+                    }, true));
+                    options->Add(std::make_shared<SidebarEntryCallback>("Dump Patch"_i18n, [this](){
+                        DumpGames(ContentFlag_Patch);
+                    }, true));
+                    options->Add(std::make_shared<SidebarEntryCallback>("Dump AddOnContent"_i18n, [this](){
+                        DumpGames(ContentFlag_AddOnContent);
+                    }, true));
+                    options->Add(std::make_shared<SidebarEntryCallback>("Dump DataPatch"_i18n, [this](){
+                        DumpGames(ContentFlag_DataPatch);
+                    }, true));
+                }, true));
+
                 // completely deletes the application record and all data.
                 options->Add(std::make_shared<SidebarEntryCallback>("Delete"_i18n, [this](){
                     const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].GetName() + "?";
@@ -217,26 +1048,7 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
                         buf,
                         "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
                             if (op_index && *op_index) {
-                                const auto rc = nsDeleteApplicationCompletely(m_entries[m_index].app_id);
-                                if (R_SUCCEEDED(Notify(rc, "Failed to delete application"))) {
-                                    FreeEntry(App::GetVg(), m_entries[m_index]);
-                                    m_entries.erase(m_entries.begin() + m_index);
-                                    SetIndex(m_index ? m_index - 1 : 0);
-                                }
-                            }
-                        }, m_entries[m_index].image
-                    ));
-                }, true));
-
-                // removes installed data but keeps the record, basically archiving.
-                options->Add(std::make_shared<SidebarEntryCallback>("Delete entity"_i18n, [this](){
-                    const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].GetName() + "?";
-                    App::Push(std::make_shared<OptionBox>(
-                        buf,
-                        "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
-                            if (op_index && *op_index) {
-                                const auto rc = nsDeleteApplicationEntity(m_entries[m_index].app_id);
-                                Notify(rc, "Failed to delete application");
+                                DeleteGames();
                             }
                         }, m_entries[m_index].image
                     ));
@@ -245,18 +1057,40 @@ Menu::Menu() : MenuBase{"Games"_i18n} {
         }})
     );
 
-    const Vec4 v{75, 110, 370, 155};
-    const Vec2 pad{10, 10};
-    m_list = std::make_unique<List>(3, 9, m_pos, v, pad);
+    OnLayoutChange();
+
     nsInitialize();
+    es::Initialize();
+
+    for (auto& e : ncm_entries) {
+        e.Open();
+    }
+
+    threadCreate(&m_thread, ThreadFunc, &m_thread_data, nullptr, 1024*32, 0x30, 1);
+    threadStart(&m_thread);
 }
 
 Menu::~Menu() {
+    m_thread_data.Close();
+
+    for (auto& e : ncm_entries) {
+        e.Close();
+    }
+
     FreeEntries();
     nsExit();
+    es::Exit();
+
+    threadWaitForExit(&m_thread);
+    threadClose(&m_thread);
 }
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
+    if (m_dirty) {
+        App::Notify("Updating application record list");
+        SortAndFindLastFile(true);
+    }
+
     MenuBase::Update(controller, touch);
     m_list->OnUpdate(controller, touch, m_index, m_entries.size(), [this](bool touch, auto i) {
         if (touch && m_index == i) {
@@ -275,12 +1109,26 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     const int image_load_max = 2;
     int image_load_count = 0;
 
+    std::vector<ThreadResultData> data;
+    m_thread_data.Pop(data);
+
+    for (const auto& d : data) {
+        const auto it = std::ranges::find_if(m_entries, [&d](auto& e) {
+            return e.app_id == d.id;
+        });
+
+        if (it != m_entries.end()) {
+            LoadResultIntoEntry(*it, d);
+        }
+    }
+
     m_list->Draw(vg, theme, m_entries.size(), [this, &image_load_count](auto* vg, auto* theme, auto v, auto pos) {
         const auto& [x, y, w, h] = v;
         auto& e = m_entries[pos];
 
         if (e.status == NacpLoadStatus::None) {
-            LoadControlEntry(e);
+            m_thread_data.Push(e.app_id);
+            e.status = NacpLoadStatus::Progress;
         }
 
         // lazy load image
@@ -290,31 +1138,19 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             }
         }
 
-        auto text_id = ThemeEntryID_TEXT;
         const auto selected = pos == m_index;
-        if (selected) {
-            text_id = ThemeEntryID_TEXT_SELECTED;
-            gfx::drawRectOutline(vg, theme, 4.f, v);
-        } else {
-            DrawElement(v, ThemeEntryID_GRID);
+        DrawEntry(vg, theme, m_layout.Get(), v, selected, e.image, e.GetName(), e.GetAuthor(), e.GetDisplayVersion());
+
+        if (e.selected) {
+            gfx::drawRect(vg, v, nvgRGBA(0, 0, 0, 180), 5);
+            gfx::drawText(vg, x + w / 2, y + h / 2, 24.f, "\uE14B", nullptr, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_SELECTED));
         }
-
-        const float image_size = 115;
-        gfx::drawImage(vg, x + 20, y + 20, image_size, image_size, e.image ? e.image : App::GetDefaultImage(), 5);
-
-        const auto text_off = 148;
-        const auto text_x = x + text_off;
-        const auto text_clip_w = w - 30.f - text_off;
-        const float font_size = 18;
-        m_scroll_name.Draw(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetName());
-        m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
-        m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
     });
 }
 
 void Menu::OnFocusGained() {
     MenuBase::OnFocusGained();
-    if (m_dirty || m_entries.empty()) {
+    if (m_entries.empty()) {
         ScanHomebrew();
     }
 }
@@ -372,20 +1208,7 @@ void Menu::ScanHomebrew() {
                 continue;
             }
 
-            s64 size{};
-            // code for sorting by size, it's too slow however...
-            #if 0
-            ApplicationOccupiedSize occupied_size;
-            if (R_SUCCEEDED(nsCalculateApplicationOccupiedSize(e.application_id, (NsApplicationOccupiedSize*)&occupied_size))) {
-                for (auto& s : occupied_size.entry) {
-                    size += s.sizeApplication;
-                    size += s.sizePatch;
-                    size += s.sizeAddOnContent;
-                }
-            }
-            #endif
-
-            m_entries.emplace_back(e.application_id, size);
+            m_entries.emplace_back(e.application_id);
         }
 
         offset += record_count;
@@ -396,6 +1219,7 @@ void Menu::ScanHomebrew() {
     log_write("games found: %zu time_taken: %.2f seconds %zu ms %zu ns\n", m_entries.size(), ts.GetSecondsD(), ts.GetMs(), ts.GetNs());
     this->Sort();
     SetIndex(0);
+    ClearSelection();
 }
 
 void Menu::Sort() {
@@ -404,20 +1228,24 @@ void Menu::Sort() {
 
     if (order == OrderType_Ascending) {
         if (!m_is_reversed) {
-            std::reverse(m_entries.begin(), m_entries.end());
+            std::ranges::reverse(m_entries);
             m_is_reversed = true;
         }
     } else {
         if (m_is_reversed) {
-            std::reverse(m_entries.begin(), m_entries.end());
+            std::ranges::reverse(m_entries);
             m_is_reversed = false;
         }
     }
 }
 
-void Menu::SortAndFindLastFile() {
+void Menu::SortAndFindLastFile(bool scan) {
     const auto app_id = m_entries[m_index].app_id;
-    Sort();
+    if (scan) {
+        ScanHomebrew();
+    } else {
+        Sort();
+    }
     SetIndex(0);
 
     s64 index = -1;
@@ -429,9 +1257,11 @@ void Menu::SortAndFindLastFile() {
     }
 
     if (index >= 0) {
+        const auto row = m_list->GetRow();
+        const auto page = m_list->GetPage();
         // guesstimate where the position is
-        if (index >= 9) {
-            m_list->SetYoff((((index - 9) + 3) / 3) * m_list->GetMaxY());
+        if (index >= page) {
+            m_list->SetYoff((((index - page) + row) / row) * m_list->GetMaxY());
         } else {
             m_list->SetYoff(0);
         }
@@ -447,6 +1277,93 @@ void Menu::FreeEntries() {
     }
 
     m_entries.clear();
+}
+
+void Menu::OnLayoutChange() {
+    m_index = 0;
+    grid::Menu::OnLayoutChange(m_list, m_layout.Get());
+}
+
+void Menu::DeleteGames() {
+    App::Push(std::make_shared<ProgressBox>(0, "Deleting"_i18n, "", [this](auto pbox) -> bool {
+        auto targets = GetSelectedEntries();
+
+        for (s64 i = 0; i < std::size(targets); i++) {
+            auto& e = targets[i];
+
+            LoadControlEntry(e);
+            pbox->SetTitle(e.GetName());
+            pbox->UpdateTransfer(i + 1, std::size(targets));
+            nsDeleteApplicationCompletely(e.app_id);
+        }
+
+        return true;
+    }, [this](bool success){
+        ClearSelection();
+        m_dirty = true;
+
+        if (success) {
+            App::Notify("Delete successfull!");
+        } else {
+            App::Notify("Delete failed!");
+        }
+    }));
+}
+
+void Menu::DumpGames(u32 flags) {
+    PopupList::Items items;
+    const auto network_locations = location::Load();
+
+    for (const auto&p : network_locations) {
+        items.emplace_back(p.name);
+    }
+
+    for (const auto&p : DUMP_LOCATIONS) {
+        items.emplace_back(i18n::get(p.display_name));
+    }
+
+    App::Push(std::make_shared<PopupList>(
+        "Select dump location"_i18n, items, [this, network_locations, flags](auto op_index){
+            if (!op_index) {
+                return;
+            }
+
+            const auto index = *op_index;
+            App::Push(std::make_shared<ProgressBox>(0, "Dumping"_i18n, "", [this, network_locations, index, flags](auto pbox) -> bool {
+                auto targets = GetSelectedEntries();
+
+                std::vector<NspEntry> nsp_entries;
+                for (auto& e : targets) {
+                    BuildNspEntries(e, flags, nsp_entries);
+                }
+
+                const auto index2 = index - network_locations.size();
+
+                if (!network_locations.empty() && index < network_locations.size()) {
+                    return R_SUCCEEDED(DumpNspToNetwork(pbox, network_locations[index], nsp_entries));
+                } else if (index2 == DumpLocationType_SdCard) {
+                    return R_SUCCEEDED(DumpNspToFile(pbox, nsp_entries));
+                } else if (index2 == DumpLocationType_UsbS2S) {
+                    return R_SUCCEEDED(DumpNspToUsbS2S(pbox, nsp_entries));
+                } else if (index2 == DumpLocationType_DevNull) {
+                    return R_SUCCEEDED(DumpNspToDevNull(pbox, nsp_entries));
+                }
+
+                return false;
+            }, [this](bool success){
+                ClearSelection();
+
+                if (success) {
+                    App::Notify("Dump successfull!");
+                    log_write("dump successfull!!!\n");
+                } else {
+                    App::Notify("Dump failed!");
+                    log_write("dump failed!!!\n");
+                }
+            }));
+        }
+
+    ));
 }
 
 } // namespace sphaira::ui::menu::game

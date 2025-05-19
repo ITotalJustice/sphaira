@@ -14,7 +14,7 @@ namespace sphaira {
 #define SCREEN_WIDTH 1280.f
 #define SCREEN_HEIGHT 720.f
 
-struct [[nodiscard]] Vec2 {
+struct Vec2 {
     constexpr Vec2() = default;
     constexpr Vec2(float _x, float _y) : x{_x}, y{_y} {}
 
@@ -53,7 +53,7 @@ struct [[nodiscard]] Vec2 {
     float x{}, y{};
 };
 
-struct [[nodiscard]] Vec4 {
+struct Vec4 {
     constexpr Vec4() = default;
     constexpr Vec4(float _x, float _y, float _w, float _h) : x{_x}, y{_y}, w{_w}, h{_h} {}
     constexpr Vec4(Vec2 vec0, Vec2 vec1) : x{vec0.x}, y{vec0.y}, w{vec1.x}, h{vec1.y} {}

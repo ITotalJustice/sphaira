@@ -32,9 +32,7 @@ void ScrollingText::Draw(NVGcontext* vg, bool focus, float x, float y, float w, 
     }
 
     if (m_str != text_entry) {
-        m_str = text_entry;
-        m_tick = 0;
-        m_text_xoff = 0;
+        Reset(text_entry);
     }
 
     float bounds[4];
@@ -76,6 +74,12 @@ void ScrollingText::DrawArgs(NVGcontext* vg, bool focus, float x, float y, float
     std::vsnprintf(buffer, sizeof(buffer), s, v);
     va_end(v);
     Draw(vg, focus, x, y, w, size, align, colour, buffer);
+}
+
+void ScrollingText::Reset(const std::string& text_entry) {
+    m_str = text_entry;
+    m_tick = 0;
+    m_text_xoff = 0;
 }
 
 } // namespace sphaira::ui

@@ -1,7 +1,6 @@
 #pragma once
 
-#include "ui/menus/menu_base.hpp"
-#include "ui/scrolling_text.hpp"
+#include "ui/menus/grid_menu_base.hpp"
 #include "ui/list.hpp"
 #include "nro.hpp"
 #include "fs.hpp"
@@ -23,7 +22,9 @@ enum OrderType {
     OrderType_Ascending,
 };
 
-struct Menu final : MenuBase {
+using LayoutType = grid::LayoutType;
+
+struct Menu final : grid::Menu {
     Menu();
     ~Menu();
 
@@ -46,6 +47,7 @@ private:
     void Sort();
     void SortAndFindLastFile();
     void FreeEntries();
+    void OnLayoutChange();
 
     auto IsStarEnabled() -> bool {
         return m_sort.Get() >= SortType_UpdatedStar;
@@ -58,12 +60,9 @@ private:
     s64 m_index{}; // where i am in the array
     std::unique_ptr<List> m_list{};
 
-    ScrollingText m_scroll_name{};
-    ScrollingText m_scroll_author{};
-    ScrollingText m_scroll_version{};
-
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_AlphabeticalStar};
     option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
+    option::OptionLong m_layout{INI_SECTION, "layout", LayoutType::LayoutType_GridDetail};
     option::OptionBool m_hide_sphaira{INI_SECTION, "hide_sphaira", false};
 };
 

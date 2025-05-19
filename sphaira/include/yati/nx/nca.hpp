@@ -1,7 +1,10 @@
 #pragma once
 
-#include <switch.h>
+#include "fs.hpp"
 #include "keys.hpp"
+#include "ncm.hpp"
+#include <switch.h>
+#include <vector>
 
 namespace sphaira::nca {
 
@@ -215,6 +218,10 @@ static_assert(sizeof(Header) == 0xC00);
 Result DecryptKeak(const keys::Keys& keys, Header& header);
 Result EncryptKeak(const keys::Keys& keys, Header& header, u8 key_generation);
 Result VerifyFixedKey(const Header& header);
+
+// helpers that parse an nca.
+Result ParseCnmt(const fs::FsPath& path, u64 program_id, ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos);
+Result ParseControl(const fs::FsPath& path, u64 program_id, void* nacp_out = nullptr, s64 nacp_size = 0, std::vector<u8>* icon_out = nullptr);
 
 auto GetKeyGenStr(u8 key_gen) -> const char*;
 

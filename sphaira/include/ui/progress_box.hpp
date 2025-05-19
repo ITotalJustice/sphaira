@@ -17,7 +17,7 @@ struct ProgressBox final : Widget {
         const std::string& action,
         const std::string& title,
         ProgressBoxCallback callback, ProgressBoxDoneCallback done = [](bool success){},
-        int cpuid = 1, int prio = 0x2C, int stack_size = 1024*1024
+        int cpuid = 1, int prio = 0x2C, int stack_size = 1024*128
     );
     ~ProgressBox();
 
@@ -38,11 +38,17 @@ struct ProgressBox final : Widget {
     void Yield();
 
     auto OnDownloadProgressCallback() {
-        return [this](u32 dltotal, u32 dlnow, u32 ultotal, u32 ulnow){
+        return [this](s64 dltotal, s64 dlnow, s64 ultotal, s64 ulnow){
             if (this->ShouldExit()) {
                 return false;
             }
-            this->UpdateTransfer(dlnow, dltotal);
+
+            if (dltotal) {
+                this->UpdateTransfer(dlnow, dltotal);
+            } else {
+                this->UpdateTransfer(ulnow, ultotal);
+            }
+
             return true;
         };
     }

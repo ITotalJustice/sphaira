@@ -11,6 +11,7 @@ old_code
 created_ncas
 assets/romfs/shaders
 .vscode/settings.json
+.idea
 info/
 romfs/shaders
 assets/unused

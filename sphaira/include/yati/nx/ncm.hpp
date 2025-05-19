@@ -33,10 +33,13 @@ union ExtendedHeader {
 
 auto GetMetaTypeStr(u8 meta_type) -> const char*;
 auto GetStorageIdStr(u8 storage_id) -> const char*;
+auto GetMetaTypeShortStr(u8 meta_type) -> const char*;
 
 auto GetAppId(u8 meta_type, u64 id) -> u64;
 auto GetAppId(const NcmContentMetaKey& key) -> u64;
 auto GetAppId(const PackagedContentMeta& meta) -> u64;
+
+auto GetContentIdFromStr(const char* str) -> NcmContentId;
 
 Result Delete(NcmContentStorage* cs, const NcmContentId *content_id);
 Result Register(NcmContentStorage* cs, const NcmContentId *content_id, const NcmPlaceHolderId *placeholder_id);

@@ -2,6 +2,7 @@
 #include "ui/nvg_util.hpp"
 #include "app.hpp"
 #include "i18n.hpp"
+#include <algorithm>
 
 namespace sphaira::ui {
 

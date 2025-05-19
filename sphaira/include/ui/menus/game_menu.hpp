@@ -1,17 +1,19 @@
 #pragma once
 
-#include "ui/menus/menu_base.hpp"
-#include "ui/scrolling_text.hpp"
+#include "ui/menus/grid_menu_base.hpp"
 #include "ui/list.hpp"
 #include "fs.hpp"
 #include "option.hpp"
 #include <memory>
+#include <vector>
 
 namespace sphaira::ui::menu::game {
 
 enum class NacpLoadStatus {
     // not yet attempted to be loaded.
     None,
+    // started loading.
+    Progress,
     // loaded, ready to parse.
     Loaded,
     // failed to load, do not attempt to load again!
@@ -20,12 +22,12 @@ enum class NacpLoadStatus {
 
 struct Entry {
     u64 app_id{};
-    s64 size{};
     char display_version[0x10]{};
     NacpLanguageEntry lang{};
     int image{};
+    bool selected{};
 
-    std::unique_ptr<NsApplicationControlData> control{};
+    std::shared_ptr<NsApplicationControlData> control{};
     u64 control_size{};
     NacpLoadStatus status{NacpLoadStatus::None};
 
@@ -42,6 +44,38 @@ struct Entry {
     }
 };
 
+struct ThreadResultData {
+    u64 id{};
+    std::shared_ptr<NsApplicationControlData> control{};
+    u64 control_size{};
+    char display_version[0x10]{};
+    NacpLanguageEntry lang{};
+    NacpLoadStatus status{NacpLoadStatus::None};
+};
+
+struct ThreadData {
+    ThreadData();
+
+    auto IsRunning() const -> bool;
+    void Run();
+    void Close();
+    void Push(u64 id);
+    void Push(std::span<const Entry> entries);
+    void Pop(std::vector<ThreadResultData>& out);
+
+private:
+    UEvent m_uevent{};
+    Mutex m_mutex_id{};
+    Mutex m_mutex_result{};
+
+    // app_ids pushed to the queue, signal uevent when pushed.
+    std::vector<u64> m_ids{};
+    // control data pushed to the queue.
+    std::vector<ThreadResultData> m_result{};
+
+    std::atomic_bool m_running{};
+};
+
 enum SortType {
     SortType_Updated,
 };
@@ -51,7 +85,9 @@ enum OrderType {
     OrderType_Ascending,
 };
 
-struct Menu final : MenuBase {
+using LayoutType = grid::LayoutType;
+
+struct Menu final : grid::Menu {
     Menu();
     ~Menu();
 
@@ -64,24 +100,53 @@ private:
     void SetIndex(s64 index);
     void ScanHomebrew();
     void Sort();
-    void SortAndFindLastFile();
+    void SortAndFindLastFile(bool scan);
     void FreeEntries();
+    void OnLayoutChange();
+
+    auto GetSelectedEntries() const {
+        std::vector<Entry> out;
+        for (auto& e : m_entries) {
+            if (e.selected) {
+                out.emplace_back(e);
+            }
+        }
+
+        if (!m_entries.empty() && out.empty()) {
+            out.emplace_back(m_entries[m_index]);
+        }
+
+        return out;
+    }
+
+    void ClearSelection() {
+        for (auto& e : m_entries) {
+            e.selected = false;
+        }
+
+        m_selected_count = 0;
+    }
+
+    void DeleteGames();
+    void DumpGames(u32 flags);
 
 private:
     static constexpr inline const char* INI_SECTION = "games";
+    static constexpr inline const char* INI_SECTION_DUMP = "dump";
 
     std::vector<Entry> m_entries{};
     s64 m_index{}; // where i am in the array
+    s64 m_selected_count{};
     std::unique_ptr<List> m_list{};
     bool m_is_reversed{};
     bool m_dirty{};
 
-    ScrollingText m_scroll_name{};
-    ScrollingText m_scroll_author{};
-    ScrollingText m_scroll_version{};
+    ThreadData m_thread_data{};
+    Thread m_thread{};
 
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_Updated};
     option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
+    option::OptionLong m_layout{INI_SECTION, "layout", LayoutType::LayoutType_GridDetail};
     option::OptionBool m_hide_forwarders{INI_SECTION, "hide_forwarders", false};
 };
 

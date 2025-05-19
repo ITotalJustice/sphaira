@@ -20,6 +20,7 @@
 
 #include <zstd.h>
 #include <minIni.h>
+#include <algorithm>
 
 namespace sphaira::yati {
 namespace {
@@ -274,7 +275,6 @@ struct Yati {
     NcmContentMetaDatabase db{};
     NcmStorageId storage_id{};
 
-    Service es{};
     Service ns_app{};
     std::unique_ptr<container::Base> container{};
     Config config{};
@@ -451,7 +451,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
         for (s64 off = 0; off < size;) {
             // log_write("looking for section\n");
             if (!ncz_section || !ncz_section->InRange(written)) {
-                auto it = std::find_if(t->ncz_sections.cbegin(), t->ncz_sections.cend(), [written](auto& e){
+                auto it = std::ranges::find_if(t->ncz_sections, [written](auto& e){
                     return e.InRange(written);
                 });
 
@@ -503,6 +503,8 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
         if (!is_ncz || !decompress_buf_off) {
             // check nca header
             if (!decompress_buf_off) {
+                log_write("reading nca header\n");
+
                 nca::Header header{};
                 crypto::cryptoAes128Xts(buf.data(), std::addressof(header), keys.header_key, 0, 0x200, sizeof(header), false);
                 log_write("verifying nca header magic\n");
@@ -521,6 +523,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                 }
 
                 t->write_size = header.size;
+                log_write("setting placeholder size: %zu\n", header.size);
                 R_TRY(ncmContentStorageSetPlaceHolderSize(std::addressof(cs), std::addressof(t->nca->placeholder_id), header.size));
 
                 if (!config.ignore_distribution_bit && header.distribution_type == nca::DistributionType_GameCard) {
@@ -530,11 +533,13 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
 
                 TikCollection* ticket = nullptr;
                 if (isRightsIdValid(header.rights_id)) {
-                    auto it = std::find_if(t->tik.begin(), t->tik.end(), [&header](auto& e){
+                    auto it = std::ranges::find_if(t->tik, [&header](auto& e){
                         return !std::memcmp(&header.rights_id, &e.rights_id, sizeof(e.rights_id));
                     });
 
+                    log_write("looking for ticket %s\n", hexIdToStr(header.rights_id).str);
                     R_UNLESS(it != t->tik.end(), Result_TicketNotFound);
+                    log_write("ticket found\n");
                     it->required = true;
                     ticket = &(*it);
                 }
@@ -606,7 +611,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                 // todo: blocks need to use read offset, as the offset + size is compressed range.
                 if (t->ncz_blocks.size()) {
                     if (!ncz_block || !ncz_block->InRange(decompress_buf_off)) {
-                        auto it = std::find_if(t->ncz_blocks.cbegin(), t->ncz_blocks.cend(), [decompress_buf_off](auto& e){
+                        auto it = std::ranges::find_if(t->ncz_blocks, [decompress_buf_off](auto& e){
                             return e.InRange(decompress_buf_off);
                         });
 
@@ -756,13 +761,13 @@ Yati::~Yati() {
     splCryptoExit();
     serviceClose(std::addressof(ns_app));
     nsExit();
+    es::Exit();
 
     for (size_t i = 0; i < std::size(NCM_STORAGE_IDS); i++) {
         ncmContentMetaDatabaseClose(std::addressof(ncm_db[i]));
         ncmContentStorageClose(std::addressof(ncm_cs[i]));
     }
 
-    serviceClose(std::addressof(es));
     appletSetMediaPlaybackState(false);
 
     if (config.boost_mode) {
@@ -798,7 +803,7 @@ Result Yati::Setup(const ConfigOverride& override) {
     R_TRY(splCryptoInitialize());
     R_TRY(nsInitialize());
     R_TRY(nsGetApplicationManagerInterface(std::addressof(ns_app)));
-    R_TRY(smGetService(std::addressof(es), "es"));
+    R_TRY(es::Initialize());
 
     for (size_t i = 0; i < std::size(NCM_STORAGE_IDS); i++) {
         R_TRY(ncmOpenContentMetaDatabase(std::addressof(ncm_db[i]), NCM_STORAGE_IDS[i]));
@@ -928,8 +933,10 @@ Result Yati::InstallNca(std::span<TikCollection> tickets, NcaCollection& nca) {
     } else if (nca.header.content_type == nca::ContentType_Control) {
         NacpLanguageEntry entry;
         std::vector<u8> icon;
-        R_TRY(yati::ParseControlNca(path, nca.header.program_id, &entry, sizeof(entry), &icon));
-        pbox->SetTitle(entry.name).SetImageData(icon);
+        // this may fail if tickets aren't installed and the nca uses title key crypto.
+        if (R_SUCCEEDED(nca::ParseControl(path, nca.header.program_id, &entry, sizeof(entry), &icon))) {
+            pbox->SetTitle(entry.name).SetImageData(icon);
+        }
     }
 
     R_SUCCEED();
@@ -948,7 +955,7 @@ Result Yati::InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cn
 
     ncm::PackagedContentMeta header;
     std::vector<NcmPackagedContentInfo> infos;
-    R_TRY(ParseCnmtNca(path, cnmt.header.program_id, header, cnmt.extended_header, infos));
+    R_TRY(nca::ParseCnmt(path, cnmt.header.program_id, header, cnmt.extended_header, infos));
 
     for (const auto& packed_info : infos) {
         const auto& info = packed_info.info;
@@ -957,7 +964,7 @@ Result Yati::InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cn
         }
 
         const auto str = hexIdToStr(info.content_id);
-        const auto it = std::find_if(collections.cbegin(), collections.cend(), [&str](auto& e){
+        const auto it = std::ranges::find_if(collections, [&str](auto& e){
             return e.name.find(str.str) != e.name.npos;
         });
 
@@ -1001,7 +1008,7 @@ Result Yati::InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cn
         return lhs.type > rhs.type;
     };
 
-    std::sort(cnmt.ncas.begin(), cnmt.ncas.end(), sorter);
+    std::ranges::sort(cnmt.ncas, sorter);
 
     log_write("found all cnmts\n");
     R_SUCCEED();
@@ -1014,7 +1021,7 @@ Result Yati::ParseTicketsIntoCollection(std::vector<TikCollection>& tickets, con
             keys::parse_hex_key(entry.rights_id.c, collection.name.c_str());
             const auto str = collection.name.substr(0, collection.name.length() - 4) + ".cert";
 
-            const auto cert = std::find_if(collections.cbegin(), collections.cend(), [&str](auto& e){
+            const auto cert = std::ranges::find_if(collections, [&str](auto& e){
                 return e.name.find(str) != e.name.npos;
             });
 
@@ -1114,7 +1121,7 @@ Result Yati::ImportTickets(std::span<TikCollection> tickets) {
                 log_write("patching ticket\n");
                 R_TRY(es::PatchTicket(ticket.ticket, keys));
                 log_write("installing ticket\n");
-                R_TRY(es::ImportTicket(std::addressof(es), ticket.ticket.data(), ticket.ticket.size(), ticket.cert.data(), ticket.cert.size()));
+                R_TRY(es::ImportTicket(ticket.ticket.data(), ticket.ticket.size(), ticket.cert.data(), ticket.cert.size()));
                 ticket.required = false;
             }
         }
@@ -1314,7 +1321,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
         return lhs.offset < rhs.offset;
     };
 
-    std::sort(collections.begin(), collections.end(), sorter);
+    std::ranges::sort(collections, sorter);
 
     for (const auto& collection : collections) {
         if (collection.name.ends_with(".nca") || collection.name.ends_with(".ncz")) {
@@ -1331,7 +1338,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
             keys::parse_hex_key(rights_id.c, collection.name.c_str());
             const auto str = collection.name.substr(0, collection.name.length() - 4) + ".cert";
 
-            auto entry = std::find_if(tickets.begin(), tickets.end(), [&rights_id](auto& e){
+            auto entry = std::ranges::find_if(tickets, [&rights_id](auto& e){
                 return !std::memcmp(&rights_id, &e.rights_id, sizeof(rights_id));
             });
 
@@ -1350,7 +1357,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
     for (auto& cnmt : cnmts) {
         // copy nca structs into cnmt.
         for (auto& cnmt_nca : cnmt.ncas) {
-            auto it = std::find_if(ncas.cbegin(), ncas.cend(), [&cnmt_nca](auto& e){
+            auto it = std::ranges::find_if(ncas, [&cnmt_nca](auto& e){
                 return e.name == cnmt_nca.name;
             });
 
@@ -1415,73 +1422,6 @@ Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Bas
     } else {
         return InstallInternal(pbox, source, collections, override);
     }
-}
-
-Result ParseCnmtNca(const fs::FsPath& path, u64 program_id, ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos) {
-    FsFileSystem fs;
-    R_TRY(fsOpenFileSystemWithId(std::addressof(fs), program_id, FsFileSystemType_ContentMeta, path, FsContentAttributes_All));
-    ON_SCOPE_EXIT(fsFsClose(std::addressof(fs)));
-
-    FsDir dir;
-    R_TRY(fsFsOpenDirectory(std::addressof(fs), fs::FsPath{"/"}, FsDirOpenMode_ReadFiles, std::addressof(dir)));
-    ON_SCOPE_EXIT(fsDirClose(std::addressof(dir)));
-
-    s64 total_entries;
-    FsDirectoryEntry buf;
-    R_TRY(fsDirRead(std::addressof(dir), std::addressof(total_entries), 1, std::addressof(buf)));
-
-    FsFile file;
-    R_TRY(fsFsOpenFile(std::addressof(fs), fs::AppendPath("/", buf.name), FsOpenMode_Read, std::addressof(file)));
-    ON_SCOPE_EXIT(fsFileClose(std::addressof(file)));
-
-    s64 offset{};
-    u64 bytes_read;
-    R_TRY(fsFileRead(std::addressof(file), offset, std::addressof(header), sizeof(header), 0, std::addressof(bytes_read)));
-    offset += bytes_read;
-
-    // read extended header
-    extended_header.resize(header.meta_header.extended_header_size);
-    R_TRY(fsFileRead(std::addressof(file), offset, extended_header.data(), extended_header.size(), 0, std::addressof(bytes_read)));
-    offset += bytes_read;
-
-    // read infos.
-    infos.resize(header.meta_header.content_count);
-    R_TRY(fsFileRead(std::addressof(file), offset, infos.data(), infos.size() * sizeof(NcmPackagedContentInfo), 0, std::addressof(bytes_read)));
-    offset += bytes_read;
-
-    R_SUCCEED();
-}
-
-Result ParseControlNca(const fs::FsPath& path, u64 program_id, void* nacp_out, s64 nacp_size, std::vector<u8>* icon_out) {
-    FsFileSystem fs;
-    R_TRY(fsOpenFileSystemWithId(std::addressof(fs), program_id, FsFileSystemType_ContentControl, path, FsContentAttributes_All));
-    ON_SCOPE_EXIT(fsFsClose(std::addressof(fs)));
-
-    // read nacp.
-    if (nacp_out) {
-        FsFile file;
-        R_TRY(fsFsOpenFile(std::addressof(fs), fs::FsPath{"/control.nacp"}, FsOpenMode_Read, std::addressof(file)));
-        ON_SCOPE_EXIT(fsFileClose(std::addressof(file)));
-
-        u64 bytes_read;
-        R_TRY(fsFileRead(&file, 0, nacp_out, nacp_size, 0, &bytes_read));
-    }
-
-    // read icon.
-    if (icon_out) {
-        FsFile file;
-        R_TRY(fsFsOpenFile(std::addressof(fs), fs::FsPath{"/icon_AmericanEnglish.dat"}, FsOpenMode_Read, std::addressof(file)));
-        ON_SCOPE_EXIT(fsFileClose(std::addressof(file)));
-
-        s64 size;
-        R_TRY(fsFileGetSize(std::addressof(file), std::addressof(size)));
-        icon_out->resize(size);
-
-        u64 bytes_read;
-        R_TRY(fsFileRead(&file, 0, icon_out->data(), icon_out->size(), 0, &bytes_read));
-    }
-
-    R_SUCCEED();
 }
 
 } // namespace sphaira::yati

@@ -108,7 +108,7 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     nvgIntersectScissor(vg, GetX(), GetY(), GetW(), GetH());
 
     if (m_image) {
-        gfx::drawImage(vg, GetX() + 30, GetY() + 30, 128, 128, m_image, 10);
+        gfx::drawImage(vg, GetX() + 30, GetY() + 30, 128, 128, m_image, 5);
     }
 
     // shapes.
@@ -234,7 +234,7 @@ auto ProgressBox::CopyFile(const fs::FsPath& src_path, const fs::FsPath& dst_pat
     R_TRY(fsFileSetSize(&dst_file, src_size));
 
     s64 offset{};
-    std::vector<u8> buf(1024*1024*8); // 8MiB
+    std::vector<u8> buf(1024*1024*4); // 4MiB
 
     while (offset < src_size) {
         if (ShouldExit()) {
@@ -248,6 +248,7 @@ auto ProgressBox::CopyFile(const fs::FsPath& src_path, const fs::FsPath& dst_pat
         R_TRY(fsFileWrite(&dst_file, offset, buf.data(), bytes_read, FsWriteOption_None));
         Yield();
 
+        UpdateTransfer(offset, src_size);
         offset += bytes_read;
     }
 

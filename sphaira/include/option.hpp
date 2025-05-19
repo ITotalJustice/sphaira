@@ -14,7 +14,11 @@ struct OptionBase {
     {}
 
     auto Get() -> T;
+    auto GetOr(const char* name) -> T;
     void Set(T value);
+
+private:
+    auto GetInternal(const char* name) -> T;
 
 private:
     const std::string m_section;

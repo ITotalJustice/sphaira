@@ -10,7 +10,6 @@
 #include "fs.hpp"
 #include "source/base.hpp"
 #include "container/base.hpp"
-#include "nx/ncm.hpp"
 #include "ui/progress_box.hpp"
 #include <memory>
 #include <optional>
@@ -135,8 +134,5 @@ Result InstallFromStdioFile(ui::ProgressBox* pbox, const fs::FsPath& path, const
 Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const fs::FsPath& path, const ConfigOverride& override = {});
 Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container, const ConfigOverride& override = {});
 Result InstallFromCollections(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const container::Collections& collections, const ConfigOverride& override = {});
-
-Result ParseCnmtNca(const fs::FsPath& path, u64 program_id, ncm::PackagedContentMeta& header, std::vector<u8>& extended_header, std::vector<NcmPackagedContentInfo>& infos);
-Result ParseControlNca(const fs::FsPath& path, u64 program_id, void* nacp_out = nullptr, s64 nacp_size = 0, std::vector<u8>* icon_out = nullptr);
 
 } // namespace sphaira::yati

@@ -13,6 +13,7 @@
 
 #include <minIni.h>
 #include <utility>
+#include <algorithm>
 
 namespace sphaira::ui::menu::homebrew {
 namespace {
@@ -31,7 +32,7 @@ void FreeEntry(NVGcontext* vg, NroEntry& e) {
 
 } // namespace
 
-Menu::Menu() : MenuBase{"Homebrew"_i18n} {
+Menu::Menu() : grid::Menu{"Homebrew"_i18n} {
     this->SetActions(
         std::make_pair(Button::A, Action{"Launch"_i18n, [this](){
             nro_launch(m_entries[m_index].path);
@@ -57,6 +58,11 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                     order_items.push_back("Descending"_i18n);
                     order_items.push_back("Ascending"_i18n);
 
+                    SidebarEntryArray::Items layout_items;
+                    layout_items.push_back("List"_i18n);
+                    layout_items.push_back("Icon"_i18n);
+                    layout_items.push_back("Grid"_i18n);
+
                     options->Add(std::make_shared<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
                         m_sort.Set(index_out);
                         SortAndFindLastFile();
@@ -66,6 +72,11 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
                         m_order.Set(index_out);
                         SortAndFindLastFile();
                     }, m_order.Get()));
+
+                    options->Add(std::make_shared<SidebarEntryArray>("Layout"_i18n, layout_items, [this](s64& index_out){
+                        m_layout.Set(index_out);
+                        OnLayoutChange();
+                    }, m_layout.Get()));
 
                     options->Add(std::make_shared<SidebarEntryBool>("Hide Sphaira"_i18n, m_hide_sphaira.Get(), [this](bool& enable){
                         m_hide_sphaira.Set(enable);
@@ -114,9 +125,7 @@ Menu::Menu() : MenuBase{"Homebrew"_i18n} {
         }})
     );
 
-    const Vec4 v{75, 110, 370, 155};
-    const Vec2 pad{10, 10};
-    m_list = std::make_unique<List>(3, 9, m_pos, v, pad);
+    OnLayoutChange();
 }
 
 Menu::~Menu() {
@@ -143,7 +152,6 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     int image_load_count = 0;
 
     m_list->Draw(vg, theme, m_entries.size(), [this, &image_load_count](auto* vg, auto* theme, auto v, auto pos) {
-        const auto& [x, y, w, h] = v;
         auto& e = m_entries[pos];
 
         // lazy load image
@@ -161,21 +169,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             }
         }
 
-        auto text_id = ThemeEntryID_TEXT;
-        const auto selected = pos == m_index;
-        if (selected) {
-            text_id = ThemeEntryID_TEXT_SELECTED;
-            gfx::drawRectOutline(vg, theme, 4.f, v);
-        } else {
-            DrawElement(v, ThemeEntryID_GRID);
-        }
 
-        const float image_size = 115;
-        gfx::drawImage(vg, x + 20, y + 20, image_size, image_size, e.image ? e.image : App::GetDefaultImage(), 5);
-
-        const auto text_off = 148;
-        const auto text_x = x + text_off;
-        const auto text_clip_w = w - 30.f - text_off;
         bool has_star = false;
         if (IsStarEnabled()) {
             if (!e.has_star.has_value()) {
@@ -184,10 +178,15 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             has_star = e.has_star.value();
         }
 
-        const float font_size = 18;
-        m_scroll_name.DrawArgs(vg, selected, text_x, y + 45, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), "%s%s", has_star ? "\u2605 " : "", e.GetName());
-        m_scroll_author.Draw(vg, selected, text_x, y + 80, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetAuthor());
-        m_scroll_version.Draw(vg, selected, text_x, y + 115, text_clip_w, font_size, NVG_ALIGN_LEFT, theme->GetColour(text_id), e.GetDisplayVersion());
+        std::string name;
+        if (has_star) {
+            name = std::string("\u2605 ") + e.GetName();
+        } else {
+            name = e.GetName();
+        }
+
+        const auto selected = pos == m_index;
+        DrawEntry(vg, theme, m_layout.Get(), v, selected, e.image, name.c_str(), e.GetAuthor(), e.GetDisplayVersion());
     });
 }
 
@@ -386,9 +385,11 @@ void Menu::SortAndFindLastFile() {
     }
 
     if (index >= 0) {
+        const auto row = m_list->GetRow();
+        const auto page = m_list->GetPage();
         // guesstimate where the position is
-        if (index >= 9) {
-            m_list->SetYoff((((index - 9) + 3) / 3) * m_list->GetMaxY());
+        if (index >= page) {
+            m_list->SetYoff((((index - page) + row) / row) * m_list->GetMaxY());
         } else {
             m_list->SetYoff(0);
         }
@@ -404,6 +405,11 @@ void Menu::FreeEntries() {
     }
 
     m_entries.clear();
+}
+
+void Menu::OnLayoutChange() {
+    m_index = 0;
+    grid::Menu::OnLayoutChange(m_list, m_layout.Get());
 }
 
 Result Menu::InstallHomebrew(const fs::FsPath& path, const NacpStruct& nacp, const std::vector<u8>& icon) {

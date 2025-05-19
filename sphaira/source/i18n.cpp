@@ -78,6 +78,7 @@ bool init(long index) {
         case 11: setLanguage = SetLanguage_RU; break; // "Russian"
         case 12: lang_name = "se"; break; // "Swedish"
         case 13: lang_name = "vi"; break; // "Vietnamese"
+        case 14: lang_name = "uk"; break; // "Ukrainian"
     }
 
     switch (setLanguage) {
@@ -86,7 +87,7 @@ bool init(long index) {
         case SetLanguage_DE: lang_name = "de"; break;
         case SetLanguage_IT: lang_name = "it"; break;
         case SetLanguage_ES: lang_name = "es"; break;
-        case SetLanguage_ZHCN: lang_name = "zh"; break;
+        case SetLanguage_ZHCN: lang_name = "zh"; break; 
         case SetLanguage_KO: lang_name = "ko"; break;
         case SetLanguage_NL: lang_name = "nl"; break;
         case SetLanguage_PT: lang_name = "pt"; break;
@@ -142,7 +143,7 @@ std::string get(std::string_view str) {
 
 namespace literals {
 
-std::string operator"" _i18n(const char* str, size_t len) {
+std::string operator""_i18n(const char* str, size_t len) {
     return sphaira::i18n::get_internal({str, len});
 }
 

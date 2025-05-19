@@ -2,6 +2,7 @@
 
 #include "nanovg.h"
 #include "ui/types.hpp"
+#include "ui/scrolling_text.hpp"
 
 namespace sphaira::ui::gfx {
 
@@ -17,6 +18,9 @@ void drawRect(NVGcontext*, const Vec4& v, const NVGpaint& p, float rounding = 0.
 
 void drawRectOutline(NVGcontext*, const Theme*, float size, float x, float y, float w, float h);
 void drawRectOutline(NVGcontext*, const Theme*, float size, const Vec4& v);
+
+void drawTriangle(NVGcontext*, float aX, float aY, float bX, float bY, float cX, float cY, const NVGcolor& c);
+void drawTriangle(NVGcontext*, float aX, float aY, float bX, float bY, float cX, float cY, const NVGpaint& p);
 
 void drawText(NVGcontext*, float x, float y, float size, const char* str, const char* end, int align, const NVGcolor& c);
 void drawText(NVGcontext*, float x, float y, float size, const NVGcolor& c, const char* str, int align = NVG_ALIGN_LEFT | NVG_ALIGN_TOP, const char* end = nullptr);
@@ -34,6 +38,8 @@ void drawScrollbar(NVGcontext*, const Theme*, float x, float y, float h, u32 ind
 
 void drawScrollbar2(NVGcontext*, const Theme*, float x, float y, float h, s64 index_off, s64 count, s64 row, s64 page);
 void drawScrollbar2(NVGcontext*, const Theme*, s64 index_off, s64 count, s64 row, s64 page);
+
+void drawAppLable(NVGcontext* vg, const Theme*, ScrollingText& st, float x, float y, float w, const char* name);
 
 void updateHighlightAnimation();
 void getHighlightAnimation(float* gradientX, float* gradientY, float* color);

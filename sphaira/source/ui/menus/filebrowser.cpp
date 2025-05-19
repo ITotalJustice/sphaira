@@ -18,6 +18,8 @@
 #include "owo.hpp"
 #include "swkbd.hpp"
 #include "i18n.hpp"
+#include "location.hpp"
+
 #include "yati/yati.hpp"
 #include "yati/source/file.hpp"
 
@@ -337,7 +339,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                             }
                         }));
                 } else if (App::GetInstallEnable() && IsExtension(entry.GetExtension(), INSTALL_EXTENSIONS)) {
-                    InstallFile(GetEntry());
+                    InstallFiles();
                 } else {
                     const auto assoc_list = FindFileAssocFor();
                     if (!assoc_list.empty()) {
@@ -427,27 +429,16 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
 
             if (m_entries_current.size()) {
                 options->Add(std::make_shared<SidebarEntryCallback>("Cut"_i18n, [this](){
-                    if (!m_selected_count) {
-                        AddCurrentFileToSelection(SelectedType::Cut);
-                    } else {
-                        AddSelectedEntries(SelectedType::Cut);
-                    }
+                    AddSelectedEntries(SelectedType::Cut);
                 }, true));
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Copy"_i18n, [this](){
-                    if (!m_selected_count) {
-                        AddCurrentFileToSelection(SelectedType::Copy);
-                    } else {
-                        AddSelectedEntries(SelectedType::Copy);
-                    }
+                    AddSelectedEntries(SelectedType::Copy);
                 }, true));
 
                 options->Add(std::make_shared<SidebarEntryCallback>("Delete"_i18n, [this](){
-                    if (!m_selected_count) {
-                        AddCurrentFileToSelection(SelectedType::Delete);
-                    } else {
-                        AddSelectedEntries(SelectedType::Delete);
-                    }
+                    AddSelectedEntries(SelectedType::Delete);
+
                     log_write("clicked on delete\n");
                     App::Push(std::make_shared<OptionBox>(
                         "Delete Selected files?"_i18n, "No"_i18n, "Yes"_i18n, 0, [this](auto op_index){
@@ -522,11 +513,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
             if (m_entries_current.size() && App::GetInstallEnable()) {
                 if (check_all_ext(INSTALL_EXTENSIONS)) {
                     options->Add(std::make_shared<SidebarEntryCallback>("Install"_i18n, [this](){
-                        if (!m_selected_count) {
-                            InstallFile(GetEntry());
-                        } else {
-                            InstallFiles(GetSelectedEntries());
-                        }
+                        InstallFiles();
                     }));
                 }
             }
@@ -557,22 +544,14 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                         ON_SCOPE_EXIT(App::Push(options));
 
                         options->Add(std::make_shared<SidebarEntryCallback>("Extract here"_i18n, [this](){
-                            if (!m_selected_count) {
-                                UnzipFile("", GetEntry());
-                            } else {
-                                UnzipFiles("", GetSelectedEntries());
-                            }
+                            UnzipFiles("");
                         }));
 
                         options->Add(std::make_shared<SidebarEntryCallback>("Extract to root"_i18n, [this](){
                             App::Push(std::make_shared<OptionBox>("Are you sure you want to extract to root?"_i18n,
                                 "No"_i18n, "Yes"_i18n, 0, [this](auto op_index){
                                 if (op_index && *op_index) {
-                                    if (!m_selected_count) {
-                                        UnzipFile("/", GetEntry());
-                                    } else {
-                                        UnzipFiles("/", GetSelectedEntries());
-                                    }
+                                    UnzipFiles("/");
                                 }
                             }));
                         }));
@@ -580,11 +559,7 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                         options->Add(std::make_shared<SidebarEntryCallback>("Extract to..."_i18n, [this](){
                             std::string out;
                             if (R_SUCCEEDED(swkbd::ShowText(out, "Enter the path to the folder to extract into", fs::AppendPath(m_path, ""))) && !out.empty()) {
-                                if (!m_selected_count) {
-                                    UnzipFile(out, GetEntry());
-                                } else {
-                                    UnzipFiles(out, GetSelectedEntries());
-                                }
+                                UnzipFiles(out);
                             }
                         }));
                     }));
@@ -596,21 +571,13 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                         ON_SCOPE_EXIT(App::Push(options));
 
                         options->Add(std::make_shared<SidebarEntryCallback>("Compress"_i18n, [this](){
-                            if (!m_selected_count) {
-                                ZipFile("", GetEntry());
-                            } else {
-                                ZipFiles("", GetSelectedEntries());
-                            }
+                            ZipFiles("");
                         }));
 
                         options->Add(std::make_shared<SidebarEntryCallback>("Compress to..."_i18n, [this](){
                             std::string out;
                             if (R_SUCCEEDED(swkbd::ShowText(out, "Enter the path to the folder to extract into", m_path)) && !out.empty()) {
-                                if (!m_selected_count) {
-                                    ZipFile(out, GetEntry());
-                                } else {
-                                    ZipFiles(out, GetSelectedEntries());
-                                }
+                                ZipFiles(out);
                             }
                         }));
                     }));
@@ -667,6 +634,12 @@ Menu::Menu(const std::vector<NroEntry>& nro_entries) : MenuBase{"FileBrowser"_i1
                 if (m_fs_type == FsType::Sd && m_entries_current.size() && !m_selected_count && GetEntry().IsFile() && GetEntry().file_size < 1024*64) {
                     options->Add(std::make_shared<SidebarEntryCallback>("View as text (unfinished)"_i18n, [this](){
                         App::Push(std::make_shared<fileview::Menu>(GetNewPathCurrent()));
+                    }));
+                }
+
+                if (m_fs_type == FsType::Sd && m_entries_current.size()) {
+                    options->Add(std::make_shared<SidebarEntryCallback>("Upload"_i18n, [this](){
+                        UploadFiles();
                     }));
                 }
 
@@ -918,12 +891,9 @@ void Menu::InstallForwarder() {
     ));
 }
 
-void Menu::InstallFile(const FileEntry& target) {
-    std::vector<FileEntry> targets{target};
-    InstallFiles(targets);
-}
+void Menu::InstallFiles() {
+    const auto targets = GetSelectedEntries();
 
-void Menu::InstallFiles(const std::vector<FileEntry>& targets) {
     App::Push(std::make_shared<OptionBox>("Install Selected files?"_i18n, "No"_i18n, "Yes"_i18n, 0, [this, targets](auto op_index){
         if (op_index && *op_index) {
             App::PopToMenu();
@@ -946,12 +916,9 @@ void Menu::InstallFiles(const std::vector<FileEntry>& targets) {
     }));
 }
 
-void Menu::UnzipFile(const fs::FsPath& dir_path, const FileEntry& target) {
-    std::vector<FileEntry> targets{target};
-    UnzipFiles(dir_path, targets);
-}
+void Menu::UnzipFiles(fs::FsPath dir_path) {
+    const auto targets = GetSelectedEntries();
 
-void Menu::UnzipFiles(fs::FsPath dir_path, const std::vector<FileEntry>& targets) {
     // set to current path.
     if (dir_path.empty()) {
         dir_path = m_path;
@@ -1058,12 +1025,9 @@ void Menu::UnzipFiles(fs::FsPath dir_path, const std::vector<FileEntry>& targets
     }));
 }
 
-void Menu::ZipFile(const fs::FsPath& zip_path, const FileEntry& target) {
-    std::vector<FileEntry> targets{target};
-    ZipFiles(zip_path, targets);
-}
+void Menu::ZipFiles(fs::FsPath zip_out) {
+    const auto targets = GetSelectedEntries();
 
-void Menu::ZipFiles(fs::FsPath zip_out, const std::vector<FileEntry>& targets) {
     // set to current path.
     if (zip_out.empty()) {
         if (std::size(targets) == 1) {
@@ -1210,6 +1174,83 @@ void Menu::ZipFiles(fs::FsPath zip_out, const std::vector<FileEntry>& targets) {
         Scan(m_path);
         log_write("did compress\n");
     }));
+}
+
+void Menu::UploadFiles() {
+    const auto targets = GetSelectedEntries();
+
+    const auto network_locations = location::Load();
+    if (network_locations.empty()) {
+        App::Notify("No upload locations set!");
+        return;
+    }
+
+    PopupList::Items items;
+    for (const auto&p : network_locations) {
+        items.emplace_back(p.name);
+    }
+
+    App::Push(std::make_shared<PopupList>(
+        "Select upload location"_i18n, items, [this, network_locations](auto op_index){
+            if (!op_index) {
+                return;
+            }
+
+            const auto loc = network_locations[*op_index];
+            App::Push(std::make_shared<ProgressBox>(0, "Uploading"_i18n, "", [this, loc](auto pbox) -> bool {
+                auto targets = GetSelectedEntries();
+
+                const auto file_add = [&](const fs::FsPath& file_path, const char* name){
+                    // the file name needs to be relative to the current directory.
+                    const auto relative_file_name = file_path.s + std::strlen(m_path);
+                    pbox->SetTitle(name);
+                    pbox->NewTransfer(relative_file_name);
+
+                    const auto result = curl::Api().FromFile(
+                        CURL_LOCATION_TO_API(loc),
+                        curl::Path{file_path},
+                        curl::OnProgress{pbox->OnDownloadProgressCallback()},
+                        curl::UploadInfo{relative_file_name}
+                    );
+
+                    return result.success;
+                };
+
+                for (auto& e : targets) {
+                    if (e.IsFile()) {
+                        const auto file_path = GetNewPath(e);
+                        if (!file_add(file_path, e.GetName().c_str())) {
+                            return false;
+                        }
+                    } else {
+                        FsDirCollections collections;
+                        get_collections(GetNewPath(e), e.name, collections);
+
+                        for (const auto& collection : collections) {
+                            for (const auto& file : collection.files) {
+                                const auto file_path = fs::AppendPath(collection.path, file.name);
+                                if (!file_add(file_path, file.name)) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return true;
+            }, [this](bool success){
+                ResetSelection();
+
+                if (success) {
+                    App::Notify("Upload successfull!");
+                    log_write("Upload successfull!!!\n");
+                } else {
+                    App::Notify("Upload failed!");
+                    log_write("Upload failed!!!\n");
+                }
+            }));
+        }
+    ));
 }
 
 auto Menu::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
