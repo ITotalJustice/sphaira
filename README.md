@@ -72,6 +72,8 @@ Next you will need to install the dependencies:
 sudo pacman -S switch-dev deko3d switch-cmake switch-curl switch-glm switch-zlib switch-mbedtls
 ```
 
+Also you need to have on your environment the packages `git`, `make`, `zip` and `cmake`
+
 Once devkitPro and all dependencies are installed, you can now build sphaira.
 
 ```sh
