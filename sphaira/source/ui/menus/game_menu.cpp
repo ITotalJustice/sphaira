@@ -347,9 +347,9 @@ Result DumpNspToUsbS2S(ProgressBox* pbox, std::span<NspEntry> entries) {
     // todo: display progress bar during usb transfer.
     while (!pbox->ShouldExit()) {
         if (R_SUCCEEDED(usb->IsUsbConnected(timeout))) {
-            pbox->NewTransfer("USB connected, sending file list");
+            pbox->NewTransfer("USB connected, sending file list"_i18n);
             if (R_SUCCEEDED(usb->WaitForConnection(timeout, file_list))) {
-                pbox->NewTransfer("Sent file list, waiting for command...");
+                pbox->NewTransfer("Sent file list, waiting for command..."_i18n);
 
                 while (!pbox->ShouldExit()) {
                     const auto rc = usb->PollCommands();
@@ -363,7 +363,7 @@ Result DumpNspToUsbS2S(ProgressBox* pbox, std::span<NspEntry> entries) {
             }
 
         } else {
-            pbox->NewTransfer("waiting for usb connection...");
+            pbox->NewTransfer("waiting for usb connection..."_i18n);
         }
     }
 
@@ -447,7 +447,7 @@ Result Notify(Result rc, const std::string& error_message) {
             i18n::get(error_message)
         ));
     } else {
-        App::Notify("Success");
+        App::Notify("Success"_i18n);
     }
 
     return rc;
@@ -998,7 +998,7 @@ Menu::Menu() : grid::Menu{"Games"_i18n} {
                     }
 
                     if (meta_entries.empty()) {
-                        App::Notify("No meta entries found...\n");
+                        App::Notify("No meta entries found...\n"_i18n);
                         return;
                     }
 
@@ -1010,7 +1010,7 @@ Menu::Menu() : grid::Menu{"Games"_i18n} {
                     }
 
                     App::Push(std::make_shared<PopupList>(
-                        "Entries", items, [this, meta_entries](auto op_index){
+                        "Entries"_i18n, items, [this, meta_entries](auto op_index){
                             #if 0
                             if (op_index) {
                                 const auto& e = meta_entries[*op_index];
@@ -1087,7 +1087,7 @@ Menu::~Menu() {
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
     if (m_dirty) {
-        App::Notify("Updating application record list");
+        App::Notify("Updating application record list"_i18n);
         SortAndFindLastFile(true);
     }
 
@@ -1303,9 +1303,9 @@ void Menu::DeleteGames() {
         m_dirty = true;
 
         if (success) {
-            App::Notify("Delete successfull!");
+            App::Notify("Delete successfull!"_i18n);
         } else {
-            App::Notify("Delete failed!");
+            App::Notify("Delete failed!"_i18n);
         }
     }));
 }
@@ -1354,10 +1354,10 @@ void Menu::DumpGames(u32 flags) {
                 ClearSelection();
 
                 if (success) {
-                    App::Notify("Dump successfull!");
+                    App::Notify("Dump successfull!"_i18n);
                     log_write("dump successfull!!!\n");
                 } else {
-                    App::Notify("Dump failed!");
+                    App::Notify("Dump failed!"_i18n);
                     log_write("dump failed!!!\n");
                 }
             }));

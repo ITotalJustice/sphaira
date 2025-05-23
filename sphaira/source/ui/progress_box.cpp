@@ -140,11 +140,11 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
 
         char time_str[64];
         if (hours) {
-            std::snprintf(time_str, sizeof(time_str), "%zu hours %zu minutes remaining", hours, minutes);
+            std::snprintf(time_str, sizeof(time_str), "%zu hours %zu minutes remaining"_i18n.c_str(), hours, minutes);
         } else if (minutes) {
-            std::snprintf(time_str, sizeof(time_str), "%zu minutes %zu seconds remaining", minutes, seconds);
+            std::snprintf(time_str, sizeof(time_str), "%zu minutes %zu seconds remaining"_i18n.c_str(), minutes, seconds);
         } else {
-            std::snprintf(time_str, sizeof(time_str), "%zu seconds remaining", seconds);
+            std::snprintf(time_str, sizeof(time_str), "%zu seconds remaining"_i18n.c_str(), seconds);
         }
 
         gfx::drawTextArgs(vg, center_x, prog_bar.y + prog_bar.h + 30, 18, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%s (%s)", time_str, speed_str);

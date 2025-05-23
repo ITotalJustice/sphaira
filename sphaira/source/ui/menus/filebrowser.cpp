@@ -906,7 +906,7 @@ void Menu::InstallFiles() {
                     } else if (R_FAILED(rc)) {
                         return false;
                     } else {
-                        App::Notify("Installed " + e.GetName());
+                        App::Notify("Installed "_i18n + e.GetName());
                     }
                 }
 
@@ -1016,9 +1016,9 @@ void Menu::UnzipFiles(fs::FsPath dir_path) {
         return true;
     }, [this](bool success){
         if (success) {
-            App::Notify("Extract success!");
+            App::Notify("Extract success!"_i18n);
         } else {
-            App::Notify("Extract failed!");
+            App::Notify("Extract failed!"_i18n);
         }
         Scan(m_path);
         log_write("did extract\n");
@@ -1167,9 +1167,9 @@ void Menu::ZipFiles(fs::FsPath zip_out) {
         return true;
     }, [this](bool success){
         if (success) {
-            App::Notify("Compress success!");
+            App::Notify("Compress success!"_i18n);
         } else {
-            App::Notify("Compress failed!");
+            App::Notify("Compress failed!"_i18n);
         }
         Scan(m_path);
         log_write("did compress\n");
@@ -1181,7 +1181,7 @@ void Menu::UploadFiles() {
 
     const auto network_locations = location::Load();
     if (network_locations.empty()) {
-        App::Notify("No upload locations set!");
+        App::Notify("No upload locations set!"_i18n);
         return;
     }
 
@@ -1242,10 +1242,10 @@ void Menu::UploadFiles() {
                 ResetSelection();
 
                 if (success) {
-                    App::Notify("Upload successfull!");
+                    App::Notify("Upload successfull!"_i18n);
                     log_write("Upload successfull!!!\n");
                 } else {
-                    App::Notify("Upload failed!");
+                    App::Notify("Upload failed!"_i18n);
                     log_write("Upload failed!!!\n");
                 }
             }));
