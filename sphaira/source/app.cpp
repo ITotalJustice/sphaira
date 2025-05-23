@@ -1645,7 +1645,7 @@ void App::DisplayInstallOptions(bool left_side) {
         App::GetApp()->m_skip_ticket.Set(enable);
     }));
 
-    options->Add(std::make_shared<ui::SidebarEntryBool>("skip NCA hash verify"_i18n, App::GetApp()->m_skip_nca_hash_verify.Get(), [](bool& enable){
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Skip NCA hash verify"_i18n, App::GetApp()->m_skip_nca_hash_verify.Get(), [](bool& enable){
         App::GetApp()->m_skip_nca_hash_verify.Set(enable);
     }));
 

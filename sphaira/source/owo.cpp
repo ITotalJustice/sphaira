@@ -984,7 +984,7 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
         // remove old id for forwarders.
         const auto rc = nsDeleteApplicationCompletely(old_tid);
         if (R_FAILED(rc) && rc != 0x410) { // not found
-            App::Notify("Failed to remove old forwarder, please manually remove it!");
+            App::Notify("Failed to remove old forwarder, please manually remove it!"_i18n);
         }
 
         // remove previous application record
