@@ -726,6 +726,41 @@ Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, NspEntry& out
     out.path = BuildNspPath(e, info.status);
     s64 offset{};
 
+    // try to generate StandardNSP file order
+    // put the regular NCAs in the order they are mentioned in the cnmt
+    // (the NCM already gives us to them in the correct order)
+    for (auto& e : info.content_infos) {
+        if (e.content_type == NcmContentType_Meta) {
+            continue; // skip the CNMT NCA for now
+        }
+        
+        char nca_name[0x200];
+        std::snprintf(nca_name, sizeof(nca_name), "%s%s", hexIdToStr(e.content_id).str, ".nca");
+
+        u64 size;
+        ncmContentInfoSizeToU64(std::addressof(e), std::addressof(size));
+
+        out.collections.emplace_back(nca_name, offset, size);
+        offset += size;
+    }
+    
+    // now put the CNMT NCA
+    for (auto& e : info.content_infos) {
+        if (e.content_type != NcmContentType_Meta) {
+            continue;
+        }
+        
+        char nca_name[0x200];
+        std::snprintf(nca_name, sizeof(nca_name), "%s%s", hexIdToStr(e.content_id).str, ".cnmt.nca");
+
+        u64 size;
+        ncmContentInfoSizeToU64(std::addressof(e), std::addressof(size));
+
+        out.collections.emplace_back(nca_name, offset, size);
+        offset += size;
+    }
+    
+    // finish with the tik and cert
     for (auto& rights_id : info.rights_ids) {
         TikEntry entry{rights_id};
         log_write("rights id is valid, fetching common ticket and cert\n");
@@ -753,17 +788,6 @@ Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, NspEntry& out
         offset += entry.cert_data.size();
 
         out.tickets.emplace_back(entry);
-    }
-
-    for (auto& e : info.content_infos) {
-        char nca_name[0x200];
-        std::snprintf(nca_name, sizeof(nca_name), "%s%s", hexIdToStr(e.content_id).str, e.content_type == NcmContentType_Meta ? ".cnmt.nca" : ".nca");
-
-        u64 size;
-        ncmContentInfoSizeToU64(std::addressof(e), std::addressof(size));
-
-        out.collections.emplace_back(nca_name, offset, size);
-        offset += size;
     }
 
     out.nsp_data = yati::container::Nsp::Build(out.collections, out.nsp_size);
