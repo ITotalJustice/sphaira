@@ -112,9 +112,17 @@ auto Nsp::Build(std::span<CollectionEntry> entries, s64& size) -> std::vector<u8
         string_offset += entries[i].name.length() + 1;
     }
 
-    // align table
-    string_table.resize((string_table.size() + 0x1F) & ~0x1F);
+    // Add padding to the string table so that the header as a whole is well-aligned
+    const auto nameless_header_size = sizeof(Pfs0Header) + (file_table.size() * sizeof(Pfs0FileTableEntry));
+    auto padded_string_table_size = ((nameless_header_size + string_table.size() + 0x1F) & ~0x1F) - nameless_header_size;
 
+    // Add manual padding if the full Partition FS header would already be properly aligned.
+    if (padded_string_table_size == string_table.size()) {
+        padded_string_table_size += 0x20;
+    }
+    
+    string_table.resize(padded_string_table_size);
+    
     header.magic = PFS0_MAGIC;
     header.total_files = entries.size();
     header.string_table_size = string_table.size();
