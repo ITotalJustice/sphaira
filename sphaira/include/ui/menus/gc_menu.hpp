@@ -10,10 +10,10 @@
 namespace sphaira::ui::menu::gc {
 
 typedef enum {
-    FsGameCardStoragePartition_None   = -1,
-    FsGameCardStoragePartition_Normal = 0,
-    FsGameCardStoragePartition_Secure = 1,
-} FsGameCardStoragePartition;
+    FsGameCardPartitionRaw_None   = -1,
+    FsGameCardPartitionRaw_Normal = 0,
+    FsGameCardPartitionRaw_Secure = 1,
+} FsGameCardPartitionRaw;
 
 ////////////////////////////////////////////////
 // The below structs are taken from nxdumptool./
@@ -187,7 +187,7 @@ private:
     // GameCard Storage api
     Result GcMountStorage();
     void GcUmountStorage();
-    Result GcMountPartition(FsGameCardStoragePartition partition);
+    Result GcMountPartition(FsGameCardPartitionRaw partition);
     void GcUnmountPartition();
     Result GcStorageReadInternal(void* buf, s64 off, s64 size, u64* bytes_read);
 
@@ -220,13 +220,22 @@ private:
     bool m_mounted{};
 
     FsStorage m_storage{};
+    // size of normal partition.
     s64 m_parition_normal_size{};
+    // size of secure partition.
     s64 m_parition_secure_size{};
+    // used size reported in the xci header.
     s64 m_storage_trimmed_size{};
+    // total size of m_parition_normal_size + m_parition_secure_size.
     s64 m_storage_total_size{};
+    // reported size via rom_size in the xci header.
+    s64 m_storage_full_size{};
+    // found in xci header.
     u64 m_package_id{};
+    // found in xci header.
     u8 m_initial_data_hash[SHA256_HASH_SIZE]{};
-    FsGameCardStoragePartition m_partition{FsGameCardStoragePartition_None};
+    // currently mounted storage partiton.
+    FsGameCardPartitionRaw m_partition{FsGameCardPartitionRaw_None};
     bool m_storage_mounted{};
 
     // set when the gc should be re-mounted, cleared when handled.

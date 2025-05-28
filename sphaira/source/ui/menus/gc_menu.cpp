@@ -49,6 +49,18 @@ const char *g_option_list[] = {
     "Exit",
 };
 
+auto GetXciSizeFromRomSize(u8 rom_size) -> s64 {
+    switch (rom_size) {
+        case 0xFA: return 1024ULL * 1024ULL * 1024ULL * 1ULL;
+        case 0xF8: return 1024ULL * 1024ULL * 1024ULL * 2ULL;
+        case 0xF0: return 1024ULL * 1024ULL * 1024ULL * 4ULL;
+        case 0xE0: return 1024ULL * 1024ULL * 1024ULL * 8ULL;
+        case 0xE1: return 1024ULL * 1024ULL * 1024ULL * 16ULL;
+        case 0xE2: return 1024ULL * 1024ULL * 1024ULL * 32ULL;
+    }
+    return 0;
+}
+
 // taken from nxdumptool.
 void utilsReplaceIllegalCharacters(char *str, bool ascii_only)
 {
@@ -264,7 +276,7 @@ HashStr hexIdToStr(auto id) {
 }
 
 // from Gamecard-Installer-NX
-Result fsOpenGameCardStorage(FsStorage* out, const FsGameCardHandle* handle, FsGameCardStoragePartition partition) {
+Result fsOpenGameCardStorage(FsStorage* out, const FsGameCardHandle* handle, FsGameCardPartitionRaw partition) {
     const struct {
         FsGameCardHandle handle;
         u32 partition;
@@ -713,26 +725,37 @@ void Menu::GcUnmount() {
 Result Menu::GcMountStorage() {
     GcUmountStorage();
 
-    R_TRY(GcMountPartition(FsGameCardStoragePartition_Normal));
+    R_TRY(GcMountPartition(FsGameCardPartitionRaw_Normal));
+    R_TRY(fsStorageGetSize(&m_storage, &m_storage_full_size));
 
     u8 header[0x200];
     R_TRY(fsStorageRead(&m_storage, 0, header, sizeof(header)));
 
     u32 magic;
     u32 trim_size;
+    u8 rom_size;
     std::memcpy(&magic, header + 0x100, sizeof(magic));
+    std::memcpy(&rom_size, header + 0x10D, sizeof(rom_size));
     std::memcpy(&trim_size, header + 0x118, sizeof(trim_size));
     std::memcpy(&m_package_id, header + 0x110, sizeof(m_package_id));
     std::memcpy(m_initial_data_hash, header + 0x160, sizeof(m_initial_data_hash));
     R_UNLESS(magic == XCI_MAGIC, 0x1);
 
+    // calculate the reported size, error if not found.
+    m_storage_full_size = GetXciSizeFromRomSize(rom_size);
+    log_write("[GC] m_storage_full_size: %zd rom_size: 0x%X\n", m_storage_full_size, rom_size);
+    R_UNLESS(m_storage_full_size > 0, 0x1);
+
     R_TRY(fsStorageGetSize(&m_storage, &m_parition_normal_size));
-    R_TRY(GcMountPartition(FsGameCardStoragePartition_Secure));
+    R_TRY(GcMountPartition(FsGameCardPartitionRaw_Secure));
     R_TRY(fsStorageGetSize(&m_storage, &m_parition_secure_size));
 
     m_storage_trimmed_size = sizeof(header) + trim_size * 512ULL;
     m_storage_total_size = m_parition_normal_size + m_parition_secure_size;
     m_storage_mounted = true;
+
+    log_write("[GC] m_storage_trimmed_size: %zd\n", m_storage_trimmed_size);
+    log_write("[GC] m_storage_total_size: %zd\n", m_storage_total_size);
 
     R_SUCCEED();
 }
@@ -744,7 +767,7 @@ void Menu::GcUmountStorage() {
     }
 }
 
-Result Menu::GcMountPartition(FsGameCardStoragePartition partition) {
+Result Menu::GcMountPartition(FsGameCardPartitionRaw partition) {
     if (m_partition == partition) {
         R_SUCCEED();
     }
@@ -767,8 +790,8 @@ Result Menu::GcMountPartition(FsGameCardStoragePartition partition) {
 }
 
 void Menu::GcUnmountPartition() {
-    if (m_partition != FsGameCardStoragePartition_None) {
-        m_partition = FsGameCardStoragePartition_None;
+    if (m_partition != FsGameCardPartitionRaw_None) {
+        m_partition = FsGameCardPartitionRaw_None;
         fsStorageClose(&m_storage);
     }
 }
@@ -776,10 +799,10 @@ void Menu::GcUnmountPartition() {
 Result Menu::GcStorageReadInternal(void* buf, s64 off, s64 size, u64* bytes_read) {
     if (off < m_parition_normal_size) {
         size = std::min<s64>(size, m_parition_normal_size - off);
-        R_TRY(GcMountPartition(FsGameCardStoragePartition_Normal));
+        R_TRY(GcMountPartition(FsGameCardPartitionRaw_Normal));
     } else {
         off = off - m_parition_normal_size;
-        R_TRY(GcMountPartition(FsGameCardStoragePartition_Secure));
+        R_TRY(GcMountPartition(FsGameCardPartitionRaw_Secure));
     }
 
     R_TRY(fsStorageRead(&m_storage, off, buf, size));
@@ -945,69 +968,104 @@ void Menu::OnChangeIndex(s64 new_index) {
 }
 
 Result Menu::DumpGames(u32 flags) {
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
-
+    // first, try and mount the storage.
+    // this will fill out the xci header, verify and get sizes.
     R_TRY(GcMountStorage());
 
-    u32 location_flags = dump::DumpLocationFlag_All;
+    const auto do_dump = [this](u32 flags) -> Result {
+        appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+        ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
 
-    // if we need to dump any of the bins, read fs memory until we find
-    // what we are looking for.
-    // the below code, along with the structs is taken from nxdumptool.
-    GameCardSecurityInformation security_info;
-    if ((flags &~ DumpFileFlag_XCI)) {
-        location_flags &= ~dump::DumpLocationFlag_UsbS2S;
-        R_TRY(GcGetSecurityInfo(security_info));
-    }
+        u32 location_flags = dump::DumpLocationFlag_All;
 
-    auto source = std::make_shared<XciSource>();
-    source->menu = this;
-    source->application_name = m_entries[m_entry_index].lang_entry.name;
-    source->icon = m_icon;
+        // if we need to dump any of the bins, read fs memory until we find
+        // what we are looking for.
+        // the below code, along with the structs is taken from nxdumptool.
+        GameCardSecurityInformation security_info;
+        if ((flags &~ DumpFileFlag_XCI)) {
+            location_flags &= ~dump::DumpLocationFlag_UsbS2S;
+            R_TRY(GcGetSecurityInfo(security_info));
+        }
 
-    std::vector<fs::FsPath> paths;
-    if (flags & DumpFileFlag_XCI) {
-        if (App::GetApp()->m_dump_trim_xci.Get()) {
-            source->xci_size = m_storage_trimmed_size;
-            paths.emplace_back(BuildFullDumpPath(DumpFileType_TrimmedXCI, m_entries));
-        } else {
-            source->xci_size = m_storage_total_size;
-            paths.emplace_back(BuildFullDumpPath(DumpFileType_XCI, m_entries));
+        auto source = std::make_shared<XciSource>();
+        source->menu = this;
+        source->application_name = m_entries[m_entry_index].lang_entry.name;
+        source->icon = m_icon;
+
+        std::vector<fs::FsPath> paths;
+        if (flags & DumpFileFlag_XCI) {
+            if (App::GetApp()->m_dump_trim_xci.Get()) {
+                source->xci_size = m_storage_trimmed_size;
+                paths.emplace_back(BuildFullDumpPath(DumpFileType_TrimmedXCI, m_entries));
+            } else {
+                source->xci_size = m_storage_total_size;
+                paths.emplace_back(BuildFullDumpPath(DumpFileType_XCI, m_entries));
+            }
+        }
+
+        if (flags & DumpFileFlag_Set) {
+            source->id_set.resize(sizeof(FsGameCardIdSet));
+            R_TRY(fsDeviceOperatorGetGameCardIdSet(&m_dev_op, source->id_set.data(), source->id_set.size(), source->id_set.size()));
+            paths.emplace_back(BuildFullDumpPath(DumpFileType_Set, m_entries));
+        }
+
+        if (flags & DumpFileFlag_UID) {
+            source->uid.resize(sizeof(security_info.specific_data.card_uid));
+            std::memcpy(source->uid.data(), &security_info.specific_data.card_uid, source->uid.size());
+            paths.emplace_back(BuildFullDumpPath(DumpFileType_UID, m_entries));
+        }
+
+        if (flags & DumpFileFlag_Cert) {
+            source->cert.resize(sizeof(security_info.certificate));
+            std::memcpy(source->cert.data(), &security_info.certificate, source->cert.size());
+            paths.emplace_back(BuildFullDumpPath(DumpFileType_Cert, m_entries));
+        }
+
+        if (flags & DumpFileFlag_Initial) {
+            source->initial.resize(sizeof(security_info.initial_data));
+            std::memcpy(source->initial.data(), &security_info.initial_data, source->initial.size());
+            paths.emplace_back(BuildFullDumpPath(DumpFileType_Initial, m_entries));
+        }
+
+        dump::Dump(source, paths, [](Result){}, location_flags);
+
+        R_SUCCEED();
+    };
+
+    // run some checks to see if the gamecard we can read past the trimmed size.
+    // if we can, then this is a full / valid gamecard.
+    // if it fails, it's likely a flashcart with a trimmed xci (will N check this?)
+    bool is_trimmed = false;
+    Result trim_rc = 0;
+    if ((flags & DumpFileFlag_XCI) && m_storage_trimmed_size < m_storage_total_size) {
+        u8 temp{};
+        if (R_FAILED(trim_rc = GcStorageRead(&temp, m_storage_trimmed_size, sizeof(temp)))) {
+            log_write("[GC] WARNING! GameCard is already trimmed: 0x%X FlashError: %u\n", trim_rc, trim_rc == 0x13D002);
+            is_trimmed = true;
         }
     }
 
-    if (flags & DumpFileFlag_Set) {
-        source->id_set.resize(sizeof(FsGameCardIdSet));
-        R_TRY(fsDeviceOperatorGetGameCardIdSet(&m_dev_op, source->id_set.data(), source->id_set.size(), source->id_set.size()));
-        paths.emplace_back(BuildFullDumpPath(DumpFileType_Set, m_entries));
+    // if trimmed and the user wants to dump the full xci, error.
+    if ((flags & DumpFileFlag_XCI) && is_trimmed && App::GetApp()->m_dump_trim_xci.Get()) {
+        App::PushErrorBox(trim_rc, "GameCard is already trimmed!"_i18n);
+    } else if ((flags & DumpFileFlag_XCI) && is_trimmed) {
+        App::Push(std::make_shared<ui::OptionBox>(
+            "WARNING: GameCard is already trimmed!"_i18n,
+            "Back"_i18n, "Continue"_i18n, 0, [&](auto op_index){
+                if (op_index && *op_index) {
+                    do_dump(flags);
+                }
+            }
+        ));
+    } else {
+        do_dump(flags);
     }
-
-    if (flags & DumpFileFlag_UID) {
-        source->uid.resize(sizeof(security_info.specific_data.card_uid));
-        std::memcpy(source->uid.data(), &security_info.specific_data.card_uid, source->uid.size());
-        paths.emplace_back(BuildFullDumpPath(DumpFileType_UID, m_entries));
-    }
-
-    if (flags & DumpFileFlag_Cert) {
-        source->cert.resize(sizeof(security_info.certificate));
-        std::memcpy(source->cert.data(), &security_info.certificate, source->cert.size());
-        paths.emplace_back(BuildFullDumpPath(DumpFileType_Cert, m_entries));
-    }
-
-    if (flags & DumpFileFlag_Initial) {
-        source->initial.resize(sizeof(security_info.initial_data));
-        std::memcpy(source->initial.data(), &security_info.initial_data, source->initial.size());
-        paths.emplace_back(BuildFullDumpPath(DumpFileType_Initial, m_entries));
-    }
-
-    dump::Dump(source, paths, [](Result){}, location_flags);
 
     R_SUCCEED();
 }
 
 Result Menu::GcGetSecurityInfo(GameCardSecurityInformation& out) {
-    R_TRY(GcMountPartition(FsGameCardStoragePartition_Secure));
+    R_TRY(GcMountPartition(FsGameCardPartitionRaw_Secure));
 
     constexpr u64 title_id = 0x0100000000000000; // FS
     Handle handle{};

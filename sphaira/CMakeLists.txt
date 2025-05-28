@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(sphaira_VERSION 0.10.3)
+set(sphaira_VERSION 0.11.1)
 
 project(sphaira
     VERSION ${sphaira_VERSION}
@@ -155,7 +155,7 @@ set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(ftpsrv
     GIT_REPOSITORY https://github.com/ITotalJustice/ftpsrv.git
     # GIT_TAG 1.2.2
-    GIT_TAG f8a30fd
+    GIT_TAG e4b4548
     SOURCE_SUBDIR NONE
 )
 
@@ -258,20 +258,20 @@ set(FTPSRV_LIB_BUILD TRUE)
 set(FTPSRV_LIB_SOCK_UNISTD TRUE)
 set(FTPSRV_LIB_VFS_CUSTOM ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs_nx.h)
 set(FTPSRV_LIB_PATH_SIZE 0x301)
-set(FTPSRV_LIB_SESSIONS 32)
+set(FTPSRV_LIB_SESSIONS 16)
 set(FTPSRV_LIB_BUF_SIZE 1024*64)
-
-# workaround until a64 container has latest libnx release.
-if (NOT DEFINED USE_VFS_GC)
-    set(USE_VFS_GC TRUE)
-endif()
 
 set(FTPSRV_LIB_CUSTOM_DEFINES
     USE_VFS_SAVE=$<BOOL:TRUE>
     USE_VFS_STORAGE=$<BOOL:TRUE>
-    USE_VFS_GC=$<BOOL:${USE_VFS_GC}>
-    USE_VFS_USBHSFS=$<BOOL:FALSE>
+    # disabled as it may conflict with the gamecard menu.
+    USE_VFS_GC=$<BOOL:FALSE>
+    USE_VFS_USBHSFS=$<BOOL:TRUE>
     VFS_NX_BUFFER_IO=$<BOOL:TRUE>
+    # let sphaira handle init / closing of the hdd.
+    USE_VFS_USBHSFS_INIT=$<BOOL:FALSE>
+    # disable romfs mounting as otherwise we cannot write / modify sphaira.nro
+    USE_VFS_ROMFS=$<BOOL:FALSE>
 )
 
 add_subdirectory(${ftpsrv_SOURCE_DIR} binary_dir)
@@ -283,17 +283,13 @@ add_library(ftpsrv_helper
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_fs.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_save.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_storage.c
+    ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_stdio.c
+    ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_hdd.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/utils.c
 )
 
-target_link_libraries(ftpsrv_helper PUBLIC ftpsrv)
+target_link_libraries(ftpsrv_helper PUBLIC ftpsrv libusbhsfs)
 target_include_directories(ftpsrv_helper PUBLIC ${ftpsrv_SOURCE_DIR}/src/platform)
-
-if (USE_VFS_GC)
-    target_sources(ftpsrv_helper PRIVATE
-        ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_gc.c
-    )
-endif()
 
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
@@ -326,7 +322,7 @@ target_link_libraries(sphaira PRIVATE
     nanovg
     stb
     yyjson
-    libusbhsfs
+    # libusbhsfs
 
     ${minizip_lib}
     ZLIB::ZLIB

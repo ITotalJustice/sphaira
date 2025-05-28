@@ -630,7 +630,7 @@ Result DirGetEntryCount(fs::Fs* m_fs, const fs::FsPath& path, s64* file_count, s
         if (mode & FsDirOpenMode_ReadDirs){
             fs::Dir dir;
             R_TRY(m_fs->OpenDirectory(path, FsDirOpenMode_ReadDirs|FsDirOpenMode_NoFileSize, &dir));
-            R_TRY(dir.GetEntryCount(file_count));
+            R_TRY(dir.GetEntryCount(dir_count));
         }
         if (mode & FsDirOpenMode_ReadFiles){
             fs::Dir dir;

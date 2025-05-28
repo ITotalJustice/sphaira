@@ -1582,11 +1582,11 @@ void App::DisplayMiscOptions(bool left_side) {
     ON_SCOPE_EXIT(App::Push(options));
 
     for (auto& e : ui::menu::main::GetMiscMenuEntries()) {
-        if (e.name == g_app->m_right_menu.Get()) {
+        if (e.name == g_app->m_left_menu.Get()) {
             continue;
-        }
-
-        if (e.IsInstall() && !App::GetInstallEnable()) {
+        } else if (e.name == g_app->m_right_menu.Get()) {
+            continue;
+        } else if (e.IsInstall() && !App::GetInstallEnable()) {
             continue;
         }
 

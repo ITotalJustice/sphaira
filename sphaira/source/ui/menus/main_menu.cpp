@@ -33,6 +33,13 @@ namespace {
 constexpr const char* GITHUB_URL{"https://api.github.com/repos/ITotalJustice/sphaira/releases/latest"};
 constexpr fs::FsPath CACHE_PATH{"/switch/sphaira/cache/sphaira_latest.json"};
 
+// paths where sphaira can be installed, used when updating
+constexpr const fs::FsPath SPHAIRA_PATHS[]{
+    "/hbmenu.nro",
+    "/switch/sphaira.nro",
+    "/switch/sphaira/sphaira.nro",
+};
+
 template<typename T>
 auto MiscMenuFuncGenerator(u32 flags) {
     return std::make_shared<T>(flags);
@@ -84,7 +91,7 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
             R_THROW(0x1);
         }
 
-        for (int i = 0; i < pglobal_info.number_entry; i++) {
+        for (s64 i = 0; i < pglobal_info.number_entry; i++) {
             if (i > 0) {
                 if (UNZ_OK != unzGoToNextFile(zfile)) {
                     log_write("failed to unzGoToNextFile\n");
@@ -114,10 +121,10 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
             }
 
             Result rc;
-            if (file_path[strlen(file_path) -1] == '/') {
+            if (file_path[std::strlen(file_path) -1] == '/') {
                 if (R_FAILED(rc = fs.CreateDirectoryRecursively(file_path)) && rc != FsError_PathAlreadyExists) {
                     log_write("failed to create folder: %s 0x%04X\n", file_path.s, rc);
-                    R_THROW(0x1);
+                    R_THROW(rc);
                 }
             } else {
                 Result rc;
@@ -143,6 +150,27 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
 
                     pbox->UpdateTransfer(offset, info.uncompressed_size);
                     offset += bytes_read;
+                }
+            }
+
+            // check if we have sphaira installed in other locations and update them.
+            if (file_path == App::GetExePath()) {
+                for (auto& path : SPHAIRA_PATHS) {
+                    log_write("[UPD] checking path: %s\n", path.s);
+                    // skip if we already updated this path.
+                    if (file_path == path) {
+                        log_write("[UPD] skipped as already updated\n");
+                        continue;
+                    }
+
+                    // check that this is really sphaira.
+                    log_write("[UPD] checking nacp\n");
+                    NacpStruct nacp;
+                    if (R_SUCCEEDED(nro_get_nacp(path, nacp)) && !std::strcmp(nacp.lang[0].name, "sphaira")) {
+                        log_write("[UPD] found, updating\n");
+                        pbox->NewTransfer(path);
+                        R_TRY(pbox->CopyFile(&fs, file_path, path));
+                    }
                 }
             }
         }
@@ -255,6 +283,7 @@ MainMenu::MainMenu() {
             log_write("found url: %s\n", url);
             log_write("found body: %s\n", body);
             App::Notify("Update avaliable: "_i18n + m_update_version);
+            App::Notify("Download via the Network options!"_i18n);
 
             return true;
         }
@@ -292,26 +321,6 @@ MainMenu::MainMenu() {
                 auto options = std::make_shared<Sidebar>("Network Options"_i18n, Sidebar::Side::LEFT);
                 ON_SCOPE_EXIT(App::Push(options));
 
-                options->Add(std::make_shared<SidebarEntryBool>("Ftp"_i18n, App::GetFtpEnable(), [](bool& enable){
-                    App::SetFtpEnable(enable);
-                }));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Mtp"_i18n, App::GetMtpEnable(), [](bool& enable){
-                    App::SetMtpEnable(enable);
-                }));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Nxlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
-                    App::SetNxlinkEnable(enable);
-                }));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Hdd"_i18n, App::GetHddEnable(), [](bool& enable){
-                    App::SetHddEnable(enable);
-                }));
-
-                options->Add(std::make_shared<SidebarEntryBool>("Hdd write protect"_i18n, App::GetWriteProtect(), [](bool& enable){
-                    App::SetWriteProtect(enable);
-                }));
-
                 if (m_update_state == UpdateState::Update) {
                     options->Add(std::make_shared<SidebarEntryCallback>("Download update: "_i18n + m_update_version, [this](){
                         App::Push(std::make_shared<ProgressBox>(0, "Downloading "_i18n, "Sphaira v" + m_update_version, [this](auto pbox) -> Result {
@@ -331,6 +340,26 @@ MainMenu::MainMenu() {
                         }));
                     }));
                 }
+
+                options->Add(std::make_shared<SidebarEntryBool>("Ftp"_i18n, App::GetFtpEnable(), [](bool& enable){
+                    App::SetFtpEnable(enable);
+                }));
+
+                options->Add(std::make_shared<SidebarEntryBool>("Mtp"_i18n, App::GetMtpEnable(), [](bool& enable){
+                    App::SetMtpEnable(enable);
+                }));
+
+                options->Add(std::make_shared<SidebarEntryBool>("Nxlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
+                    App::SetNxlinkEnable(enable);
+                }));
+
+                options->Add(std::make_shared<SidebarEntryBool>("Hdd"_i18n, App::GetHddEnable(), [](bool& enable){
+                    App::SetHddEnable(enable);
+                }));
+
+                options->Add(std::make_shared<SidebarEntryBool>("Hdd write protect"_i18n, App::GetWriteProtect(), [](bool& enable){
+                    App::SetWriteProtect(enable);
+                }));
             }));
 
             options->Add(std::make_shared<SidebarEntryArray>("Language"_i18n, language_items, [](s64& index_out){
