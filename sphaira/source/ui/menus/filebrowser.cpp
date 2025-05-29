@@ -561,7 +561,7 @@ void FsView::SetSide(ViewSide side) {
     if (m_menu->IsSplitScreen()) {
         if (m_side == ViewSide::Left) {
             this->SetW(pos.w / 2 - pos.x / 2);
-            this->SetX(pos.x / 2);
+            this->SetX(pos.x / 2 + 20.f);
         } else if (m_side == ViewSide::Right) {
             this->SetW(pos.w / 2 - pos.x / 2);
             this->SetX(pos.x / 2 + SCREEN_WIDTH / 2);
@@ -571,7 +571,7 @@ void FsView::SetSide(ViewSide side) {
         v.w -= v.x / 2;
 
         if (m_side == ViewSide::Left) {
-            v.x = v.x / 2;
+            v.x = v.x / 2 + 20.f;
         } else if (m_side == ViewSide::Right) {
             v.x = v.x / 2 + SCREEN_WIDTH / 2;
         }
