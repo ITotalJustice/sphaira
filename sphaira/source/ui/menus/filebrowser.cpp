@@ -784,7 +784,7 @@ void FsView::UnzipFiles(fs::FsPath dir_path) {
         App::PushErrorBox(rc, "Extract failed!"_i18n);
 
         if (R_SUCCEEDED(rc)) {
-            App::Notify("Extract success!");
+            App::Notify("Extract success!"_i18n);
         }
 
         Scan(m_path);
@@ -915,7 +915,7 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
         App::PushErrorBox(rc, "Compress failed!"_i18n);
 
         if (R_SUCCEEDED(rc)) {
-            App::Notify("Compress success!");
+            App::Notify("Compress success!"_i18n);
         }
 
         Scan(m_path);

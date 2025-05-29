@@ -664,7 +664,7 @@ Result Menu::GcMount() {
                         auto source = std::make_shared<GcSource>(m_entries[m_entry_index], m_fs.get());
                         return yati::InstallFromCollections(pbox, source, source->m_collections, source->m_config);
                     }, [this](Result rc){
-                        App::PushErrorBox(rc, "Gc install failed"_i18n);
+                        App::PushErrorBox(rc, "Gc install failed!"_i18n);
 
                         if (R_SUCCEEDED(rc)) {
                             App::Notify("Gc install success!"_i18n);
