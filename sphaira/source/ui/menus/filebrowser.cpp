@@ -1944,9 +1944,9 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         view_right->Draw(vg, theme);
 
         if (view == view_left) {
-            gfx::drawRect(vg, view_right->GetPos(), nvgRGBA(0, 0, 0, 180), 5);
+            gfx::drawRect(vg, view_right->GetPos(), theme->GetColour(ThemeEntryID_FOCUS), 5);
         } else {
-            gfx::drawRect(vg, view_left->GetPos(), nvgRGBA(0, 0, 0, 180), 5);
+            gfx::drawRect(vg, view_left->GetPos(), theme->GetColour(ThemeEntryID_FOCUS), 5);
         }
 
         gfx::drawRect(vg, SCREEN_WIDTH/2, GetY(), 1, GetH(), theme->GetColour(ThemeEntryID_LINE));

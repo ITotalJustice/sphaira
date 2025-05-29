@@ -98,6 +98,7 @@ constexpr ThemeIdPair THEME_ENTRIES[] = {
     { "selected_background", ThemeEntryID_SELECTED_BACKGROUND, ElementType::Colour },
     { "error", ThemeEntryID_ERROR, ElementType::Colour },
     { "popup", ThemeEntryID_POPUP, ElementType::Colour },
+    { "focus", ThemeEntryID_FOCUS, ElementType::Colour },
     { "line", ThemeEntryID_LINE, ElementType::Colour },
     { "line_separator", ThemeEntryID_LINE_SEPARATOR, ElementType::Colour },
     { "sidebar", ThemeEntryID_SIDEBAR, ElementType::Colour },

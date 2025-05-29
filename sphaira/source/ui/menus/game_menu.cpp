@@ -960,7 +960,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         DrawEntry(vg, theme, m_layout.Get(), v, selected, e.image, e.GetName(), e.GetAuthor(), e.GetDisplayVersion());
 
         if (e.selected) {
-            gfx::drawRect(vg, v, nvgRGBA(0, 0, 0, 180), 5);
+            gfx::drawRect(vg, v, theme->GetColour(ThemeEntryID_FOCUS), 5);
             gfx::drawText(vg, x + w / 2, y + h / 2, 24.f, "\uE14B", nullptr, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_SELECTED));
         }
     });

@@ -179,6 +179,8 @@ enum ThemeEntryID {
     ThemeEntryID_TEXT_SELECTED,
     // background colour of a selected item, can be an image (not recommended).
     ThemeEntryID_SELECTED_BACKGROUND,
+    // colour of the split screen and selected item.
+    ThemeEntryID_FOCUS,
 
     // colour of line separators in a list.
     ThemeEntryID_LINE,
