@@ -67,7 +67,7 @@
   "Dump DataPatch": "Exportar atualização de DLCs",
   "Dump All Bins": "Exportar todos os binários",
   "Dump XCI": "Exportar .xci",
-  "Dump Card ID Set": "Exportar conjunto de ID",
+  "Dump Card ID Set": "Exportar conjunto de IDs",
   "Dump Card UID": "Exportar UID",
   "Dump Certificate": "Exportar certificado",
   "Dump Initial Data": "Exportar dados iniciais",
@@ -177,7 +177,8 @@
   "Load Default": "Restaurar padrão",
   
   "Web": "Navegador de internet",
-  "Select URL": "Selecione a URL",
+  "Select URL": "Selecione uma URL",
+  "Enter custom URL": "Digitar URL",
 
   "Advanced": "Opções avançadas",
   "Advanced Options": "Opções avançadas",
