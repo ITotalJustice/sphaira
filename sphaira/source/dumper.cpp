@@ -207,14 +207,14 @@ Result DumpToUsbS2S(ui::ProgressBox* pbox, BaseSource* source, std::span<const f
 
     while (!pbox->ShouldExit()) {
         if (R_SUCCEEDED(usb->IsUsbConnected(timeout))) {
-            pbox->NewTransfer("USB connected, sending file list");
+            pbox->NewTransfer("USB connected, sending file list"_i18n);
             u8 flags = usb::tinfoil::USBFlag_NONE;
             if (App::GetApp()->m_dump_usb_transfer_stream.Get()) {
                 flags |= usb::tinfoil::USBFlag_STREAM;
             }
 
             if (R_SUCCEEDED(usb->WaitForConnection(timeout, flags, file_list))) {
-                pbox->NewTransfer("Sent file list, waiting for command...");
+                pbox->NewTransfer("Sent file list, waiting for command..."_i18n);
 
                 Result rc;
                 if (flags & usb::tinfoil::USBFlag_STREAM) {
@@ -240,7 +240,7 @@ Result DumpToUsbS2S(ui::ProgressBox* pbox, BaseSource* source, std::span<const f
                 return rc;
             }
         } else {
-            pbox->NewTransfer("waiting for usb connection...");
+            pbox->NewTransfer("waiting for usb connection..."_i18n);
         }
     }
 

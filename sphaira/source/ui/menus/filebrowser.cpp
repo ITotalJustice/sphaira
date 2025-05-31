@@ -561,7 +561,7 @@ void FsView::SetSide(ViewSide side) {
     if (m_menu->IsSplitScreen()) {
         if (m_side == ViewSide::Left) {
             this->SetW(pos.w / 2 - pos.x / 2);
-            this->SetX(pos.x / 2);
+            this->SetX(pos.x / 2 + 20.f);
         } else if (m_side == ViewSide::Right) {
             this->SetW(pos.w / 2 - pos.x / 2);
             this->SetX(pos.x / 2 + SCREEN_WIDTH / 2);
@@ -571,7 +571,7 @@ void FsView::SetSide(ViewSide side) {
         v.w -= v.x / 2;
 
         if (m_side == ViewSide::Left) {
-            v.x = v.x / 2;
+            v.x = v.x / 2 + 20.f;
         } else if (m_side == ViewSide::Right) {
             v.x = v.x / 2 + SCREEN_WIDTH / 2;
         }
@@ -784,7 +784,7 @@ void FsView::UnzipFiles(fs::FsPath dir_path) {
         App::PushErrorBox(rc, "Extract failed!"_i18n);
 
         if (R_SUCCEEDED(rc)) {
-            App::Notify("Extract success!");
+            App::Notify("Extract success!"_i18n);
         }
 
         Scan(m_path);
@@ -915,7 +915,7 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
         App::PushErrorBox(rc, "Compress failed!"_i18n);
 
         if (R_SUCCEEDED(rc)) {
-            App::Notify("Compress success!");
+            App::Notify("Compress success!"_i18n);
         }
 
         Scan(m_path);
@@ -1944,9 +1944,9 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         view_right->Draw(vg, theme);
 
         if (view == view_left) {
-            gfx::drawRect(vg, view_right->GetPos(), nvgRGBA(0, 0, 0, 180), 5);
+            gfx::drawRect(vg, view_right->GetPos(), theme->GetColour(ThemeEntryID_FOCUS), 5);
         } else {
-            gfx::drawRect(vg, view_left->GetPos(), nvgRGBA(0, 0, 0, 180), 5);
+            gfx::drawRect(vg, view_left->GetPos(), theme->GetColour(ThemeEntryID_FOCUS), 5);
         }
 
         gfx::drawRect(vg, SCREEN_WIDTH/2, GetY(), 1, GetH(), theme->GetColour(ThemeEntryID_LINE));

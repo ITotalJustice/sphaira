@@ -98,6 +98,7 @@ constexpr ThemeIdPair THEME_ENTRIES[] = {
     { "selected_background", ThemeEntryID_SELECTED_BACKGROUND, ElementType::Colour },
     { "error", ThemeEntryID_ERROR, ElementType::Colour },
     { "popup", ThemeEntryID_POPUP, ElementType::Colour },
+    { "focus", ThemeEntryID_FOCUS, ElementType::Colour },
     { "line", ThemeEntryID_LINE, ElementType::Colour },
     { "line_separator", ThemeEntryID_LINE_SEPARATOR, ElementType::Colour },
     { "sidebar", ThemeEntryID_SIDEBAR, ElementType::Colour },
@@ -1375,6 +1376,8 @@ App::App(const char* argv0) {
     // loading each config one by one as it avoids re-opening the file multiple times.
     ini_browse(cb, this, CONFIG_PATH);
 
+    i18n::init(GetLanguage());
+
     if (App::GetLogEnable()) {
         log_file_init();
         log_write("hello world v%s\n", APP_VERSION_HASH);
@@ -1434,8 +1437,6 @@ App::App(const char* argv0) {
 
     this->renderer.emplace(s_width, s_height, this->device, this->queue, *this->pool_images, *this->pool_code, *this->pool_data);
     this->vg = nvgCreateDk(&*this->renderer, NVG_ANTIALIAS | NVG_STENCIL_STROKES);
-
-    i18n::init(GetLanguage());
 
     // not sure if these are meant to be deleted or not...
     PlFontData font_standard, font_extended, font_lang;
@@ -1643,7 +1644,7 @@ void App::DisplayMiscOptions(bool left_side) {
                         const auto index = *op_index;
                         if (index == items.size() - 1) {
                             std::string out;
-                            if (R_SUCCEEDED(swkbd::ShowText(out, "Enter URL", "https://")) && !out.empty()) {
+                            if (R_SUCCEEDED(swkbd::ShowText(out, "Enter URL"_i18n.c_str(), "https://")) && !out.empty()) {
                                 WebShow(out);
                             }
                         } else {

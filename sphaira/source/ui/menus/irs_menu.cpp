@@ -118,12 +118,12 @@ Menu::Menu(u32 flags) : MenuBase{"Irs"_i18n, flags} {
         is_negative_image_used_str.emplace_back("Negative image"_i18n);
 
         SidebarEntryArray::Items format_str;
-        format_str.emplace_back("320x240"_i18n);
-        format_str.emplace_back("160x120"_i18n);
-        format_str.emplace_back("80x60"_i18n);
+        format_str.emplace_back("320\u00D7240");
+        format_str.emplace_back("160\u00D7120");
+        format_str.emplace_back("80\u00D760");
         if (hosversionAtLeast(4,0,0)) {
-            format_str.emplace_back("40x30"_i18n);
-            format_str.emplace_back("20x15"_i18n);
+            format_str.emplace_back("40\u00D730");
+            format_str.emplace_back("20\u00D715");
         }
 
         options->Add(std::make_shared<SidebarEntryArray>("Controller"_i18n, controller_str, [this](s64& index){
