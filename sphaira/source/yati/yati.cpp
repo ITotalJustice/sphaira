@@ -1237,7 +1237,7 @@ Result Yati::RegisterNcasAndPushRecord(const CnmtCollection& cnmt, u32 latest_ve
         buf.write(std::addressof(info.info), sizeof(info.info));
     }
 
-    pbox->NewTransfer("Updating ncm databse"_i18n);
+    pbox->NewTransfer("Updating ncm database"_i18n);
     R_TRY(ncmContentMetaDatabaseSet(std::addressof(db), std::addressof(cnmt.key), buf.buf.data(), buf.tell()));
     R_TRY(ncmContentMetaDatabaseCommit(std::addressof(db)));
 

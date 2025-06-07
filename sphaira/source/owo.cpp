@@ -962,7 +962,7 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
 
     // setup database
     {
-        pbox->NewTransfer("Updating ncm databse"_i18n).UpdateTransfer(4, 8);
+        pbox->NewTransfer("Updating ncm database"_i18n).UpdateTransfer(4, 8);
         NcmContentMetaDatabase db;
         R_TRY(ncmOpenContentMetaDatabase(&db, storage_id));
         ON_SCOPE_EXIT(ncmContentMetaDatabaseClose(&db));
