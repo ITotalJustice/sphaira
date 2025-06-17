@@ -307,8 +307,10 @@ void ThreadData::WakeAllThreads() {
 Result ThreadData::Read(void* buf, s64 size, u64* bytes_read) {
     size = std::min<s64>(size, nca->size - read_offset);
     const auto rc = yati->source->Read(buf, nca->offset + read_offset, size, bytes_read);
-    read_offset += *bytes_read;
+    R_TRY(rc);
+
     R_UNLESS(size == *bytes_read, Result_YatiInvalidNcaReadSize);
+    read_offset += *bytes_read;
     return rc;
 }
 

@@ -1,13 +1,15 @@
 #include "ui/menus/ghdl.hpp"
+#include "ui/menus/homebrew.hpp"
+
 #include "ui/sidebar.hpp"
 #include "ui/option_box.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/progress_box.hpp"
 #include "ui/error_box.hpp"
+#include "ui/nvg_util.hpp"
 
 #include "log.hpp"
 #include "app.hpp"
-#include "ui/nvg_util.hpp"
 #include "fs.hpp"
 #include "defines.hpp"
 #include "image.hpp"
@@ -217,6 +219,7 @@ Menu::Menu(u32 flags) : MenuBase{"GitHub"_i18n, flags} {
                             App::Push(std::make_shared<ProgressBox>(0, "Downloading "_i18n, GetEntry().repo, [this, &asset_entry, ptr](auto pbox) -> Result {
                                 return DownloadApp(pbox, asset_entry, ptr);
                             }, [this, ptr](Result rc){
+                                homebrew::SignalChange();
                                 App::PushErrorBox(rc, "Failed to download app!"_i18n);
 
                                 if (R_SUCCEEDED(rc)) {

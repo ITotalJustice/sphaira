@@ -581,6 +581,7 @@ enum class SphairaResult : Result {
     EsPersonalisedTicketDeviceIdMissmatch,
     EsFailedDecryptPersonalisedTicket,
     EsBadDecryptedPersonalisedTicketSize,
+    EsBadTicketSize,
 
     OwoBadArgs,
 
@@ -717,6 +718,7 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(EsPersonalisedTicketDeviceIdMissmatch),
     MAKE_SPHAIRA_RESULT_ENUM(EsFailedDecryptPersonalisedTicket),
     MAKE_SPHAIRA_RESULT_ENUM(EsBadDecryptedPersonalisedTicketSize),
+    MAKE_SPHAIRA_RESULT_ENUM(EsBadTicketSize),
     MAKE_SPHAIRA_RESULT_ENUM(OwoBadArgs),
     MAKE_SPHAIRA_RESULT_ENUM(UsbCancelled),
     MAKE_SPHAIRA_RESULT_ENUM(UsbBadMagic),
@@ -803,4 +805,6 @@ enum : Result {
 #define THREAD_AFFINITY_ALL (THREAD_AFFINITY_CORE0|THREAD_AFFINITY_CORE1|THREAD_AFFINITY_CORE2)
 
 // mutex helpers.
-#define SCOPED_MUTEX(mutex) mutexLock(mutex); ON_SCOPE_EXIT(mutexUnlock(mutex))
+#define SCOPED_MUTEX(mutex) \
+    mutexLock(mutex); \
+    ON_SCOPE_EXIT(mutexUnlock(mutex))

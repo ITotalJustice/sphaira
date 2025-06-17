@@ -7,11 +7,11 @@ namespace sphaira::ftpsrv {
 bool Init();
 void Exit();
 
-using OnInstallStart = std::function<bool(void* user, const char* path)>;
-using OnInstallWrite = std::function<bool(void* user, const void* buf, size_t size)>;
-using OnInstallClose = std::function<void(void* user)>;
+using OnInstallStart = std::function<bool(const char* path)>;
+using OnInstallWrite = std::function<bool(const void* buf, size_t size)>;
+using OnInstallClose = std::function<void()>;
 
-void InitInstallMode(void* user, OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close);
+void InitInstallMode(OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close);
 void DisableInstallMode();
 
 unsigned GetPort();

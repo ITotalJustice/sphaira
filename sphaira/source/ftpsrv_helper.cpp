@@ -4,7 +4,6 @@
 #include "fs.hpp"
 #include "log.hpp"
 
-#include <mutex>
 #include <algorithm>
 #include <minIni.h>
 #include <ftpsrv.h>
@@ -16,8 +15,7 @@ namespace sphaira::ftpsrv {
 namespace {
 
 struct InstallSharedData {
-    std::mutex mutex;
-
+    Mutex mutex;
     std::deque<std::string> queued_files;
 
     void* user;
@@ -36,7 +34,7 @@ FtpSrvConfig g_ftpsrv_config = {0};
 volatile bool g_should_exit = false;
 bool g_is_running{false};
 Thread g_thread;
-std::mutex g_mutex{};
+Mutex g_mutex{};
 InstallSharedData g_shared_data{};
 
 void ftp_log_callback(enum FTP_API_LOG_TYPE type, const char* msg) {
@@ -59,13 +57,13 @@ struct VfsUserData {
 // ive given up with good names.
 void on_thing() {
     log_write("[FTP] doing on_thing\n");
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     log_write("[FTP] locked on_thing\n");
 
     if (!g_shared_data.in_progress) {
         if (!g_shared_data.queued_files.empty()) {
             log_write("[FTP] pushing new file data\n");
-            if (!g_shared_data.on_start || !g_shared_data.on_start(g_shared_data.user, g_shared_data.queued_files[0].c_str())) {
+            if (!g_shared_data.on_start || !g_shared_data.on_start(g_shared_data.queued_files[0].c_str())) {
                 g_shared_data.queued_files.clear();
             } else {
                 log_write("[FTP] success on new file push\n");
@@ -77,7 +75,7 @@ void on_thing() {
 
 int vfs_install_open(void* user, const char* path, enum FtpVfsOpenMode mode) {
     {
-        std::scoped_lock lock{g_shared_data.mutex};
+        SCOPED_MUTEX(&g_shared_data.mutex);
         auto data = static_cast<VfsUserData*>(user);
         data->valid = 0;
 
@@ -133,7 +131,7 @@ int vfs_install_read(void* user, void* buf, size_t size) {
 }
 
 int vfs_install_write(void* user, const void* buf, size_t size) {
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     if (!g_shared_data.enabled) {
         errno = EACCES;
         return -1;
@@ -145,7 +143,7 @@ int vfs_install_write(void* user, const void* buf, size_t size) {
         return -1;
     }
 
-    if (!g_shared_data.on_write || !g_shared_data.on_write(g_shared_data.user, buf, size)) {
+    if (!g_shared_data.on_write || !g_shared_data.on_write(buf, size)) {
         errno = EIO;
         return -1;
     }
@@ -159,13 +157,13 @@ int vfs_install_seek(void* user, const void* buf, size_t size, size_t off) {
 }
 
 int vfs_install_isfile_open(void* user) {
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     auto data = static_cast<VfsUserData*>(user);
     return data->valid;
 }
 
 int vfs_install_isfile_ready(void* user) {
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     auto data = static_cast<VfsUserData*>(user);
     const auto ready = !g_shared_data.queued_files.empty() && data->path == g_shared_data.queued_files[0];
     return ready;
@@ -174,7 +172,7 @@ int vfs_install_isfile_ready(void* user) {
 int vfs_install_close(void* user) {
     {
         log_write("[FTP] closing file\n");
-        std::scoped_lock lock{g_shared_data.mutex};
+        SCOPED_MUTEX(&g_shared_data.mutex);
         auto data = static_cast<VfsUserData*>(user);
         if (data->valid) {
             log_write("[FTP] closing valid file\n");
@@ -184,7 +182,7 @@ int vfs_install_close(void* user) {
                 if (it == g_shared_data.queued_files.cbegin()) {
                     log_write("[FTP] closing current file\n");
                     if (g_shared_data.on_close) {
-                        g_shared_data.on_close(g_shared_data.user);
+                        g_shared_data.on_close();
                     }
 
                     g_shared_data.in_progress = false;
@@ -296,7 +294,7 @@ void loop(void* arg) {
 } // namespace
 
 bool Init() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (g_is_running) {
         log_write("[FTP] already enabled, cannot open\n");
         return false;
@@ -380,7 +378,7 @@ bool Init() {
 }
 
 void Exit() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (!g_is_running) {
         return;
     }
@@ -398,9 +396,8 @@ void Exit() {
     log_write("[FTP] exitied\n");
 }
 
-void InitInstallMode(void* user, OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close) {
-    std::scoped_lock lock{g_shared_data.mutex};
-    g_shared_data.user = user;
+void InitInstallMode(OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close) {
+    SCOPED_MUTEX(&g_shared_data.mutex);
     g_shared_data.on_start = on_start;
     g_shared_data.on_write = on_write;
     g_shared_data.on_close = on_close;
@@ -408,27 +405,27 @@ void InitInstallMode(void* user, OnInstallStart on_start, OnInstallWrite on_writ
 }
 
 void DisableInstallMode() {
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     g_shared_data.enabled = false;
 }
 
 unsigned GetPort() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     return g_ftpsrv_config.port;
 }
 
 bool IsAnon() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     return g_ftpsrv_config.anon;
 }
 
 const char* GetUser() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     return g_ftpsrv_config.user;
 }
 
 const char* GetPass() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     return g_ftpsrv_config.pass;
 }
 

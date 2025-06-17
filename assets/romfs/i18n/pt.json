@@ -143,6 +143,7 @@
   "Password:": "Senha:",
   "SSID:": "SSID:",
   "Passphrase:": "Senha:",
+<<<<<<< pt
   "Failed to install, press B to exit...": "Falha ao instalar, aperte  para sair.",
   "Install success!": "Instalação concluída.",
   "Install failed!": "Instalação falhou.",
@@ -163,6 +164,11 @@
   "Failed to install via MTP, press B to exit...": "Falha ao instalar via MTP, aperte  para sair.",
   "MTP install success!": "Instalação via MTP concluída.",
   "MTP install failed!": "Instalação via MTP falhou.",
+=======
+  "Failed to install, press B to exit...": "Falha ao instalar via FTP, aperte B para sair.",
+  "Install success!": "Instalação via FTP concluída.",
+  "Install failed!": "Instalação via FTP falhou.",
+>>>>>>> master
   "USB Install": "Instalação via USB",
   "USB": "USB",
   "Connected, waiting for file list...": "Conectado, aguardando lista de arquivos...",

@@ -90,7 +90,7 @@
   "Delete failed!": "Ошибка удаления!",
   "Success": "Успех",
   "Title cache": "Кэш заголовков",
-  
+
   "Saves": "Сохранения",
   "Save Options": "Опции сохранений",
   "Account": "Пользователь",
@@ -124,7 +124,6 @@
   "Failed to download app!": "Не удалось загрузить приложение!",
 
   "FTP Install": "Установка по FTP",
-  "FTP Install (EXPERIMENTAL)": "Установка по FTP (ЭКСПЕРИМЕНТАЛЬНО)",
   "Connection Type: WiFi | Strength: ": "Тип подключения: WiFi | Сигнал: ",
   "Connection Type: Ethernet": "Тип подключения: Ethernet",
   "Connection Type: None": "Нет подключения",
@@ -134,9 +133,9 @@
   "Password:": "Пароль:",
   "SSID:": "SSID:",
   "Passphrase:": "Пароль:",
-  "Failed to install via FTP, press B to exit...": "Не удалось установить по FTP, нажмите B для выхода...",
-  "Ftp install success!": "Установка по FTP прошла успешно!",
-  "Ftp install failed!": "Сбой установки по FTP!",
+  "Failed to install, press B to exit...": "Не удалось установить по FTP, нажмите B для выхода...",
+  "Install success!": "Установка по FTP прошла успешно!",
+  "Install failed!": "Сбой установки по FTP!",
   "USB Install": "Установка по USB",
   "USB": "USB",
   "Connected, waiting for file list...": "Подключено, ожидание списка файлов...",

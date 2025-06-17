@@ -166,12 +166,19 @@ Result GetTicketDataOffset(std::span<const u8> ticket, u64& out) {
 Result GetTicketData(std::span<const u8> ticket, es::TicketData* out) {
     u64 data_off;
     R_TRY(GetTicketDataOffset(ticket, data_off));
+    if (ticket.size() < data_off + sizeof(*out)) {
+        log_write("[ES] invalid ticket size: %zu vs %zu\n", ticket.size(), data_off + sizeof(*out));
+        R_THROW(Result_EsBadTicketSize);
+    }
+
     std::memcpy(out, ticket.data() + data_off, sizeof(*out));
 
     // validate ticket data.
+    log_write("[ES] validating ticket data\n");
     R_UNLESS(out->ticket_version1 == 0x2, Result_InvalidTicketVersion); // must be version 2.
     R_UNLESS(out->title_key_type == es::TicketTitleKeyType_Common || out->title_key_type == es::TicketTitleKeyType_Personalized, Result_InvalidTicketKeyType);
     R_UNLESS(out->master_key_revision <= 0x20, Result_InvalidTicketKeyRevision);
+    log_write("[ES] valid ticket data\n");
 
     R_SUCCEED();
 }

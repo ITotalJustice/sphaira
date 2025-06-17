@@ -442,8 +442,6 @@ FsView::~FsView() {
 }
 
 void FsView::Update(Controller* controller, TouchInfo* touch) {
-    Widget::Update(controller, touch);
-
     m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
         if (touch && m_index == i) {
             FireAction(Button::A);
@@ -1778,7 +1776,7 @@ void FsView::DisplayAdvancedOptions() {
     options->Add(std::make_shared<SidebarEntryArray>("Mount"_i18n, mount_items, [this, fs_entries](s64& index_out){
         App::PopToMenu();
         SetFs(fs_entries[index_out].root, fs_entries[index_out]);
-    }, m_fs_entry.name));
+    }, i18n::get(m_fs_entry.name)));
 
     options->Add(std::make_shared<SidebarEntryCallback>("Create File"_i18n, [this](){
         std::string out;
@@ -1892,21 +1890,19 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
     // workaround the buttons not being display properly.
     // basically, inherit all actions from the view, draw them,
     // then restore state after.
-    // const auto actions_copy = GetActions();
-    // ON_SCOPE_EXIT(m_actions = actions_copy);
-    // m_actions.insert_range(view->GetActions());
+    const auto view_actions = view->GetActions();
+    m_actions.insert_range(view_actions);
+    ON_SCOPE_EXIT(RemoveActions(view_actions));
 
     MenuBase::Update(controller, touch);
     view->Update(controller, touch);
 }
 
 void Menu::Draw(NVGcontext* vg, Theme* theme) {
-    // workaround the buttons not being display properly.
-    // basically, inherit all actions from the view, draw them,
-    // then restore state after.
-    const auto actions_copy = GetActions();
-    ON_SCOPE_EXIT(m_actions = actions_copy);
-    m_actions.insert_range(view->GetActions());
+    // see Menu::Update().
+    const auto view_actions = view->GetActions();
+    m_actions.insert_range(view_actions);
+    ON_SCOPE_EXIT(RemoveActions(view_actions));
 
     MenuBase::Draw(vg, theme);
 

@@ -49,6 +49,7 @@ add_executable(sphaira
     source/ui/menus/gc_menu.cpp
     source/ui/menus/game_menu.cpp
     source/ui/menus/grid_menu_base.cpp
+    source/ui/menus/install_stream_menu_base.cpp
 
     source/ui/error_box.cpp
     source/ui/notification.cpp
@@ -162,7 +163,7 @@ FetchContent_Declare(ftpsrv
 
 FetchContent_Declare(libhaze
     GIT_REPOSITORY https://github.com/ITotalJustice/libhaze.git
-    GIT_TAG d318432
+    GIT_TAG af69c0a
 )
 
 FetchContent_Declare(libpulsar

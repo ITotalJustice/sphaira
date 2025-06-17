@@ -53,9 +53,8 @@ struct TicketData {
     FsRightsId rights_id;
     u32 account_id;
     u8 _0x174[0xC];
-    u8 _0x180[0x140];
 };
-static_assert(sizeof(TicketData) == 0x2C0);
+static_assert(sizeof(TicketData) == 0x180);
 
 struct EticketRsaDeviceKey {
     u8 ctr[AES_128_KEY_SIZE];

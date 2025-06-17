@@ -6,7 +6,6 @@
 #include "evman.hpp"
 #include "i18n.hpp"
 
-#include <mutex>
 #include <algorithm>
 #include <haze.h>
 
@@ -14,8 +13,8 @@ namespace sphaira::haze {
 namespace {
 
 struct InstallSharedData {
-    std::mutex mutex;
-    std::deque<std::string> queued_files;
+    Mutex mutex;
+    std::string current_file;
 
     void* user;
     OnInstallStart on_start;
@@ -30,7 +29,7 @@ constexpr int THREAD_PRIO = PRIO_PREEMPTIVE;
 constexpr int THREAD_CORE = 2;
 volatile bool g_should_exit = false;
 bool g_is_running{false};
-std::mutex g_mutex{};
+Mutex g_mutex{};
 InstallSharedData g_shared_data{};
 
 const char* SUPPORTED_EXT[] = {
@@ -40,14 +39,14 @@ const char* SUPPORTED_EXT[] = {
 // ive given up with good names.
 void on_thing() {
     log_write("[MTP] doing on_thing\n");
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     log_write("[MTP] locked on_thing\n");
 
     if (!g_shared_data.in_progress) {
-        if (!g_shared_data.queued_files.empty()) {
+        if (!g_shared_data.current_file.empty()) {
             log_write("[MTP] pushing new file data\n");
-            if (!g_shared_data.on_start || !g_shared_data.on_start(g_shared_data.user, g_shared_data.queued_files[0].c_str())) {
-                g_shared_data.queued_files.clear();
+            if (!g_shared_data.on_start || !g_shared_data.on_start(g_shared_data.current_file.c_str())) {
+                g_shared_data.current_file.clear();
             } else {
                 log_write("[MTP] success on new file push\n");
                 g_shared_data.in_progress = true;
@@ -71,7 +70,7 @@ struct FsProxyBase : ::haze::FileSystemProxyImpl {
             std::strcpy(buf, path);
         }
 
-        log_write("[FixPath] %s -> %s\n", path, buf.s);
+        // log_write("[FixPath] %s -> %s\n", path, buf.s);
         return buf;
     }
 
@@ -233,8 +232,162 @@ private:
     std::shared_ptr<fs::Fs> m_fs{};
 };
 
-struct FsDevNullProxy final : FsProxyBase {
+// fake fs that allows for files to create r/w on the root.
+// folders are not yet supported.
+struct FsProxyVfs : FsProxyBase {
     using FsProxyBase::FsProxyBase;
+    virtual ~FsProxyVfs() = default;
+
+    auto GetFileName(const char* s) -> const char* {
+        const auto file_name = std::strrchr(s, '/');
+        if (!file_name || file_name[1] == '\0') {
+            return nullptr;
+        }
+        return file_name + 1;
+    }
+
+    virtual Result GetEntryType(const char *path, FsDirEntryType *out_entry_type) {
+        if (FixPath(path) == "/") {
+            *out_entry_type = FsDirEntryType_Dir;
+            R_SUCCEED();
+        } else {
+            const auto file_name = GetFileName(path);
+            R_UNLESS(file_name, FsError_PathNotFound);
+
+            const auto it = std::ranges::find_if(m_entries, [file_name](auto& e){
+                return !strcasecmp(file_name, e.name);
+            });
+            R_UNLESS(it != m_entries.end(), FsError_PathNotFound);
+
+            *out_entry_type = FsDirEntryType_File;
+            R_SUCCEED();
+        }
+    }
+    virtual Result CreateFile(const char* path, s64 size, u32 option) {
+        const auto file_name = GetFileName(path);
+        R_UNLESS(file_name, FsError_PathNotFound);
+
+        const auto it = std::ranges::find_if(m_entries, [file_name](auto& e){
+            return !strcasecmp(file_name, e.name);
+        });
+        R_UNLESS(it == m_entries.end(), FsError_PathAlreadyExists);
+
+        FsDirectoryEntry entry{};
+        std::strcpy(entry.name, file_name);
+        entry.type = FsDirEntryType_File;
+        entry.file_size = size;
+
+        m_entries.emplace_back(entry);
+        R_SUCCEED();
+    }
+    virtual Result DeleteFile(const char* path) {
+        const auto file_name = GetFileName(path);
+        R_UNLESS(file_name, FsError_PathNotFound);
+
+        const auto it = std::ranges::find_if(m_entries, [file_name](auto& e){
+            return !strcasecmp(file_name, e.name);
+        });
+        R_UNLESS(it != m_entries.end(), FsError_PathNotFound);
+
+        m_entries.erase(it);
+        R_SUCCEED();
+    }
+    virtual Result RenameFile(const char *old_path, const char *new_path) {
+        const auto file_name = GetFileName(old_path);
+        R_UNLESS(file_name, FsError_PathNotFound);
+
+        const auto it = std::ranges::find_if(m_entries, [file_name](auto& e){
+            return !strcasecmp(file_name, e.name);
+        });
+        R_UNLESS(it != m_entries.end(), FsError_PathNotFound);
+
+        const auto file_name_new = GetFileName(new_path);
+        R_UNLESS(file_name_new, FsError_PathNotFound);
+
+        const auto new_it = std::ranges::find_if(m_entries, [file_name_new](auto& e){
+            return !strcasecmp(file_name_new, e.name);
+        });
+        R_UNLESS(new_it == m_entries.end(), FsError_PathAlreadyExists);
+
+        std::strcpy(it->name, file_name_new);
+        R_SUCCEED();
+    }
+    virtual Result OpenFile(const char *path, u32 mode, FsFile *out_file) {
+        const auto file_name = GetFileName(path);
+        R_UNLESS(file_name, FsError_PathNotFound);
+
+        const auto it = std::ranges::find_if(m_entries, [file_name](auto& e){
+            return !strcasecmp(file_name, e.name);
+        });
+        R_UNLESS(it != m_entries.end(), FsError_PathNotFound);
+
+        out_file->s.object_id = std::distance(m_entries.begin(), it);
+        out_file->s.own_handle = mode;
+        R_SUCCEED();
+    }
+    virtual Result GetFileSize(FsFile *file, s64 *out_size) {
+        auto& e = m_entries[file->s.object_id];
+        *out_size = e.file_size;
+        R_SUCCEED();
+    }
+    virtual Result SetFileSize(FsFile *file, s64 size) {
+        auto& e = m_entries[file->s.object_id];
+        e.file_size = size;
+        R_SUCCEED();
+    }
+    virtual Result ReadFile(FsFile *file, s64 off, void *buf, u64 read_size, u32 option, u64 *out_bytes_read) {
+        // stub for now as it may confuse users who think that the returned file is valid.
+        // the code below can be used to benchmark mtp reads.
+        R_THROW(FsError_NotImplemented);
+        // auto& e = m_entries[file->s.object_id];
+        // read_size = std::min<s64>(e.file_size - off, read_size);
+        // std::memset(buf, 0, read_size);
+        // *out_bytes_read = read_size;
+        // R_SUCCEED();
+    }
+    virtual Result WriteFile(FsFile *file, s64 off, const void *buf, u64 write_size, u32 option) {
+        auto& e = m_entries[file->s.object_id];
+        e.file_size = std::max<s64>(e.file_size, off + write_size);
+        R_SUCCEED();
+    }
+    virtual void CloseFile(FsFile *file) {
+        std::memset(file, 0, sizeof(*file));
+    }
+
+    Result CreateDirectory(const char* path) override {
+        R_THROW(FsError_NotImplemented);
+    }
+    Result DeleteDirectoryRecursively(const char* path) override {
+        R_THROW(FsError_NotImplemented);
+    }
+    Result RenameDirectory(const char *old_path, const char *new_path) override {
+        R_THROW(FsError_NotImplemented);
+    }
+    Result OpenDirectory(const char *path, u32 mode, FsDir *out_dir) override {
+        std::memset(out_dir, 0, sizeof(*out_dir));
+        R_SUCCEED();
+    }
+    Result ReadDirectory(FsDir *d, s64 *out_total_entries, size_t max_entries, FsDirectoryEntry *buf) override {
+        max_entries = std::min<s64>(m_entries.size()- d->s.object_id, max_entries);
+        std::memcpy(buf, m_entries.data() + d->s.object_id, max_entries * sizeof(*buf));
+        d->s.object_id += max_entries;
+        *out_total_entries = max_entries;
+        R_SUCCEED();
+    }
+    Result GetDirectoryEntryCount(FsDir *d, s64 *out_count) override {
+        *out_count = m_entries.size();
+        R_SUCCEED();
+    }
+    void CloseDirectory(FsDir *d) override {
+        std::memset(d, 0, sizeof(*d));
+    }
+
+protected:
+    std::vector<FsDirectoryEntry> m_entries;
+};
+
+struct FsDevNullProxy final : FsProxyVfs {
+    using FsProxyVfs::FsProxyVfs;
 
     Result GetTotalSpace(const char *path, s64 *out) override {
         *out = 1024ULL * 1024ULL * 1024ULL * 256ULL;
@@ -244,83 +397,41 @@ struct FsDevNullProxy final : FsProxyBase {
         *out = 1024ULL * 1024ULL * 1024ULL * 256ULL;
         R_SUCCEED();
     }
-    Result GetEntryType(const char *path, FsDirEntryType *out_entry_type) override {
-        if (FixPath(path) == "/") {
-            *out_entry_type = FsDirEntryType_Dir;
-            R_SUCCEED();
-        } else {
-            *out_entry_type = FsDirEntryType_File;
-            R_SUCCEED();
-        }
-    }
-    Result CreateFile(const char* path, s64 size, u32 option) override {
-        R_SUCCEED();
-    }
-    Result DeleteFile(const char* path) override {
-        R_SUCCEED();
-    }
-    Result RenameFile(const char *old_path, const char *new_path) override {
-        R_SUCCEED();
-    }
-    Result OpenFile(const char *path, u32 mode, FsFile *out_file) override {
-        R_SUCCEED();
-    }
-    Result GetFileSize(FsFile *file, s64 *out_size) override {
-        *out_size = 0;
-        R_SUCCEED();
-    }
-    Result SetFileSize(FsFile *file, s64 size) override {
-        R_SUCCEED();
-    }
-    Result ReadFile(FsFile *file, s64 off, void *buf, u64 read_size, u32 option, u64 *out_bytes_read) override {
-        *out_bytes_read = 0;
-        R_SUCCEED();
-    }
-    Result WriteFile(FsFile *file, s64 off, const void *buf, u64 write_size, u32 option) override {
-        R_SUCCEED();
-    }
-    void CloseFile(FsFile *file) override {
-        std::memset(file, 0, sizeof(*file));
-    }
-
-    Result CreateDirectory(const char* path) override {
-        R_SUCCEED();
-    }
-    Result DeleteDirectoryRecursively(const char* path) override {
-        R_SUCCEED();
-    }
-    Result RenameDirectory(const char *old_path, const char *new_path) override {
-        R_SUCCEED();
-    }
-    Result OpenDirectory(const char *path, u32 mode, FsDir *out_dir) override {
-        R_SUCCEED();
-    }
-    Result ReadDirectory(FsDir *d, s64 *out_total_entries, size_t max_entries, FsDirectoryEntry *buf) override {
-        *out_total_entries = 0;
-        R_SUCCEED();
-    }
-    Result GetDirectoryEntryCount(FsDir *d, s64 *out_count) override {
-        *out_count = 0;
-        R_SUCCEED();
-    }
-    void CloseDirectory(FsDir *d) override {
-        std::memset(d, 0, sizeof(*d));
-    }
 };
 
-struct FsInstallProxy final : FsProxyBase {
-    using FsProxyBase::FsProxyBase;
+struct FsInstallProxy final : FsProxyVfs {
+    using FsProxyVfs::FsProxyVfs;
 
     Result FailedIfNotEnabled() {
-        std::scoped_lock lock{g_shared_data.mutex};
+        SCOPED_MUTEX(&g_shared_data.mutex);
         if (!g_shared_data.enabled) {
             App::Notify("Please launch MTP install menu before trying to install"_i18n);
-            R_THROW(0x1);
+            R_THROW(FsError_NotImplemented);
         }
         R_SUCCEED();
     }
 
-    // TODO: impl this.
+    Result IsValidFileType(const char* name) {
+        const char* ext = std::strrchr(name, '.');
+        if (!ext) {
+            R_THROW(FsError_NotImplemented);
+        }
+
+        bool found = false;
+        for (size_t i = 0; i < std::size(SUPPORTED_EXT); i++) {
+            if (!strcasecmp(ext, SUPPORTED_EXT[i])) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            R_THROW(FsError_NotImplemented);
+        }
+
+        R_SUCCEED();
+    }
+
     Result GetTotalSpace(const char *path, s64 *out) override {
         if (App::GetApp()->m_install_sd.Get()) {
             return fs::FsNativeContentStorage(FsContentStorageId_SdCard).GetTotalSpace("/", out);
@@ -335,140 +446,113 @@ struct FsInstallProxy final : FsProxyBase {
             return fs::FsNativeContentStorage(FsContentStorageId_User).GetFreeSpace("/", out);
         }
     }
+
     Result GetEntryType(const char *path, FsDirEntryType *out_entry_type) override {
-        if (FixPath(path) == "/") {
-            *out_entry_type = FsDirEntryType_Dir;
-            R_SUCCEED();
-        } else {
-            *out_entry_type = FsDirEntryType_File;
-            R_SUCCEED();
+        R_TRY(FsProxyVfs::GetEntryType(path, out_entry_type));
+        if (*out_entry_type == FsDirEntryType_File) {
+            R_TRY(FailedIfNotEnabled());
         }
-    }
-    Result CreateFile(const char* path, s64 size, u32 option) override {
-        return FailedIfNotEnabled();
-    }
-    Result DeleteFile(const char* path) override {
         R_SUCCEED();
     }
-    Result RenameFile(const char *old_path, const char *new_path) override {
+    Result CreateFile(const char* path, s64 size, u32 option) override {
+        R_TRY(FailedIfNotEnabled());
+        R_TRY(IsValidFileType(path));
+        R_TRY(FsProxyVfs::CreateFile(path, size, option));
         R_SUCCEED();
     }
     Result OpenFile(const char *path, u32 mode, FsFile *out_file) override {
-        if (mode & FsOpenMode_Read) {
-            R_SUCCEED();
-        } else {
-            std::scoped_lock lock{g_shared_data.mutex};
-            if (!g_shared_data.enabled) {
-                R_THROW(0x1);
-            }
+        R_TRY(FailedIfNotEnabled());
+        R_TRY(IsValidFileType(path));
+        R_TRY(FsProxyVfs::OpenFile(path, mode, out_file));
+        log_write("[MTP] done file open: %s mode: 0x%X\n", path, mode);
 
-            const char* ext = std::strrchr(path, '.');
-            if (!ext) {
-                R_THROW(0x1);
-            }
-
-            bool found = false;
-            for (size_t i = 0; i < std::size(SUPPORTED_EXT); i++) {
-                if (!strcasecmp(ext, SUPPORTED_EXT[i])) {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) {
-                R_THROW(0x1);
-            }
+        if (mode & FsOpenMode_Write) {
+            const auto& e = m_entries[out_file->s.object_id];
 
             // check if we already have this file queued.
-            auto it = std::ranges::find(g_shared_data.queued_files, path);
-            if (it != g_shared_data.queued_files.cend()) {
-                R_THROW(0x1);
-            }
-
-            g_shared_data.queued_files.push_back(path);
+            log_write("[MTP] checking if empty\n");
+            R_UNLESS(g_shared_data.current_file.empty(), FsError_NotImplemented);
+            log_write("[MTP] is empty\n");
+            g_shared_data.current_file = e.name;
+            on_thing();
         }
 
-        on_thing();
         log_write("[MTP] got file: %s\n", path);
         R_SUCCEED();
     }
-    Result GetFileSize(FsFile *file, s64 *out_size) override {
-        *out_size = 0;
-        R_SUCCEED();
-    }
-    Result SetFileSize(FsFile *file, s64 size) override {
-        R_SUCCEED();
-    }
-    Result ReadFile(FsFile *file, s64 off, void *buf, u64 read_size, u32 option, u64 *out_bytes_read) override {
-        *out_bytes_read = 0;
-        R_SUCCEED();
-    }
     Result WriteFile(FsFile *file, s64 off, const void *buf, u64 write_size, u32 option) override {
-        std::scoped_lock lock{g_shared_data.mutex};
+        SCOPED_MUTEX(&g_shared_data.mutex);
         if (!g_shared_data.enabled) {
-            R_THROW(0x1);
+            log_write("[MTP] failing as not enabled\n");
+            R_THROW(FsError_NotImplemented);
         }
 
-        if (!g_shared_data.on_write || !g_shared_data.on_write(g_shared_data.user, buf, write_size)) {
-            R_THROW(0x1);
+        if (!g_shared_data.on_write || !g_shared_data.on_write(buf, write_size)) {
+            log_write("[MTP] failing as not written\n");
+            R_THROW(FsError_NotImplemented);
         }
 
+        R_TRY(FsProxyVfs::WriteFile(file, off, buf, write_size, option));
         R_SUCCEED();
     }
     void CloseFile(FsFile *file) override {
+        bool update{};
         {
-            log_write("[MTP] closing file\n");
-            std::scoped_lock lock{g_shared_data.mutex};
-            log_write("[MTP] closing valid file\n");
+            SCOPED_MUTEX(&g_shared_data.mutex);
+            if (file->s.own_handle & FsOpenMode_Write) {
+                log_write("[MTP] closing current file\n");
+                if (g_shared_data.on_close) {
+                    g_shared_data.on_close();
+                }
 
-            log_write("[MTP] closing current file\n");
-            if (g_shared_data.on_close) {
-                g_shared_data.on_close(g_shared_data.user);
+                g_shared_data.in_progress = false;
+                g_shared_data.current_file.clear();
+                update = true;
             }
-
-            g_shared_data.in_progress = false;
-            g_shared_data.queued_files.clear();
         }
 
-        on_thing();
-        std::memset(file, 0, sizeof(*file));
-    }
+        if (update) {
+            on_thing();
+        }
 
-    Result CreateDirectory(const char* path) override {
-        R_SUCCEED();
-    }
-    Result DeleteDirectoryRecursively(const char* path) override {
-        R_SUCCEED();
-    }
-    Result RenameDirectory(const char *old_path, const char *new_path) override {
-        R_SUCCEED();
-    }
-    Result OpenDirectory(const char *path, u32 mode, FsDir *out_dir) override {
-        R_SUCCEED();
-    }
-    Result ReadDirectory(FsDir *d, s64 *out_total_entries, size_t max_entries, FsDirectoryEntry *buf) override {
-        *out_total_entries = 0;
-        R_SUCCEED();
-    }
-    Result GetDirectoryEntryCount(FsDir *d, s64 *out_count) override {
-        *out_count = 0;
-        R_SUCCEED();
-    }
-    void CloseDirectory(FsDir *d) override {
-        std::memset(d, 0, sizeof(*d));
+        FsProxyVfs::CloseFile(file);
     }
 };
 
 ::haze::FsEntries g_fs_entries{};
 
 void haze_callback(const ::haze::CallbackData *data) {
+    auto& e = *data;
+
+    switch (e.type) {
+        case ::haze::CallbackType_OpenSession: log_write("[LIBHAZE] Opening Session\n"); break;
+        case ::haze::CallbackType_CloseSession: log_write("[LIBHAZE] Closing Session\n"); break;
+
+        case ::haze::CallbackType_CreateFile: log_write("[LIBHAZE] Creating File: %s\n", e.file.filename); break;
+        case ::haze::CallbackType_DeleteFile: log_write("[LIBHAZE] Deleting File: %s\n", e.file.filename); break;
+
+        case ::haze::CallbackType_RenameFile: log_write("[LIBHAZE] Rename File: %s -> %s\n", e.rename.filename, e.rename.newname); break;
+        case ::haze::CallbackType_RenameFolder: log_write("[LIBHAZE] Rename Folder: %s -> %s\n", e.rename.filename, e.rename.newname); break;
+
+        case ::haze::CallbackType_CreateFolder: log_write("[LIBHAZE] Creating Folder: %s\n", e.file.filename); break;
+        case ::haze::CallbackType_DeleteFolder: log_write("[LIBHAZE] Deleting Folder: %s\n", e.file.filename); break;
+
+        case ::haze::CallbackType_ReadBegin: log_write("[LIBHAZE] Reading File Begin: %s \n", e.file.filename); break;
+        case ::haze::CallbackType_ReadProgress: log_write("\t[LIBHAZE] Reading File: offset: %lld size: %lld\n", e.progress.offset, e.progress.size); break;
+        case ::haze::CallbackType_ReadEnd: log_write("[LIBHAZE] Reading File Finished: %s\n", e.file.filename); break;
+
+        case ::haze::CallbackType_WriteBegin: log_write("[LIBHAZE] Writing File Begin: %s \n", e.file.filename); break;
+        case ::haze::CallbackType_WriteProgress: log_write("\t[LIBHAZE] Writing File: offset: %lld size: %lld\n", e.progress.offset, e.progress.size); break;
+        case ::haze::CallbackType_WriteEnd: log_write("[LIBHAZE] Writing File Finished: %s\n", e.file.filename); break;
+    }
+
     App::NotifyFlashLed();
 }
 
 } // namespace
 
 bool Init() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (g_is_running) {
         log_write("[MTP] already enabled, cannot open\n");
         return false;
@@ -481,7 +565,7 @@ bool Init() {
     g_fs_entries.emplace_back(std::make_shared<FsInstallProxy>("install", "Install (NSP, XCI, NSZ, XCZ)"));
 
     g_should_exit = false;
-    if (!::haze::Initialize(haze_callback, PRIO_PREEMPTIVE, 2, g_fs_entries)) {
+    if (!::haze::Initialize(haze_callback, THREAD_PRIO, THREAD_CORE, g_fs_entries)) {
         return false;
     }
 
@@ -490,7 +574,7 @@ bool Init() {
 }
 
 void Exit() {
-    std::scoped_lock lock{g_mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (!g_is_running) {
         return;
     }
@@ -503,9 +587,8 @@ void Exit() {
     log_write("[MTP] exitied\n");
 }
 
-void InitInstallMode(void* user, OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close) {
-    std::scoped_lock lock{g_shared_data.mutex};
-    g_shared_data.user = user;
+void InitInstallMode(OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close) {
+    SCOPED_MUTEX(&g_shared_data.mutex);
     g_shared_data.on_start = on_start;
     g_shared_data.on_write = on_write;
     g_shared_data.on_close = on_close;
@@ -513,7 +596,7 @@ void InitInstallMode(void* user, OnInstallStart on_start, OnInstallWrite on_writ
 }
 
 void DisableInstallMode() {
-    std::scoped_lock lock{g_shared_data.mutex};
+    SCOPED_MUTEX(&g_shared_data.mutex);
     g_shared_data.enabled = false;
 }
 
