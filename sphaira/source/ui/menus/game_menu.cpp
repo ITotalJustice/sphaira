@@ -5,6 +5,7 @@
 #include "defines.hpp"
 #include "i18n.hpp"
 #include "image.hpp"
+#include "swkbd.hpp"
 
 #include "ui/menus/game_menu.hpp"
 #include "ui/sidebar.hpp"
@@ -138,11 +139,12 @@ using MetaEntries = std::vector<NsApplicationContentMetaStatus>;
 struct ContentInfoEntry {
     NsApplicationContentMetaStatus status{};
     std::vector<NcmContentInfo> content_infos{};
-    std::vector<FsRightsId> rights_ids{};
+    std::vector<NcmRightsId> ncm_rights_id{};
 };
 
 struct TikEntry {
     FsRightsId id{};
+    u8 key_gen{};
     std::vector<u8> tik_data{};
     std::vector<u8> cert_data{};
 };
@@ -192,7 +194,7 @@ struct NspEntry {
                     const auto it = std::ranges::find_if(tickets, [&id](auto& e){
                         return !std::memcmp(&id, &e.id, sizeof(id));
                     });
-                    R_UNLESS(it != tickets.end(), 0x1);
+                    R_UNLESS(it != tickets.end(), Result_GameBadReadForDump);
 
                     const auto& data = collection.name.ends_with(".tik") ? it->tik_data : it->cert_data;
                     std::memcpy(buf, data.data() + off, size);
@@ -224,7 +226,7 @@ struct NspSource final : dump::BaseSource {
         const auto it = std::ranges::find_if(m_entries, [&path](auto& e){
             return path.find(e.path.s) != path.npos;
         });
-        R_UNLESS(it != m_entries.end(), 0x1);
+        R_UNLESS(it != m_entries.end(), Result_GameBadReadForDump);
 
         const auto rc = it->Read(buf, off, size, bytes_read);
         if (m_is_file_based_emummc) {
@@ -359,7 +361,7 @@ Result LoadControlManual(u64 id, ThreadResultData& data) {
 
     MetaEntries entries;
     R_TRY(GetMetaEntries(id, entries));
-    R_UNLESS(!entries.empty(), 0x1);
+    R_UNLESS(!entries.empty(), Result_GameEmptyMetaEntries);
 
     u64 program_id;
     fs::FsPath path;
@@ -499,7 +501,6 @@ auto BuildNspPath(const Entry& e, const NsApplicationContentMetaStatus& status) 
     utilsReplaceIllegalCharacters(name_buf, true);
 
     char version[sizeof(NacpStruct::display_version) + 1]{};
-    // status.storageID
     if (status.meta_type == NcmContentMetaType_Patch) {
         u64 program_id;
         fs::FsPath path;
@@ -540,8 +541,8 @@ Result BuildContentEntry(const NsApplicationContentMetaStatus& status, ContentIn
     NcmContentMetaKey key;
     R_TRY(ncmContentMetaDatabaseList(std::addressof(db), std::addressof(meta_total), std::addressof(meta_entries_written), std::addressof(key), 1, (NcmContentMetaType)status.meta_type, app_id, id_min, id_max, NcmContentInstallType_Full));
     log_write("ncmContentMetaDatabaseList(): AppId: %016lX Id: %016lX total: %d written: %d storageID: %u key.id %016lX\n", app_id, status.application_id, meta_total, meta_entries_written, status.storageID, key.id);
-    R_UNLESS(meta_total == 1, 0x1);
-    R_UNLESS(meta_entries_written == 1, 0x1);
+    R_UNLESS(meta_total == 1, Result_GameMultipleKeysFound);
+    R_UNLESS(meta_entries_written == 1, Result_GameMultipleKeysFound);
 
     std::vector<NcmContentInfo> cnmt_infos;
     for (s32 i = 0; ; i++) {
@@ -557,14 +558,13 @@ Result BuildContentEntry(const NsApplicationContentMetaStatus& status, ContentIn
         NcmRightsId ncm_rights_id;
         R_TRY(ncmContentStorageGetRightsIdFromContentId(std::addressof(cs), std::addressof(ncm_rights_id), std::addressof(info_out.content_id), FsContentAttributes_All));
 
-        const auto rights_id = ncm_rights_id.rights_id;
-        if (isRightsIdValid(rights_id)) {
-            const auto it = std::ranges::find_if(out.rights_ids, [&rights_id](auto& e){
-                return !std::memcmp(&e, &rights_id, sizeof(rights_id));
+        if (isRightsIdValid(ncm_rights_id.rights_id)) {
+            const auto it = std::ranges::find_if(out.ncm_rights_id, [&ncm_rights_id](auto& e){
+                return !std::memcmp(&e, &ncm_rights_id, sizeof(ncm_rights_id));
             });
 
-            if (it == out.rights_ids.end()) {
-                out.rights_ids.emplace_back(rights_id);
+            if (it == out.ncm_rights_id.end()) {
+                out.ncm_rights_id.emplace_back(ncm_rights_id);
             }
         }
 
@@ -581,13 +581,27 @@ Result BuildContentEntry(const NsApplicationContentMetaStatus& status, ContentIn
     R_SUCCEED();
 }
 
-Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, NspEntry& out) {
+Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, const keys::Keys& keys, NspEntry& out) {
     out.application_name = e.GetName();
     out.path = BuildNspPath(e, info.status);
     s64 offset{};
 
-    for (auto& rights_id : info.rights_ids) {
-        TikEntry entry{rights_id};
+    for (auto& e : info.content_infos) {
+        char nca_name[0x200];
+        std::snprintf(nca_name, sizeof(nca_name), "%s%s", hexIdToStr(e.content_id).str, e.content_type == NcmContentType_Meta ? ".cnmt.nca" : ".nca");
+
+        u64 size;
+        ncmContentInfoSizeToU64(std::addressof(e), std::addressof(size));
+
+        out.collections.emplace_back(nca_name, offset, size);
+        offset += size;
+    }
+
+    for (auto& ncm_rights_id : info.ncm_rights_id) {
+        const auto rights_id = ncm_rights_id.rights_id;
+        const auto key_gen = ncm_rights_id.key_generation;
+
+        TikEntry entry{rights_id, key_gen};
         log_write("rights id is valid, fetching common ticket and cert\n");
 
         u64 tik_size;
@@ -599,6 +613,9 @@ Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, NspEntry& out
         entry.cert_data.resize(cert_size);
         R_TRY(es::GetCommonTicketAndCertificateData(&tik_size, &cert_size, entry.tik_data.data(), entry.tik_data.size(), entry.cert_data.data(), entry.cert_data.size(), &rights_id));
         log_write("got tik_data: %zu cert_data: %zu\n", tik_size, cert_size);
+
+        // patch fake ticket / convert personalised to common if needed.
+        R_TRY(es::PatchTicket(entry.tik_data, entry.cert_data, key_gen, keys, App::GetApp()->m_dump_convert_to_common_ticket.Get()));
 
         char tik_name[0x200];
         std::snprintf(tik_name, sizeof(tik_name), "%s%s", hexIdToStr(rights_id).str, ".tik");
@@ -615,17 +632,6 @@ Result BuildNspEntry(const Entry& e, const ContentInfoEntry& info, NspEntry& out
         out.tickets.emplace_back(entry);
     }
 
-    for (auto& e : info.content_infos) {
-        char nca_name[0x200];
-        std::snprintf(nca_name, sizeof(nca_name), "%s%s", hexIdToStr(e.content_id).str, e.content_type == NcmContentType_Meta ? ".cnmt.nca" : ".nca");
-
-        u64 size;
-        ncmContentInfoSizeToU64(std::addressof(e), std::addressof(size));
-
-        out.collections.emplace_back(nca_name, offset, size);
-        offset += size;
-    }
-
     out.nsp_data = yati::container::Nsp::Build(out.collections, out.nsp_size);
     out.cs = GetNcmCs(info.status.storageID);
 
@@ -638,16 +644,19 @@ Result BuildNspEntries(Entry& e, u32 flags, std::vector<NspEntry>& out) {
     MetaEntries meta_entries;
     R_TRY(GetMetaEntries(e, meta_entries, flags));
 
+    keys::Keys keys;
+    R_TRY(keys::parse_keys(keys, true));
+
     for (const auto& status : meta_entries) {
         ContentInfoEntry info;
         R_TRY(BuildContentEntry(status, info));
 
         NspEntry nsp;
-        R_TRY(BuildNspEntry(e, info, nsp));
+        R_TRY(BuildNspEntry(e, info, keys, nsp));
         out.emplace_back(nsp).icon = e.image;
     }
 
-    R_UNLESS(!out.empty(), 0x1);
+    R_UNLESS(!out.empty(), Result_GameNoNspEntriesBuilt);
     R_SUCCEED();
 }
 
@@ -945,6 +954,33 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
             options->Add(std::make_shared<SidebarEntryBool>("Title cache"_i18n, m_title_cache.Get(), [this](bool& v_out){
                 m_title_cache.Set(v_out);
             }));
+
+            // todo: impl this.
+            #if 0
+            options->Add(std::make_shared<SidebarEntryCallback>("Create save"_i18n, [this](){
+                ui::PopupList::Items items{};
+                const auto accounts = App::GetAccountList();
+                for (auto& p : accounts) {
+                    items.emplace_back(p.nickname);
+                }
+
+                fsCreateSaveDataFileSystem;
+
+                App::Push(std::make_shared<ui::PopupList>(
+                    "Select user to create save for"_i18n, items, [accounts](auto op_index){
+                        if (op_index) {
+                            s64 out;
+                            if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter the save size"_i18n.c_str()))) {
+                            }
+                        }
+                    }
+                ));
+
+                // 1. Select user to create save for.
+                // 2. Enter the save size.
+                // 3. Enter the journal size (0 for default).
+            }));
+            #endif
         }})
     );
 
@@ -997,6 +1033,11 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
 
 void Menu::Draw(NVGcontext* vg, Theme* theme) {
     MenuBase::Draw(vg, theme);
+
+    if (m_entries.empty()) {
+        gfx::drawTextArgs(vg, GetX() + GetW() / 2.f, GetY() + GetH() / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "Empty..."_i18n.c_str());
+        return;
+    }
 
     // max images per frame, in order to not hit io / gpu too hard.
     const int image_load_max = 2;
@@ -1068,8 +1109,8 @@ void Menu::ScanHomebrew() {
     const auto hide_forwarders = m_hide_forwarders.Get();
     TimeStamp ts;
 
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
+    App::SetBoostMode(true);
+    ON_SCOPE_EXIT(App::SetBoostMode(false));
 
     FreeEntries();
     m_entries.reserve(ENTRY_CHUNK_COUNT);
@@ -1096,7 +1137,7 @@ void Menu::ScanHomebrew() {
             u64 unk_x11;// = e.unk_x11;
             memcpy(&unk_x0a, e.unk_x0a, sizeof(e.unk_x0a));
             memcpy(&unk_x11, e.unk_x11, sizeof(e.unk_x11));
-            log_write("ID: %016lx got type: %u unk_x09: %u unk_x0a: %zu unk_x10: %u unk_x11: %zu\n", e.application_id, e.type,
+            log_write("ID: %016lx got type: %u unk_x09: %u unk_x0a: %zu unk_x10: %u unk_x11: %zu\n", e.app_id, e.type,
                 unk_x09,
                 unk_x0a,
                 unk_x10,

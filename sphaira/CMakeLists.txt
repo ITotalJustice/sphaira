@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(sphaira_VERSION 0.11.3)
+set(sphaira_VERSION 0.13.2)
 
 project(sphaira
     VERSION ${sphaira_VERSION}
@@ -40,13 +40,16 @@ add_executable(sphaira
     source/ui/menus/irs_menu.cpp
     source/ui/menus/main_menu.cpp
     source/ui/menus/menu_base.cpp
+    source/ui/menus/save_menu.cpp
     source/ui/menus/themezer.cpp
     source/ui/menus/ghdl.cpp
     source/ui/menus/usb_menu.cpp
     source/ui/menus/ftp_menu.cpp
+    source/ui/menus/mtp_menu.cpp
     source/ui/menus/gc_menu.cpp
     source/ui/menus/game_menu.cpp
     source/ui/menus/grid_menu_base.cpp
+    source/ui/menus/install_stream_menu_base.cpp
 
     source/ui/error_box.cpp
     source/ui/notification.cpp
@@ -78,7 +81,9 @@ add_executable(sphaira
     source/hasher.cpp
     source/i18n.cpp
     source/ftpsrv_helper.cpp
+    source/haze_helper.cpp
     source/threaded_file_transfer.cpp
+    source/minizip_helper.cpp
 
     source/usb/base.cpp
     source/usb/usbds.cpp
@@ -152,13 +157,13 @@ set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(ftpsrv
     GIT_REPOSITORY https://github.com/ITotalJustice/ftpsrv.git
     # GIT_TAG 1.2.2
-    GIT_TAG 8c18431
+    GIT_TAG 8782f6b
     SOURCE_SUBDIR NONE
 )
 
 FetchContent_Declare(libhaze
     GIT_REPOSITORY https://github.com/ITotalJustice/libhaze.git
-    GIT_TAG 8e16df2
+    GIT_TAG af69c0a
 )
 
 FetchContent_Declare(libpulsar
@@ -194,17 +199,17 @@ FetchContent_Declare(zstd
 
 FetchContent_Declare(libusbhsfs
     GIT_REPOSITORY https://github.com/ITotalJustice/libusbhsfs.git
-    GIT_TAG db2bf2a
+    GIT_TAG d0a973e
 )
 
 FetchContent_Declare(libnxtc
-    GIT_REPOSITORY https://github.com/DarkMatterCore/libnxtc.git
-    GIT_TAG v0.0.2
+    GIT_REPOSITORY https://github.com/ITotalJustice/libnxtc.git
+    GIT_TAG 0d369b8
 )
 
 FetchContent_Declare(nvjpg
-    GIT_REPOSITORY https://github.com/averne/oss-nvjpg.git
-    GIT_TAG fdcaba8
+    GIT_REPOSITORY https://github.com/ITotalJustice/oss-nvjpg.git
+    GIT_TAG 45680e7
 )
 
 set(USE_NEW_ZSTD ON)
@@ -266,14 +271,13 @@ FetchContent_MakeAvailable(
 )
 
 set(FTPSRV_LIB_BUILD TRUE)
-set(FTPSRV_LIB_SOCK_UNISTD TRUE)
 set(FTPSRV_LIB_VFS_CUSTOM ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs_nx.h)
 set(FTPSRV_LIB_PATH_SIZE 0x301)
 set(FTPSRV_LIB_SESSIONS 16)
 set(FTPSRV_LIB_BUF_SIZE 1024*64)
 
 set(FTPSRV_LIB_CUSTOM_DEFINES
-    USE_VFS_SAVE=$<BOOL:TRUE>
+    USE_VFS_SAVE=$<BOOL:FALSE>
     USE_VFS_STORAGE=$<BOOL:TRUE>
     # disabled as it may conflict with the gamecard menu.
     USE_VFS_GC=$<BOOL:FALSE>
@@ -283,6 +287,7 @@ set(FTPSRV_LIB_CUSTOM_DEFINES
     USE_VFS_USBHSFS_INIT=$<BOOL:FALSE>
     # disable romfs mounting as otherwise we cannot write / modify sphaira.nro
     USE_VFS_ROMFS=$<BOOL:FALSE>
+    FTP_SOCKET_HEADER="${ftpsrv_SOURCE_DIR}/src/platform/nx/socket_nx.h"
 )
 
 add_subdirectory(${ftpsrv_SOURCE_DIR} binary_dir)
@@ -292,7 +297,6 @@ add_library(ftpsrv_helper
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_none.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_root.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_fs.c
-    ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_save.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_storage.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_stdio.c
     ${ftpsrv_SOURCE_DIR}/src/platform/nx/vfs/vfs_nx_hdd.c

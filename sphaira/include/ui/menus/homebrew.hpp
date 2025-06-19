@@ -25,6 +25,7 @@ enum OrderType {
 using LayoutType = grid::LayoutType;
 
 auto GetNroEntries() -> std::span<const NroEntry>;
+void SignalChange();
 
 struct Menu final : grid::Menu {
     Menu();
@@ -47,7 +48,7 @@ private:
     void InstallHomebrew();
     void ScanHomebrew();
     void Sort();
-    void SortAndFindLastFile();
+    void SortAndFindLastFile(bool scan = false);
     void FreeEntries();
     void OnLayoutChange();
 
@@ -61,6 +62,7 @@ private:
     std::vector<NroEntry> m_entries{};
     s64 m_index{}; // where i am in the array
     std::unique_ptr<List> m_list{};
+    bool m_dirty{};
 
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_AlphabeticalStar};
     option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};

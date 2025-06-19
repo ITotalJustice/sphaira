@@ -20,6 +20,7 @@ namespace sphaira::ui::menu::homebrew {
 namespace {
 
 Menu* g_menu{};
+constinit UEvent g_change_uevent;
 
 auto GenerateStarPath(const fs::FsPath& nro_path) -> fs::FsPath {
     fs::FsPath out{};
@@ -34,6 +35,10 @@ void FreeEntry(NVGcontext* vg, NroEntry& e) {
 }
 
 } // namespace
+
+void SignalChange() {
+    ueventSignal(&g_change_uevent);
+}
 
 auto GetNroEntries() -> std::span<const NroEntry> {
     if (!g_menu) {
@@ -139,6 +144,7 @@ Menu::Menu() : grid::Menu{"Homebrew"_i18n, MenuFlag_Tab} {
     );
 
     OnLayoutChange();
+    ueventCreate(&g_change_uevent, true);
 }
 
 Menu::~Menu() {
@@ -147,6 +153,14 @@ Menu::~Menu() {
 }
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
+    if (R_SUCCEEDED(waitSingle(waiterForUEvent(&g_change_uevent), 0))) {
+        m_dirty = true;
+    }
+
+    if (m_dirty) {
+        SortAndFindLastFile(true);
+    }
+
     MenuBase::Update(controller, touch);
     m_list->OnUpdate(controller, touch, m_index, m_entries.size(), [this](bool touch, auto i) {
         if (touch && m_index == i) {
@@ -178,7 +192,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
                 const auto icon = nro_get_icon(e.path, e.icon_size, e.icon_offset);
                 TimeStamp ts;
                 if (!icon.empty()) {
-                    const auto image = ImageLoadFromMemory(icon, ImageFlag_None);
+                    const auto image = ImageLoadFromMemory(icon, ImageFlag_JPEG);
                     if (!image.data.empty()) {
                         e.image = nvgCreateImageRGBA(vg, image.w, image.h, 0, image.data.data());
                         log_write("\t[image load] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
@@ -297,6 +311,7 @@ void Menu::ScanHomebrew() {
 
     this->Sort();
     SetIndex(0);
+    m_dirty = false;
 }
 
 void Menu::Sort() {
@@ -391,9 +406,13 @@ void Menu::Sort() {
     std::sort(m_entries.begin(), m_entries.end(), sorter);
 }
 
-void Menu::SortAndFindLastFile() {
+void Menu::SortAndFindLastFile(bool scan) {
     const auto path = m_entries[m_index].path;
-    Sort();
+    if (scan) {
+        ScanHomebrew();
+    } else {
+        Sort();
+    }
     SetIndex(0);
 
     s64 index = -1;

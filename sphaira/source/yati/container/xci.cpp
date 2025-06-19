@@ -37,7 +37,7 @@ Result Hfs0GetPartition(source::Base* source, s64 off, Hfs0& out) {
 
     // get header
     R_TRY(source->Read(std::addressof(out.header), off, sizeof(out.header), std::addressof(bytes_read)));
-    R_UNLESS(out.header.magic == HFS0_MAGIC, 0x1);
+    R_UNLESS(out.header.magic == HFS0_MAGIC, Result_XciBadMagic);
     off += bytes_read;
 
     // get file table

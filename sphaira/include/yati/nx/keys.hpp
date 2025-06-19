@@ -46,19 +46,19 @@ struct Keys {
     }
 
     auto GetNcaKeyArea(KeyEntry* out, u8 key, u8 index) const -> Result {
-        R_UNLESS(HasNcaKeyArea(key, index), 0x1);
+        R_UNLESS(HasNcaKeyArea(key, index), Result_KeyMissingNcaKeyArea);
         *out = key_area_key[index][FixKey(key)];
         R_SUCCEED();
     }
 
     auto GetTitleKek(KeyEntry* out, u8 key) const -> Result {
-        R_UNLESS(HasTitleKek(key), 0x1);
+        R_UNLESS(HasTitleKek(key), Result_KeyMissingTitleKek);
         *out = titlekek[FixKey(key)];
         R_SUCCEED();
     }
 
     auto GetMasterKey(KeyEntry* out, u8 key) const -> Result {
-        R_UNLESS(HasMasterKey(key), 0x1);
+        R_UNLESS(HasMasterKey(key), Result_KeyMissingMasterKey);
         *out = master_key[FixKey(key)];
         R_SUCCEED();
     }

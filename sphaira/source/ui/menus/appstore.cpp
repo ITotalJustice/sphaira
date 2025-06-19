@@ -1,4 +1,5 @@
 #include "ui/menus/appstore.hpp"
+#include "ui/menus/homebrew.hpp"
 #include "ui/sidebar.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/progress_box.hpp"
@@ -17,6 +18,7 @@
 #include "threaded_file_transfer.hpp"
 #include "nro.hpp"
 #include "web.hpp"
+#include "minizip_helper.hpp"
 
 #include <minIni.h>
 #include <string>
@@ -75,62 +77,6 @@ constexpr const char* SORT_STR[] = {
 constexpr const char* ORDER_STR[] = {
     "Desc",
     "Asc",
-};
-
-struct MzMem {
-    const void* buf;
-    size_t size;
-    size_t offset;
-};
-
-ZPOS64_T minizip_tell_file_func(voidpf opaque, voidpf stream) {
-    auto mem = static_cast<const MzMem*>(opaque);
-    return mem->offset;
-}
-
-long minizip_seek_file_func(voidpf opaque, voidpf stream, ZPOS64_T offset, int origin) {
-    auto mem = static_cast<MzMem*>(opaque);
-    size_t new_offset = 0;
-
-    switch (origin) {
-        case ZLIB_FILEFUNC_SEEK_SET: new_offset = offset; break;
-        case ZLIB_FILEFUNC_SEEK_CUR: new_offset = mem->offset + offset; break;
-        case ZLIB_FILEFUNC_SEEK_END: new_offset = (mem->size - 1) + offset; break;
-        default: return -1;
-    }
-
-    if (new_offset > mem->size) {
-        return -1;
-    }
-
-    mem->offset = new_offset;
-    return 0;
-}
-
-voidpf minizip_open_file_func(voidpf opaque, const void* filename, int mode) {
-    return opaque;
-}
-
-uLong minizip_read_file_func(voidpf opaque, voidpf stream, void* buf, uLong size) {
-    auto mem = static_cast<MzMem*>(opaque);
-
-    size = std::min(size, mem->size - mem->offset);
-    std::memcpy(buf, (const u8*)mem->buf + mem->offset, size);
-    mem->offset += size;
-
-    return size;
-}
-
-int minizip_close_file_func(voidpf opaque, voidpf stream) {
-    return 0;
-}
-
-constexpr zlib_filefunc64_def zlib_filefunc = {
-    .zopen64_file = minizip_open_file_func,
-    .zread_file = minizip_read_file_func,
-    .ztell64_file = minizip_tell_file_func,
-    .zseek64_file = minizip_seek_file_func,
-    .zclose_file = minizip_close_file_func,
 };
 
 auto BuildIconUrl(const Entry& e) -> std::string {
@@ -384,8 +330,9 @@ auto UninstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
     fs::FsNativeSd fs;
 
     if (manifest.empty()) {
-        R_UNLESS(!entry.binary.empty(), 0x1);
-        fs.DeleteFile(entry.binary);
+        if (!entry.binary.empty()) {
+            R_TRY(fs.DeleteFile(entry.binary));
+        }
     } else {
         for (auto& e : manifest) {
             pbox->NewTransfer(e.path);
@@ -451,7 +398,7 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
             api_result = curl::ToMemory(api);
         }
 
-        R_UNLESS(api_result.success, 0x1);
+        R_UNLESS(api_result.success, Result_AppstoreFailedZipDownload);
     }
 
     ON_SCOPE_EXIT(fs.DeleteFile(zip_out));
@@ -470,31 +417,28 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
 
         if (strncasecmp(hash_out.data(), entry.md5.data(), entry.md5.length())) {
             log_write("bad md5: %.*s vs %.*s\n", 32, hash_out.data(), 32, entry.md5.c_str());
-            R_THROW(0x1);
+            R_THROW(Result_AppstoreFailedMd5);
         }
     }
 
-    struct MzMem mem{};
-    mem.buf = api_result.data.data();
-    mem.size = api_result.data.size();
-    auto file_func = zlib_filefunc;
-    file_func.opaque = &mem;
-
-    zlib_filefunc64_def* file_func_ptr{};
+    mz::MzSpan mz_span{api_result.data};
+    zlib_filefunc64_def file_func;
     if (!file_download) {
-        file_func_ptr = &file_func;
+        mz::FileFuncSpan(&mz_span, &file_func);
+    } else {
+        mz::FileFuncStdio(&file_func);
     }
 
     // 3. extract the zip
     if (!pbox->ShouldExit()) {
-        auto zfile = unzOpen2_64(zip_out, file_func_ptr);
-        R_UNLESS(zfile, 0x1);
+        auto zfile = unzOpen2_64(zip_out, &file_func);
+        R_UNLESS(zfile, Result_UnzOpen2_64);
         ON_SCOPE_EXIT(unzClose(zfile));
 
         // get manifest
         if (UNZ_END_OF_LIST_OF_FILE == unzLocateFile(zfile, "manifest.install", 0)) {
             log_write("failed to find manifest.install\n");
-            R_THROW(0x1);
+            R_THROW(Result_UnzLocateFile);
         }
 
         ManifestEntries new_manifest;
@@ -502,26 +446,26 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
         {
             if (UNZ_OK != unzOpenCurrentFile(zfile)) {
                 log_write("failed to open current file\n");
-                R_THROW(0x1);
+                R_THROW(Result_UnzOpenCurrentFile);
             }
             ON_SCOPE_EXIT(unzCloseCurrentFile(zfile));
 
             unz_file_info64 info;
             if (UNZ_OK != unzGetCurrentFileInfo64(zfile, &info, 0, 0, 0, 0, 0, 0)) {
                 log_write("failed to get current info\n");
-                R_THROW(0x1);
+                R_THROW(Result_UnzGetGlobalInfo64);
             }
 
             std::vector<char> manifest_data(info.uncompressed_size);
             if ((int)info.uncompressed_size != unzReadCurrentFile(zfile, manifest_data.data(), manifest_data.size())) {
                 log_write("failed to read manifest file\n");
-                R_THROW(0x1);
+                R_THROW(Result_UnzReadCurrentFile);
             }
 
             new_manifest = ParseManifest(manifest_data);
             if (new_manifest.empty()) {
                 log_write("manifest is empty!\n");
-                R_THROW(0x1);
+                R_THROW(Result_AppstoreFailedParseManifest);
             }
         }
 
@@ -530,19 +474,19 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
 
             if (UNZ_END_OF_LIST_OF_FILE == unzLocateFile(zfile, inzip, 0)) {
                 log_write("failed to find %s\n", inzip.s);
-                R_THROW(0x1);
+                R_THROW(Result_UnzLocateFile);
             }
 
             if (UNZ_OK != unzOpenCurrentFile(zfile)) {
                 log_write("failed to open current file\n");
-                R_THROW(0x1);
+                R_THROW(Result_UnzOpenCurrentFile);
             }
             ON_SCOPE_EXIT(unzCloseCurrentFile(zfile));
 
             unz_file_info64 info;
             if (UNZ_OK != unzGetCurrentFileInfo64(zfile, &info, 0, 0, 0, 0, 0, 0)) {
                 log_write("failed to get current info\n");
-                R_THROW(0x1);
+                R_THROW(Result_UnzGetCurrentFileInfo64);
             }
 
             auto path = output;
@@ -856,6 +800,7 @@ void EntryMenu::UpdateOptions() {
         App::Push(std::make_shared<ProgressBox>(m_entry.image.image, "Downloading "_i18n, m_entry.title, [this](auto pbox){
             return InstallApp(pbox, m_entry);
         }, [this](Result rc){
+            homebrew::SignalChange();
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
             if (R_SUCCEEDED(rc)) {
@@ -871,6 +816,7 @@ void EntryMenu::UpdateOptions() {
         App::Push(std::make_shared<ProgressBox>(m_entry.image.image, "Uninstalling "_i18n, m_entry.title, [this](auto pbox){
             return UninstallApp(pbox, m_entry);
         }, [this](Result rc){
+            homebrew::SignalChange();
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
             if (R_SUCCEEDED(rc)) {
@@ -1224,8 +1170,8 @@ void Menu::SetIndex(s64 index) {
 }
 
 void Menu::ScanHomebrew() {
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
+    App::SetBoostMode(true);
+    ON_SCOPE_EXIT(App::SetBoostMode(false));
 
     from_json(REPO_PATH, m_entries);
 

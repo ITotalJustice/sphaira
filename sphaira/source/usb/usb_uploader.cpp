@@ -67,14 +67,14 @@ Result Usb::WaitForConnection(u64 timeout, u8 flags, std::span<const std::string
 Result Usb::PollCommands() {
     tinfoil::USBCmdHeader header;
     R_TRY(m_usb->TransferAll(true, &header, sizeof(header)));
-    R_UNLESS(header.magic == tinfoil::Magic_Command0, Result_BadMagic);
+    R_UNLESS(header.magic == tinfoil::Magic_Command0, Result_UsbUploadBadMagic);
 
     if (header.cmdId == tinfoil::USBCmdId::EXIT) {
-        return Result_Exit;
+        R_THROW(Result_UsbUploadExit);
     } else if (header.cmdId == tinfoil::USBCmdId::FILE_RANGE) {
         return FileRangeCmd(header.dataSize);
     } else {
-        return Result_BadCommand;
+        R_THROW(Result_UsbUploadBadCommand);
     }
 }
 

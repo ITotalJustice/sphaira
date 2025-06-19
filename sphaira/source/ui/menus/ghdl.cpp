@@ -1,13 +1,15 @@
 #include "ui/menus/ghdl.hpp"
+#include "ui/menus/homebrew.hpp"
+
 #include "ui/sidebar.hpp"
 #include "ui/option_box.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/progress_box.hpp"
 #include "ui/error_box.hpp"
+#include "ui/nvg_util.hpp"
 
 #include "log.hpp"
 #include "app.hpp"
-#include "ui/nvg_util.hpp"
 #include "fs.hpp"
 #include "defines.hpp"
 #include "image.hpp"
@@ -88,7 +90,7 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
     R_TRY(fs.GetFsOpenResult());
     ON_SCOPE_EXIT(fs.DeleteFile(temp_file));
 
-    R_UNLESS(!gh_asset.browser_download_url.empty(), 0x1);
+    R_UNLESS(!gh_asset.browser_download_url.empty(), Result_GhdlEmptyAsset);
 
     // 2. download the asset
     if (!pbox->ShouldExit()) {
@@ -101,7 +103,7 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
         );
 
-        R_UNLESS(result.success, 0x1);
+        R_UNLESS(result.success, Result_GhdlFailedToDownloadAsset);
     }
 
     fs::FsPath root_path{"/"};
@@ -141,11 +143,11 @@ auto DownloadAssetJson(ProgressBox* pbox, const std::string& url, GhApiEntry& ou
             }
         );
 
-        R_UNLESS(result.success, 0x1);
+        R_UNLESS(result.success, Result_GhdlFailedToDownloadAssetJson);
         from_json(result.path, out);
     }
 
-    R_UNLESS(!out.assets.empty(), 0x1);
+    R_UNLESS(!out.assets.empty(), Result_GhdlEmptyAsset);
     R_SUCCEED();
 }
 
@@ -217,6 +219,7 @@ Menu::Menu(u32 flags) : MenuBase{"GitHub"_i18n, flags} {
                             App::Push(std::make_shared<ProgressBox>(0, "Downloading "_i18n, GetEntry().repo, [this, &asset_entry, ptr](auto pbox) -> Result {
                                 return DownloadApp(pbox, asset_entry, ptr);
                             }, [this, ptr](Result rc){
+                                homebrew::SignalChange();
                                 App::PushErrorBox(rc, "Failed to download app!"_i18n);
 
                                 if (R_SUCCEEDED(rc)) {

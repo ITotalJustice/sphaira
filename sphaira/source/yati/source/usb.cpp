@@ -23,8 +23,8 @@ Usb::~Usb() {
 Result Usb::WaitForConnection(u64 timeout, std::vector<std::string>& out_names) {
     tinfoil::TUSHeader header;
     R_TRY(m_usb->TransferAll(true, &header, sizeof(header), timeout));
-    R_UNLESS(header.magic == tinfoil::Magic_List0, Result_BadMagic);
-    R_UNLESS(header.nspListSize > 0, Result_BadCount);
+    R_UNLESS(header.magic == tinfoil::Magic_List0, Result_UsbBadMagic);
+    R_UNLESS(header.nspListSize > 0, Result_UsbBadCount);
     m_flags = header.flags;
     log_write("[USB] got header, flags: 0x%X\n", m_flags);
 
@@ -42,7 +42,7 @@ Result Usb::WaitForConnection(u64 timeout, std::vector<std::string>& out_names) 
         log_write("got name: %s\n", name.c_str());
     }
 
-    R_UNLESS(!out_names.empty(), Result_BadCount);
+    R_UNLESS(!out_names.empty(), Result_UsbBadCount);
     log_write("USB SUCCESS\n");
     R_SUCCEED();
 }

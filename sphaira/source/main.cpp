@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
 extern "C" {
 
 void userAppInit(void) {
-    Result rc;
+    sphaira::App::SetBoostMode(true);
 
     // https://github.com/mtheall/ftpd/blob/e27898f0c3101522311f330e82a324861e0e3f7e/source/switch/init.c#L31
     const SocketInitConfig socket_config_application = {
@@ -47,6 +47,7 @@ void userAppInit(void) {
 
     const auto socket_config = is_application ? socket_config_application : socket_config_applet;
 
+    Result rc;
     if (R_FAILED(rc = appletLockExit()))
         diagAbortWithResult(rc);
     if (R_FAILED(rc = socketInitialize(&socket_config)))
@@ -87,6 +88,8 @@ void userAppExit(void) {
     if (auto fs = fsdevGetDeviceFileSystem("sdmc:")) {
         fsFsCommit(fs);
     }
+
+    sphaira::App::SetBoostMode(false);
     appletUnlockExit();
 }
 

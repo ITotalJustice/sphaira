@@ -19,13 +19,13 @@
 #include "defines.hpp"
 #include "i18n.hpp"
 #include "ftpsrv_helper.hpp"
+#include "haze_helper.hpp"
 #include "web.hpp"
 #include "swkbd.hpp"
 
 #include <nanovg_dk.h>
 #include <minIni.h>
 #include <pulsar.h>
-#include <haze.h>
 #include <algorithm>
 #include <ranges>
 #include <cassert>
@@ -51,7 +51,7 @@ constexpr const u8 DEFAULT_IMAGE_DATA[]{
 };
 
 void download_default_music() {
-    App::Push(std::make_shared<ui::ProgressBox>(0, "Downloading "_i18n, "default_music.bfstm", [](auto pbox){
+    App::Push(std::make_shared<ui::ProgressBox>(0, "Downloading "_i18n, "default_music.bfstm", [](auto pbox) -> Result {
         const auto result = curl::Api().ToFile(
             curl::Url{DEFAULT_MUSIC_URL},
             curl::Path{DEFAULT_MUSIC_PATH},
@@ -59,7 +59,7 @@ void download_default_music() {
         );
 
         if (!result.success) {
-            R_THROW(0x1);
+            R_THROW(Result_AppFailedMusicDownload);
         }
 
         R_SUCCEED();
@@ -400,11 +400,6 @@ void LoadThemeInternal(ThemeMeta meta, ThemeData& theme_data, int inherit_level 
     }
 }
 
-void haze_callback(const HazeCallbackData *data) {
-    App::NotifyFlashLed();
-    evman::push(*data, false);
-}
-
 void nxlink_callback(const NxlinkCallbackData *data) {
     App::NotifyFlashLed();
     evman::push(*data, false);
@@ -460,9 +455,6 @@ void App::Loop() {
                 } else if constexpr(std::is_same_v<T, evman::ExitEventData>) {
                     log_write("[ExitEventData] got event\n");
                     m_quit = true;
-                } else if constexpr(std::is_same_v<T, HazeCallbackData>) {
-                    // log_write("[ExitEventData] got event\n");
-                    // m_quit = true;
                 } else if constexpr(std::is_same_v<T, NxlinkCallbackData>) {
                     switch (arg.type) {
                         case NxlinkCallbackType_Connected:
@@ -857,9 +849,9 @@ void App::SetMtpEnable(bool enable) {
     if (App::GetMtpEnable() != enable) {
         g_app->m_mtp_enabled.Set(enable);
         if (enable) {
-            hazeInitialize(haze_callback, 0x2C, 2);
+            haze::Init();
         } else {
-            hazeExit();
+            haze::Exit();
         }
     }
 }
@@ -1283,8 +1275,8 @@ void App::ScanThemeEntries() {
 App::App(const char* argv0) {
     TimeStamp ts;
 
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
+    // boost mode is enabled in userAppInit().
+    ON_SCOPE_EXIT(App::SetBoostMode(false));
 
     g_app = this;
     m_start_timestamp = armGetSystemTick();
@@ -1298,21 +1290,6 @@ App::App(const char* argv0) {
     // set if we are hbmenu
     if (IsHbmenu()) {
         __nx_applet_exit_mode = 1;
-    }
-
-    // get emummc config.
-    alignas(0x1000) AmsEmummcPaths paths{};
-    SecmonArgs args{};
-    args.X[0] = 0xF0000404; /* smcAmsGetEmunandConfig */
-    args.X[1] = 0; /* EXO_EMUMMC_MMC_NAND*/
-    args.X[2] = (u64)&paths; /* out path */
-    svcCallSecureMonitor(&args);
-    m_emummc_paths = paths;
-
-    log_write("emummc : %u\n", App::IsEmummc());
-    if (App::IsEmummc()) {
-        log_write("[emummc] file based path: %s\n", m_emummc_paths.file_based_path);
-        log_write("[emummc] nintendo path: %s\n", m_emummc_paths.nintendo);
     }
 
     fs::FsNativeSd fs;
@@ -1356,6 +1333,7 @@ App::App(const char* argv0) {
             else if (app->m_skip_rsa_header_fixed_key_verify.LoadFrom(Key, Value)) {}
             else if (app->m_skip_rsa_npdm_fixed_key_verify.LoadFrom(Key, Value)) {}
             else if (app->m_ignore_distribution_bit.LoadFrom(Key, Value)) {}
+            else if (app->m_convert_to_common_ticket.LoadFrom(Key, Value)) {}
             else if (app->m_convert_to_standard_crypto.LoadFrom(Key, Value)) {}
             else if (app->m_lower_master_key.LoadFrom(Key, Value)) {}
             else if (app->m_lower_system_version.LoadFrom(Key, Value)) {}
@@ -1378,8 +1356,50 @@ App::App(const char* argv0) {
         App::Notify("Warning! Logs are enabled, Sphaira will run slowly!"_i18n);
     }
 
+    if (log_is_init()) {
+        SetSysFirmwareVersion fw_version{};
+        setsysInitialize();
+        ON_SCOPE_EXIT(setsysExit());
+        setsysGetFirmwareVersion(&fw_version);
+
+        log_write("[version] platform: %s\n", fw_version.platform);
+        log_write("[version] version_hash: %s\n", fw_version.version_hash);
+        log_write("[version] display_version: %s\n", fw_version.display_version);
+        log_write("[version] display_title: %s\n", fw_version.display_title);
+
+        splInitialize();
+        ON_SCOPE_EXIT(splExit());
+
+        u64 out{};
+        splGetConfig((SplConfigItem)65000, &out);
+        log_write("[ams] version: %lu.%lu.%lu\n", (out >> 56) & 0xFF, (out >> 48) & 0xFF, (out >> 40) & 0xFF);
+        log_write("[ams] target version: %lu.%lu.%lu\n", (out >> 24) & 0xFF, (out >> 16) & 0xFF, (out >> 8) & 0xFF);
+        log_write("[ams] key gen: %lu\n", (out >> 32) & 0xFF);
+
+        splGetConfig((SplConfigItem)65003, &out);
+        log_write("[ams] hash: %lx\n", out);
+
+        splGetConfig((SplConfigItem)65010, &out);
+        log_write("[ams] usb 3.0 enabled: %lu\n", out);
+    }
+
+    // get emummc config.
+    alignas(0x1000) AmsEmummcPaths paths{};
+    SecmonArgs args{};
+    args.X[0] = 0xF0000404; /* smcAmsGetEmunandConfig */
+    args.X[1] = 0; /* EXO_EMUMMC_MMC_NAND*/
+    args.X[2] = (u64)&paths; /* out path */
+    svcCallSecureMonitor(&args);
+    m_emummc_paths = paths;
+
+    log_write("[emummc] enabled: %u\n", App::IsEmummc());
+    if (App::IsEmummc()) {
+        log_write("[emummc] file based path: %s\n", m_emummc_paths.file_based_path);
+        log_write("[emummc] nintendo path: %s\n", m_emummc_paths.nintendo);
+    }
+
     if (App::GetMtpEnable()) {
-        hazeInitialize(haze_callback, PRIO_PREEMPTIVE, 2);
+        haze::Init();
     }
 
     if (App::GetFtpEnable()) {
@@ -1812,6 +1832,10 @@ void App::DisplayInstallOptions(bool left_side) {
         App::GetApp()->m_ignore_distribution_bit.Set(enable);
     }));
 
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Convert to common ticket"_i18n, App::GetApp()->m_convert_to_common_ticket.Get(), [](bool& enable){
+        App::GetApp()->m_convert_to_common_ticket.Set(enable);
+    }));
+
     options->Add(std::make_shared<ui::SidebarEntryBool>("Convert to standard crypto"_i18n, App::GetApp()->m_convert_to_standard_crypto.Get(), [](bool& enable){
         App::GetApp()->m_convert_to_standard_crypto.Set(enable);
     }));
@@ -1848,27 +1872,36 @@ void App::DisplayDumpOptions(bool left_side) {
     options->Add(std::make_shared<ui::SidebarEntryBool>("Multi-threaded USB transfer"_i18n, App::GetApp()->m_dump_usb_transfer_stream.Get(), [](bool& enable){
         App::GetApp()->m_dump_usb_transfer_stream.Set(enable);
     }));
+
+    options->Add(std::make_shared<ui::SidebarEntryBool>("Convert to common ticket"_i18n, App::GetApp()->m_dump_convert_to_common_ticket.Get(), [](bool& enable){
+        App::GetApp()->m_dump_convert_to_common_ticket.Set(enable);
+    }));
 }
 
 App::~App() {
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
+    // boost mode is disabled in userAppExit().
+    App::SetBoostMode(true);
 
     log_write("starting to exit\n");
     TimeStamp ts;
 
-    i18n::exit();
-    curl::Exit();
+    appletUnhook(&m_appletHookCookie);
+
+    // destroy this first as it seems to prevent a crash when exiting the appstore
+    // when an image that was being drawn is displayed
+    // replicate: saves -> homebrew -> misc -> appstore -> sphaira -> changelog -> exit
+    // it will crash when deleting image 43.
+    this->destroyFramebufferResources();
 
     // this has to be called before any cleanup to ensure the lifetime of
     // nvg is still active as some widgets may need to free images.
     m_widgets.clear();
     nvgDeleteImage(vg, m_default_image);
 
-    appletUnhook(&m_appletHookCookie);
+    i18n::exit();
+    curl::Exit();
 
     ini_puts("config", "theme", m_theme.meta.ini_path, CONFIG_PATH);
-
     CloseTheme();
 
     // Free any loaded sound from memory
@@ -1881,7 +1914,6 @@ App::~App() {
 	// De-initialize our player
     plsrPlayerExit();
 
-    this->destroyFramebufferResources();
     nvgDeleteDk(this->vg);
     this->renderer.reset();
 
@@ -1944,7 +1976,7 @@ App::~App() {
 
     if (App::GetMtpEnable()) {
         log_write("closing mtp\n");
-        hazeExit();
+        haze::Exit();
     }
 
     if (App::GetFtpEnable()) {

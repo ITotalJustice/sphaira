@@ -73,7 +73,7 @@ void MenuBase::Draw(NVGcontext* vg, Theme* theme) {
         if (fixed) { \
             start_x -= fixed; \
         } else { \
-            gfx::textBounds(vg, 0, 0, bounds, __VA_ARGS__); \
+            gfx::textBoundsArgs(vg, 0, 0, bounds, __VA_ARGS__); \
             start_x -= spacing + (bounds[2] - bounds[0]); \
         }
 

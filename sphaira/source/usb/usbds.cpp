@@ -4,22 +4,6 @@
 #include <ranges>
 #include <cstring>
 
-namespace sphaira::usb {
-namespace {
-
-// TODO: pr missing speed fields to libnx.
-enum { UsbDeviceSpeed_None = 0x0 };
-enum { UsbDeviceSpeed_Low = 0x1 };
-
-constexpr u16 DEVICE_SPEED[] = {
-    [UsbDeviceSpeed_None] = 0x0,
-    [UsbDeviceSpeed_Low] = 0x0,
-    [UsbDeviceSpeed_Full] = 0x40,
-    [UsbDeviceSpeed_High] = 0x200,
-    [UsbDeviceSpeed_Super] = 0x400,
-};
-
-// TODO: pr this to libnx.
 Result usbDsGetSpeed(UsbDeviceSpeed *out) {
     if (hosversionBefore(8,0,0)) {
         return MAKERESULT(Module_Libnx, LibnxError_IncompatSysVer);
@@ -28,6 +12,17 @@ Result usbDsGetSpeed(UsbDeviceSpeed *out) {
     serviceAssumeDomain(usbDsGetServiceSession());
     return serviceDispatchOut(usbDsGetServiceSession(), hosversionAtLeast(11,0,0) ? 11 : 12, *out);
 }
+
+namespace sphaira::usb {
+namespace {
+
+constexpr u16 DEVICE_SPEED[] = {
+    [UsbDeviceSpeed_None] = 0x0,
+    [UsbDeviceSpeed_Low] = 0x0,
+    [UsbDeviceSpeed_Full] = 0x40,
+    [UsbDeviceSpeed_High] = 0x200,
+    [UsbDeviceSpeed_Super] = 0x400,
+};
 
 } // namespace
 
@@ -216,7 +211,7 @@ Result UsbDs::WaitUntilConfigured(u64 timeout) {
 
         // check if we got one of the cancel events.
         if (R_SUCCEEDED(rc) && idx == waiters.size() - 1) {
-            rc = Result_Cancelled;
+            rc = Result_UsbCancelled;
             break;
         }
 
@@ -254,7 +249,7 @@ Result UsbDs::GetSpeed(UsbDeviceSpeed* out, u16* max_packet_size) {
     }
 
     *max_packet_size = DEVICE_SPEED[*out];
-    R_UNLESS(*max_packet_size > 0, 0x1);
+    R_UNLESS(*max_packet_size > 0, Result_UsbDsBadDeviceSpeed);
     R_SUCCEED();
 }
 
@@ -275,7 +270,7 @@ Result UsbDs::WaitTransferCompletion(UsbSessionEndpoint ep, u64 timeout) {
     // check if we got one of the cancel events.
     if (R_SUCCEEDED(rc) && idx == waiters.size() - 1) {
         log_write("got usb cancel event\n");
-        rc = Result_Cancelled;
+        rc = Result_UsbCancelled;
     } else if (R_SUCCEEDED(rc) && idx == waiters.size() - 2) {
         log_write("got usbDsGetStateChangeEvent() event\n");
         m_max_packet_size = 0;

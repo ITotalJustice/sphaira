@@ -8,12 +8,6 @@
 namespace sphaira::usb {
 
 struct Base {
-    enum { USBModule = 523 };
-
-    enum : Result {
-        Result_Cancelled = MAKERESULT(USBModule, 100),
-    };
-
     Base(u64 transfer_timeout);
     virtual ~Base();
 

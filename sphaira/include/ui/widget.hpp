@@ -62,6 +62,12 @@ struct Widget : public Object {
         m_actions.clear();
     }
 
+    void RemoveActions(const Actions& actions) {
+        for (auto& e : actions) {
+            RemoveAction(e.first);
+        }
+    }
+
     auto FireAction(Button button, u8 type = ActionType::DOWN) -> bool;
 
     void SetPop(bool pop = true) {

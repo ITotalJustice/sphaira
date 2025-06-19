@@ -117,7 +117,7 @@ Result parse_keys(Keys& out, bool read_from_file) {
                     if (public_exponent == 0) {
                         log_write("eticket device id is NULL\n");
                     }
-                    R_THROW(0x1);
+                    R_THROW(Result_KeyFailedDecyptETicketDeviceKey);
                 } else {
                     log_write("eticket match\n");
                 }

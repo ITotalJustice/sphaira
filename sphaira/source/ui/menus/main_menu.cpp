@@ -13,8 +13,10 @@
 #include "ui/menus/ghdl.hpp"
 #include "ui/menus/usb_menu.hpp"
 #include "ui/menus/ftp_menu.hpp"
+#include "ui/menus/mtp_menu.hpp"
 #include "ui/menus/gc_menu.hpp"
 #include "ui/menus/game_menu.hpp"
+#include "ui/menus/save_menu.hpp"
 #include "ui/menus/appstore.hpp"
 
 #include "app.hpp"
@@ -49,9 +51,11 @@ const MiscMenuEntry MISC_MENU_ENTRIES[] = {
     { .name = "Appstore", .title = "Appstore", .func = MiscMenuFuncGenerator<ui::menu::appstore::Menu>, .flag = MiscMenuFlag_Shortcut },
     { .name = "Games", .title = "Games", .func = MiscMenuFuncGenerator<ui::menu::game::Menu>, .flag = MiscMenuFlag_Shortcut },
     { .name = "FileBrowser", .title = "FileBrowser", .func = MiscMenuFuncGenerator<ui::menu::filebrowser::Menu>, .flag = MiscMenuFlag_Shortcut },
+    { .name = "Saves", .title = "Saves", .func = MiscMenuFuncGenerator<ui::menu::save::Menu>, .flag = MiscMenuFlag_Shortcut },
     { .name = "Themezer", .title = "Themezer", .func = MiscMenuFuncGenerator<ui::menu::themezer::Menu>, .flag = MiscMenuFlag_Shortcut },
     { .name = "GitHub", .title = "GitHub", .func = MiscMenuFuncGenerator<ui::menu::gh::Menu>, .flag = MiscMenuFlag_Shortcut },
     { .name = "FTP", .title = "FTP Install", .func = MiscMenuFuncGenerator<ui::menu::ftp::Menu>, .flag = MiscMenuFlag_Install },
+    { .name = "MTP", .title = "MTP Install", .func = MiscMenuFuncGenerator<ui::menu::mtp::Menu>, .flag = MiscMenuFlag_Install },
     { .name = "USB", .title = "USB Install", .func = MiscMenuFuncGenerator<ui::menu::usb::Menu>, .flag = MiscMenuFlag_Install },
     { .name = "GameCard", .title = "GameCard", .func = MiscMenuFuncGenerator<ui::menu::gc::Menu>, .flag = MiscMenuFlag_Shortcut },
     { .name = "IRS", .title = "IRS (Infrared Joycon Camera)", .func = MiscMenuFuncGenerator<ui::menu::irs::Menu>, .flag = MiscMenuFlag_Shortcut },
@@ -74,7 +78,7 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
         );
 
-        R_UNLESS(result.success, 0x1);
+        R_UNLESS(result.success, Result_MainFailedToDownloadUpdate);
     }
 
     ON_SCOPE_EXIT(fs.DeleteFile(zip_out));

@@ -230,13 +230,17 @@ void drawTextBox(NVGcontext* vg, float x, float y, float size, float bound, cons
     nvgTextBox(vg, x, y, bound, str, end);
 }
 
-void textBounds(NVGcontext* vg, float x, float y, float *bounds, const char* str, ...) {
+void textBounds(NVGcontext* vg, float x, float y, float *bounds, const char* str) {
+    nvgTextBounds(vg, x, y, str, nullptr, bounds);
+}
+
+void textBoundsArgs(NVGcontext* vg, float x, float y, float *bounds, const char* str, ...) {
     char buf[0x100];
     va_list v;
     va_start(v, str);
     std::vsnprintf(buf, sizeof(buf), str, v);
     va_end(v);
-    nvgTextBounds(vg, x, y, buf, nullptr, bounds);
+    textBounds(vg, x, y, bounds, buf);
 }
 
 // NEW-----------

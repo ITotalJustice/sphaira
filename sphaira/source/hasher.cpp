@@ -2,6 +2,7 @@
 #include "app.hpp"
 #include "threaded_file_transfer.hpp"
 #include <mbedtls/md5.h>
+#include <utility>
 
 namespace sphaira::hash {
 namespace {
@@ -16,11 +17,11 @@ struct FileSource final : BaseSource {
         m_is_file_based_emummc = App::IsFileBaseEmummc();
     }
 
-    Result Size(s64* out) {
+    Result Size(s64* out) override {
         return m_file.GetSize(out);
     }
 
-    Result Read(void* buf, s64 off, s64 size, u64* bytes_read) {
+    Result Read(void* buf, s64 off, s64 size, u64* bytes_read) override {
         const auto rc = m_file.Read(off, buf, size, 0, bytes_read);
         if (m_fs->IsNative() && m_is_file_based_emummc) {
             svcSleepThread(2e+6); // 2ms
@@ -38,12 +39,12 @@ private:
 struct MemSource final : BaseSource {
     MemSource(std::span<const u8> data) : m_data{data} { }
 
-    Result Size(s64* out) {
+    Result Size(s64* out) override {
         *out = m_data.size();
         R_SUCCEED();
     }
 
-    Result Read(void* buf, s64 off, s64 size, u64* bytes_read) {
+    Result Read(void* buf, s64 off, s64 size, u64* bytes_read) override {
         size = std::min<s64>(size, m_data.size() - off);
         std::memcpy(buf, m_data.data() + off, size);
         *bytes_read = size;
@@ -61,11 +62,11 @@ struct HashSource {
 };
 
 struct HashCrc32 final : HashSource {
-    void Update(const void* buf, s64 size) {
+    void Update(const void* buf, s64 size) override {
         m_seed = crc32CalculateWithSeed(m_seed, buf, size);
     }
 
-    void Get(std::string& out) {
+    void Get(std::string& out) override {
         char str[CalculateHashStrLen(sizeof(m_seed))];
         std::snprintf(str, sizeof(str), "%08x", m_seed);
         out = str;
@@ -85,11 +86,11 @@ struct HashMd5 final : HashSource {
         mbedtls_md5_free(&m_ctx);
     }
 
-    void Update(const void* buf, s64 size) {
+    void Update(const void* buf, s64 size) override {
         mbedtls_md5_update_ret(&m_ctx, (const u8*)buf, size);
     }
 
-    void Get(std::string& out) {
+    void Get(std::string& out) override {
         u8 hash[16];
         mbedtls_md5_finish_ret(&m_ctx, hash);
 
@@ -110,11 +111,11 @@ struct HashSha1 final : HashSource {
         sha1ContextCreate(&m_ctx);
     }
 
-    void Update(const void* buf, s64 size) {
+    void Update(const void* buf, s64 size) override {
         sha1ContextUpdate(&m_ctx, buf, size);
     }
 
-    void Get(std::string& out) {
+    void Get(std::string& out) override {
         u8 hash[SHA1_HASH_SIZE];
         sha1ContextGetHash(&m_ctx, hash);
 
@@ -135,11 +136,11 @@ struct HashSha256 final : HashSource {
         sha256ContextCreate(&m_ctx);
     }
 
-    void Update(const void* buf, s64 size) {
+    void Update(const void* buf, s64 size) override {
         sha256ContextUpdate(&m_ctx, buf, size);
     }
 
-    void Get(std::string& out) {
+    void Get(std::string& out) override {
         u8 hash[SHA256_HASH_SIZE];
         sha256ContextGetHash(&m_ctx, hash);
 
@@ -192,7 +193,7 @@ Result Hash(ui::ProgressBox* pbox, Type type, std::shared_ptr<BaseSource> source
         case Type::Sha1: return Hash(pbox, std::make_unique<HashSha1>(), source, out);
         case Type::Sha256: return Hash(pbox, std::make_unique<HashSha256>(), source, out);
     }
-    R_THROW(0x1);
+    std::unreachable();
 }
 
 Result Hash(ui::ProgressBox* pbox, Type type, fs::Fs* fs, const fs::FsPath& path, std::string& out) {

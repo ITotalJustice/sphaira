@@ -10,17 +10,6 @@
 namespace sphaira::usb::upload {
 
 struct Usb {
-    enum { USBModule = 523 };
-
-    enum : Result {
-        Result_BadMagic = MAKERESULT(USBModule, 0),
-        Result_Exit = MAKERESULT(USBModule, 1),
-        Result_BadCount = MAKERESULT(USBModule, 2),
-        Result_BadTransferSize = MAKERESULT(USBModule, 3),
-        Result_BadTotalSize = MAKERESULT(USBModule, 4),
-        Result_BadCommand = MAKERESULT(USBModule, 4),
-    };
-
     Usb(u64 transfer_timeout);
     virtual ~Usb();
 

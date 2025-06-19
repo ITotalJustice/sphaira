@@ -259,7 +259,7 @@ private:
 struct ThreadEntry {
     auto Create() -> Result {
         m_curl = curl_easy_init();
-        R_UNLESS(m_curl != nullptr, 0x1);
+        R_UNLESS(m_curl != nullptr, Result_CurlFailedEasyInit);
 
         ueventCreate(&m_uevent, true);
         R_TRY(threadCreate(&m_thread, ThreadFunc, this, nullptr, 1024*32, THREAD_PRIO, THREAD_CORE));

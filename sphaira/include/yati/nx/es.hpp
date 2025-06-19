@@ -2,49 +2,132 @@
 
 #include <switch.h>
 #include <span>
+#include <vector>
 #include "ncm.hpp"
 #include "keys.hpp"
 
 namespace sphaira::es {
 
-enum { TicketModule = 507 };
-
-enum : Result {
-    // found ticket has missmatching rights_id from it's name.
-    Result_InvalidTicketBadRightsId = MAKERESULT(TicketModule, 71),
-    Result_InvalidTicketVersion = MAKERESULT(TicketModule, 72),
-    Result_InvalidTicketKeyType = MAKERESULT(TicketModule, 73),
-    Result_InvalidTicketKeyRevision = MAKERESULT(TicketModule, 74),
+enum TitleKeyType : u8 {
+    TitleKeyType_Common = 0,
+    TitleKeyType_Personalized = 1,
 };
 
-enum TicketSigantureType {
-    TicketSigantureType_RSA_4096_SHA1 = 0x010000,
-    TicketSigantureType_RSA_2048_SHA1 = 0x010001,
-    TicketSigantureType_ECDSA_SHA1 = 0x010002,
-    TicketSigantureType_RSA_4096_SHA256 = 0x010003,
-    TicketSigantureType_RSA_2048_SHA256 = 0x010004,
-    TicketSigantureType_ECDSA_SHA256 = 0x010005,
-    TicketSigantureType_HMAC_SHA1_160 = 0x010006,
+enum SigType : u32 {
+    SigType_Rsa4096Sha1   = 65536,
+    SigType_Rsa2048Sha1   = 65537,
+    SigType_Ecc480Sha1    = 65538,
+    SigType_Rsa4096Sha256 = 65539,
+    SigType_Rsa2048Sha256 = 65540,
+    SigType_Ecc480Sha256  = 65541,
+    SigType_Hmac160Sha1   = 65542
 };
 
-enum TicketTitleKeyType {
-    TicketTitleKeyType_Common = 0,
-    TicketTitleKeyType_Personalized = 1,
+enum PubKeyType : u32 {
+    PubKeyType_Rsa4096 = 0,
+    PubKeyType_Rsa2048 = 1,
+    PubKeyType_Ecc480  = 2
 };
 
-enum TicketPropertiesBitfield {
-    TicketPropertiesBitfield_None = 0,
-    // temporary ticket, removed on restart
-    TicketPropertiesBitfield_Temporary = 1 << 4,
+struct SignatureBlockRsa4096 {
+    SigType sig_type;
+    u8 sign[0x200];
+    u8 reserved_1[0x3C];
 };
+static_assert(sizeof(SignatureBlockRsa4096) == 0x240);
+
+struct SignatureBlockRsa2048 {
+    SigType sig_type;
+    u8 sign[0x100];
+    u8 reserved_1[0x3C];
+};
+static_assert(sizeof(SignatureBlockRsa2048) == 0x140);
+
+struct SignatureBlockEcc480 {
+    SigType sig_type;
+    u8 sign[0x3C];
+    u8 reserved_1[0x40];
+};
+static_assert(sizeof(SignatureBlockEcc480) == 0x80);
+
+struct SignatureBlockHmac160 {
+    SigType sig_type;
+    u8 sign[0x14];
+    u8 reserved_1[0x28];
+};
+static_assert(sizeof(SignatureBlockHmac160) == 0x40);
+
+struct CertHeader {
+    char issuer[0x40];
+    PubKeyType pub_key_type;
+    char subject[0x40]; /* ServerId, DeviceId */
+    u32 date;
+};
+static_assert(sizeof(CertHeader) == 0x88);
+
+struct PublicKeyBlockRsa4096 {
+    u8 public_key[0x200];
+    u32 public_exponent;
+    u8 reserved_1[0x34];
+};
+static_assert(sizeof(PublicKeyBlockRsa4096) == 0x238);
+
+struct PublicKeyBlockRsa2048 {
+    u8 public_key[0x100];
+    u32 public_exponent;
+    u8 reserved_1[0x34];
+};
+static_assert(sizeof(PublicKeyBlockRsa2048) == 0x138);
+
+struct PublicKeyBlockEcc480 {
+    u8 public_key[0x3C];
+    u8 reserved_1[0x3C];
+};
+static_assert(sizeof(PublicKeyBlockEcc480) == 0x78);
+
+template<typename Sig, typename Pub>
+struct Cert {
+    Sig signature_block;
+    CertHeader cert_header;
+    Pub public_key_block;
+};
+
+using CertRsa4096PubRsa4096 = Cert<SignatureBlockRsa4096, PublicKeyBlockRsa4096>;
+using CertRsa4096PubRsa2048 = Cert<SignatureBlockRsa4096, PublicKeyBlockRsa2048>;
+using CertRsa4096PubEcc480 = Cert<SignatureBlockRsa4096, PublicKeyBlockEcc480>;
+
+using CertRsa2048PubRsa4096 = Cert<SignatureBlockRsa2048, PublicKeyBlockRsa4096>;
+using CertRsa2048PubRsa2048 = Cert<SignatureBlockRsa2048, PublicKeyBlockRsa2048>;
+using CertRsa2048PubEcc480 = Cert<SignatureBlockRsa2048, PublicKeyBlockEcc480>;
+
+using CertEcc480PubRsa4096 = Cert<SignatureBlockEcc480, PublicKeyBlockRsa4096>;
+using CertEcc480PubRsa2048 = Cert<SignatureBlockEcc480, PublicKeyBlockRsa2048>;
+using CertEcc480PubEcc480 = Cert<SignatureBlockEcc480, PublicKeyBlockEcc480>;
+
+using CertHmac160PubRsa4096 = Cert<SignatureBlockHmac160, PublicKeyBlockRsa4096>;
+using CertHmac160PubRsa2048 = Cert<SignatureBlockHmac160, PublicKeyBlockRsa2048>;
+using CertHmac160PubEcc480 = Cert<SignatureBlockHmac160, PublicKeyBlockEcc480>;
+
+static_assert(sizeof(CertRsa4096PubRsa4096) == 0x500);
+static_assert(sizeof(CertRsa4096PubRsa2048) == 0x400);
+static_assert(sizeof(CertRsa4096PubEcc480) == 0x340);
+static_assert(sizeof(CertRsa2048PubRsa4096) == 0x400);
+static_assert(sizeof(CertRsa2048PubRsa2048) == 0x300);
+static_assert(sizeof(CertRsa2048PubEcc480) == 0x240);
+static_assert(sizeof(CertEcc480PubRsa4096) == 0x340);
+static_assert(sizeof(CertEcc480PubRsa2048) == 0x240);
+static_assert(sizeof(CertEcc480PubEcc480) == 0x180);
+static_assert(sizeof(CertHmac160PubRsa4096) == 0x300);
+static_assert(sizeof(CertHmac160PubRsa2048) == 0x200);
+static_assert(sizeof(CertHmac160PubEcc480) == 0x140);
 
 struct TicketData {
-    u8 issuer[0x40];
+    char issuer[0x40];
     u8 title_key_block[0x100];
-    u8 ticket_version1;
+    u8 format_version;
     u8 title_key_type;
-    u16 ticket_version2;
-    u8 license_type;
+    u16 version;
+    TitleKeyType license_type;
     u8 master_key_revision;
     u16 properties_bitfield;
     u8 _0x148[0x8];
@@ -52,10 +135,28 @@ struct TicketData {
     u64 device_id;
     FsRightsId rights_id;
     u32 account_id;
-    u8 _0x174[0xC];
-    u8 _0x180[0x140];
+    u32 sect_total_size;
+    u32 sect_hdr_offset;
+    u16 sect_hdr_count;
+    u16 sect_hdr_entry_size;
 };
-static_assert(sizeof(TicketData) == 0x2C0);
+static_assert(sizeof(TicketData) == 0x180);
+
+template<typename Sig>
+struct Ticket {
+    Sig signature_block;
+    TicketData data;
+};
+
+using TicketRsa4096 = Ticket<SignatureBlockRsa4096>;
+using TicketRsa2048 = Ticket<SignatureBlockRsa2048>;
+using TicketEcc480 = Ticket<SignatureBlockEcc480>;
+using TicketHmac160 = Ticket<SignatureBlockHmac160>;
+
+static_assert(sizeof(TicketRsa4096) == 0x3C0);
+static_assert(sizeof(TicketRsa2048) == 0x2C0);
+static_assert(sizeof(TicketEcc480) == 0x200);
+static_assert(sizeof(TicketHmac160) == 0x1C0);
 
 struct EticketRsaDeviceKey {
     u8 ctr[AES_128_KEY_SIZE];
@@ -90,12 +191,16 @@ Result GetCommonTicketAndCertificateSize(u64 *tik_size_out, u64 *cert_size_out, 
 Result GetCommonTicketAndCertificateData(u64 *tik_size_out, u64 *cert_size_out, void* tik_buf, u64 tik_size, void* cert_buf, u64 cert_size, const FsRightsId* rightsId); // [4.0.0+]
 
 // ticket functions.
-Result GetTicketDataOffset(std::span<const u8> ticket, u64& out);
+Result GetTicketDataOffset(std::span<const u8> ticket, u64& out, bool is_cert = false);
 Result GetTicketData(std::span<const u8> ticket, es::TicketData* out);
-Result SetTicketData(std::span<u8> ticket, const es::TicketData* in);
 
+// gets the title key and performs RSA-2048-OAEP if needed.
 Result GetTitleKey(keys::KeyEntry& out, const TicketData& data, const keys::Keys& keys);
 Result DecryptTitleKey(keys::KeyEntry& out, u8 key_gen, const keys::Keys& keys);
-Result PatchTicket(std::span<u8> ticket, const keys::Keys& keys);
+Result EncryptTitleKey(keys::KeyEntry& out, u8 key_gen, const keys::Keys& keys);
+
+Result ShouldPatchTicket(const TicketData& data, std::span<const u8> ticket, std::span<const u8> cert_chain, bool patch_personalised, bool& should_patch);
+Result ShouldPatchTicket(std::span<const u8> ticket, std::span<const u8> cert_chain, bool patch_personalised, bool& should_patch);
+Result PatchTicket(std::vector<u8>& ticket, std::span<const u8> cert_chain, u8 key_gen, const keys::Keys& keys, bool patch_personalised);
 
 } // namespace sphaira::es

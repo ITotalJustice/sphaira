@@ -40,17 +40,17 @@ Result TransferPull(ui::ProgressBox* pbox, s64 size, ReadCallback rfunc, StartCa
 
 // helper for extract zips.
 // this will multi-thread unzip if size >= 512KiB, otherwise it'll single pass.
-Result TransferUnzip(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& path, s64 size, u32 crc32 = 0);
+Result TransferUnzip(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& path, s64 size, u32 crc32 = 0, Mode mode = Mode::SingleThreadedIfSmaller);
 
 // same as above but for zipping files.
-Result TransferZip(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& path);
+Result TransferZip(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& path, u32* crc32 = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
 
 // passes the name inside the zip an final output path.
 using UnzipAllFilter = std::function<bool(const fs::FsPath& name, fs::FsPath& path)>;
 
 // helper all-in-one unzip function that unzips a zip (either open or path provided).
 // the filter function can be used to modify the path and filter out unwanted files.
-Result TransferUnzipAll(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& base_path, UnzipAllFilter filter = nullptr);
-Result TransferUnzipAll(ui::ProgressBox* pbox, const fs::FsPath& zip_out, fs::Fs* fs, const fs::FsPath& base_path, UnzipAllFilter filter = nullptr);
+Result TransferUnzipAll(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& base_path, UnzipAllFilter filter = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
+Result TransferUnzipAll(ui::ProgressBox* pbox, const fs::FsPath& zip_out, fs::Fs* fs, const fs::FsPath& base_path, UnzipAllFilter filter = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
 
 } // namespace sphaira::thread

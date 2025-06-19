@@ -2,7 +2,7 @@
 
 #include <functional>
 
-namespace sphaira::ftpsrv {
+namespace sphaira::haze {
 
 bool Init();
 void Exit();
@@ -14,9 +14,4 @@ using OnInstallClose = std::function<void()>;
 void InitInstallMode(OnInstallStart on_start, OnInstallWrite on_write, OnInstallClose on_close);
 void DisableInstallMode();
 
-unsigned GetPort();
-bool IsAnon();
-const char* GetUser();
-const char* GetPass();
-
-} // namespace sphaira::ftpsrv
+} // namespace sphaira::haze

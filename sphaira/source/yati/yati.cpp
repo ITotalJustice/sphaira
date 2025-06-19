@@ -65,8 +65,12 @@ struct TikCollection {
     std::vector<u8> cert{};
     // set via the name of the ticket.
     FsRightsId rights_id{};
+    // retrieved via the master key set in nca.
+    u8 key_gen{};
     // set if ticket is required by an nca.
     bool required{};
+    // set if ticket has already been patched.
+    bool patched{};
 };
 
 struct Yati;
@@ -287,7 +291,7 @@ struct Yati {
 };
 
 auto ThreadData::GetResults() -> Result {
-    R_UNLESS(!yati->pbox->ShouldExit(), Result_Cancelled);
+    R_TRY(yati->pbox->ShouldExitResult());
     R_TRY(read_result);
     R_TRY(decompress_result);
     R_TRY(write_result);
@@ -307,18 +311,16 @@ void ThreadData::WakeAllThreads() {
 Result ThreadData::Read(void* buf, s64 size, u64* bytes_read) {
     size = std::min<s64>(size, nca->size - read_offset);
     const auto rc = yati->source->Read(buf, nca->offset + read_offset, size, bytes_read);
+    R_TRY(rc);
+
+    R_UNLESS(size == *bytes_read, Result_YatiInvalidNcaReadSize);
     read_offset += *bytes_read;
-    R_UNLESS(size == *bytes_read, Result_InvalidNcaReadSize);
     return rc;
 }
 
 auto isRightsIdValid(FsRightsId id) -> bool {
     FsRightsId empty_id{};
     return 0 != std::memcmp(std::addressof(id), std::addressof(empty_id), sizeof(id));
-}
-
-auto getKeyGenFromRightsId(FsRightsId id) -> u8 {
-    return id.c[sizeof(id) - 1];
 }
 
 struct HashStr {
@@ -331,6 +333,38 @@ HashStr hexIdToStr(auto id) {
     const auto id_upper = std::byteswap(*(u64*)(id.c + 0x8));
     std::snprintf(str.str, 0x21, "%016lx%016lx", id_lower, id_upper);
     return str;
+}
+
+auto GetTicketCollection(const nca::Header& header, std::span<TikCollection> tik) -> TikCollection* {
+    TikCollection* ticket{};
+
+    if (isRightsIdValid(header.rights_id)) {
+        auto it = std::ranges::find_if(tik, [&header](auto& e){
+            return !std::memcmp(&header.rights_id, &e.rights_id, sizeof(e.rights_id));
+        });
+
+        if (it != tik.end()) {
+            it->required = true;
+            it->key_gen = header.key_gen;
+            ticket = &(*it);
+        }
+    }
+
+    return ticket;
+}
+
+Result HasRequiredTicket(const nca::Header& header, TikCollection* ticket) {
+    if (isRightsIdValid(header.rights_id)) {
+        log_write("looking for ticket %s\n", hexIdToStr(header.rights_id).str);
+        R_UNLESS(ticket, Result_YatiTicketNotFound);
+        log_write("ticket found\n");
+    }
+    R_SUCCEED();
+}
+
+Result HasRequiredTicket(const nca::Header& header, std::span<TikCollection> tik) {
+    auto ticket = GetTicketCollection(header, tik);
+    return HasRequiredTicket(header, ticket);
 }
 
 // read thread reads all data from the source, it also handles
@@ -374,7 +408,7 @@ Result Yati::readFuncInternal(ThreadData* t) {
             std::memcpy(std::addressof(header), buf.data() + 0x4000, sizeof(header));
             if (header.magic == NCZ_SECTION_MAGIC) {
                 // validate section header.
-                R_UNLESS(header.total_sections, Result_InvalidNczSectionCount);
+                R_UNLESS(header.total_sections, Result_YatiInvalidNczSectionCount);
 
                 buf_size = 0x4000;
                 log_write("found ncz, total number of sections: %zu\n", header.total_sections);
@@ -390,10 +424,10 @@ Result Yati::readFuncInternal(ThreadData* t) {
                     log_write("storing temp data of size: %zu\n", temp_buf.size());
                 } else {
                     // validate block header.
-                    R_UNLESS(t->ncz_block_header.version == 0x2, Result_InvalidNczBlockVersion);
-                    R_UNLESS(t->ncz_block_header.type == 0x1, Result_InvalidNczBlockType);
-                    R_UNLESS(t->ncz_block_header.total_blocks, Result_InvalidNczBlockTotal);
-                    R_UNLESS(t->ncz_block_header.block_size_exponent >= 14 && t->ncz_block_header.block_size_exponent <= 32, Result_InvalidNczBlockSizeExponent);
+                    R_UNLESS(t->ncz_block_header.version == 0x2, Result_YatiInvalidNczBlockVersion);
+                    R_UNLESS(t->ncz_block_header.type == 0x1, Result_YatiInvalidNczBlockType);
+                    R_UNLESS(t->ncz_block_header.total_blocks, Result_YatiInvalidNczBlockTotal);
+                    R_UNLESS(t->ncz_block_header.block_size_exponent >= 14 && t->ncz_block_header.block_size_exponent <= 32, Result_YatiInvalidNczBlockSizeExponent);
 
                     // read blocks (array of block sizes).
                     std::vector<ncz::Block> blocks(t->ncz_block_header.total_blocks);
@@ -460,7 +494,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                     return e.InRange(written);
                 });
 
-                R_UNLESS(it != t->ncz_sections.cend(), Result_NczSectionNotFound);
+                R_UNLESS(it != t->ncz_sections.cend(), Result_YatiNczSectionNotFound);
                 ncz_section = &(*it);
                 log_write("[NCZ] found new section: %zu\n", written);
 
@@ -515,7 +549,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                 nca::Header header{};
                 crypto::cryptoAes128Xts(buf.data(), std::addressof(header), keys.header_key, 0, 0x200, sizeof(header), false);
                 log_write("verifying nca header magic\n");
-                R_UNLESS(header.magic == 0x3341434E, Result_InvalidNcaMagic);
+                R_UNLESS(header.magic == 0x3341434E, Result_YatiInvalidNcaMagic);
                 log_write("nca magic is ok! type: %u\n", header.content_type);
 
                 // store the unmodified header.
@@ -530,33 +564,24 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                 }
 
                 t->write_size = header.size;
-                log_write("setting placeholder size: %zu\n", header.size);
-                R_TRY(ncmContentStorageSetPlaceHolderSize(std::addressof(cs), std::addressof(t->nca->placeholder_id), header.size));
+                log_write("setting placeholder size: %zu\n", t->write_size);
+                R_TRY(ncmContentStorageSetPlaceHolderSize(std::addressof(cs), std::addressof(t->nca->placeholder_id), t->write_size));
 
                 if (!config.ignore_distribution_bit && header.distribution_type == nca::DistributionType_GameCard) {
                     header.distribution_type = nca::DistributionType_System;
                     t->nca->modified = true;
                 }
 
-                TikCollection* ticket = nullptr;
-                if (isRightsIdValid(header.rights_id)) {
-                    auto it = std::ranges::find_if(t->tik, [&header](auto& e){
-                        return !std::memcmp(&header.rights_id, &e.rights_id, sizeof(e.rights_id));
-                    });
+                // try and get the ticket, if the nca requires it.
+                auto ticket = GetTicketCollection(header, t->tik);
+                R_TRY(HasRequiredTicket(header, ticket));
 
-                    log_write("looking for ticket %s\n", hexIdToStr(header.rights_id).str);
-                    R_UNLESS(it != t->tik.end(), Result_TicketNotFound);
-                    log_write("ticket found\n");
-                    it->required = true;
-                    ticket = &(*it);
-                }
-
-                if ((config.convert_to_standard_crypto && isRightsIdValid(header.rights_id)) || config.lower_master_key) {
+                if ((config.convert_to_standard_crypto && ticket) || config.lower_master_key) {
                     t->nca->modified = true;
                     u8 keak_generation;
 
-                    if (isRightsIdValid(header.rights_id)) {
-                        const auto key_gen = getKeyGenFromRightsId(header.rights_id);
+                    if (ticket) {
+                        const auto key_gen = header.key_gen;
                         log_write("converting to standard crypto: 0x%X 0x%X\n", key_gen, header.key_gen);
 
                         // fetch ticket data block.
@@ -564,20 +589,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                         R_TRY(es::GetTicketData(ticket->ticket, std::addressof(ticket_data)));
 
                         // validate that this indeed the correct ticket.
-                        R_UNLESS(!std::memcmp(std::addressof(header.rights_id), std::addressof(ticket_data.rights_id), sizeof(header.rights_id)), Result_InvalidTicketBadRightsId);
-
-                        // some scene releases use buggy software which set the master key
-                        // revision in the properties bitfield...lol, still happens in 2025.
-                        // to fix this, get mkey rev from the rights id
-                        // todo: verify this code.
-                        if (ticket_data.title_key_type == es::TicketTitleKeyType_Common) {
-                            if (!ticket_data.master_key_revision && ticket_data.master_key_revision != getKeyGenFromRightsId(ticket_data.rights_id) && ticket_data.properties_bitfield) {
-                                // get the actual mkey
-                                ticket_data.master_key_revision = getKeyGenFromRightsId(ticket_data.rights_id);
-                                // unset the properties
-                                ticket_data.properties_bitfield = 0;
-                            }
-                        }
+                        R_UNLESS(!std::memcmp(std::addressof(header.rights_id), std::addressof(ticket_data.rights_id), sizeof(header.rights_id)), Result_YatiInvalidTicketBadRightsId);
 
                         // decrypt title key.
                         keys::KeyEntry title_key;
@@ -624,7 +636,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                             return e.InRange(decompress_buf_off);
                         });
 
-                        R_UNLESS(it != t->ncz_blocks.cend(), Result_NczBlockNotFound);
+                        R_UNLESS(it != t->ncz_blocks.cend(), Result_YatiNczBlockNotFound);
                         log_write("[NCZ] found new block: %zu off: %zd size: %zd\n", decompress_buf_off, it->offset, it->size);
                         ncz_block = &(*it);
                     }
@@ -657,7 +669,7 @@ Result Yati::decompressFuncInternal(ThreadData* t) {
                         if (ZSTD_isError(res)) {
                             log_write("[NCZ] ZSTD_decompressStream() pos: %zu size: %zu res: %zd msg: %s\n", input.pos, input.size, res, ZSTD_getErrorName(res));
                         }
-                        R_UNLESS(!ZSTD_isError(res), Result_InvalidNczZstdError);
+                        R_UNLESS(!ZSTD_isError(res), Result_YatiInvalidNczZstdError);
 
                         t->decompress_offset += output.pos;
                         inflate_offset += output.pos;
@@ -813,6 +825,7 @@ Result Yati::Setup(const ConfigOverride& override) {
     config.skip_rsa_header_fixed_key_verify = override.skip_rsa_header_fixed_key_verify.value_or(App::GetApp()->m_skip_rsa_header_fixed_key_verify.Get());
     config.skip_rsa_npdm_fixed_key_verify = override.skip_rsa_npdm_fixed_key_verify.value_or(App::GetApp()->m_skip_rsa_npdm_fixed_key_verify.Get());
     config.ignore_distribution_bit = override.ignore_distribution_bit.value_or(App::GetApp()->m_ignore_distribution_bit.Get());
+    config.convert_to_common_ticket = override.convert_to_common_ticket.value_or(App::GetApp()->m_convert_to_common_ticket.Get());
     config.convert_to_standard_crypto = override.convert_to_standard_crypto.value_or(App::GetApp()->m_convert_to_standard_crypto.Get());
     config.lower_master_key = override.lower_master_key.value_or(App::GetApp()->m_lower_master_key.Get());
     config.lower_system_version = override.lower_system_version.value_or(App::GetApp()->m_lower_system_version.Get());
@@ -837,12 +850,14 @@ Result Yati::Setup(const ConfigOverride& override) {
 }
 
 Result Yati::InstallNcaInternal(std::span<TikCollection> tickets, NcaCollection& nca) {
-    if (config.skip_if_already_installed) {
+    if (config.skip_if_already_installed || config.ticket_only) {
         R_TRY(ncmContentStorageHas(std::addressof(cs), std::addressof(nca.skipped), std::addressof(nca.content_id)));
         if (nca.skipped) {
             log_write("\tskipped nca as it's already installed ncmContentStorageHas()\n");
             R_TRY(ncmContentStorageReadContentIdFile(std::addressof(cs), std::addressof(nca.header), sizeof(nca.header), std::addressof(nca.content_id), 0));
             crypto::cryptoAes128Xts(std::addressof(nca.header), std::addressof(nca.header), keys.header_key, 0, 0x200, sizeof(nca.header), false);
+
+            R_TRY(HasRequiredTicket(nca.header, tickets));
             R_SUCCEED();
         }
     }
@@ -921,7 +936,7 @@ Result Yati::InstallNcaInternal(std::span<TikCollection> tickets, NcaCollection&
     if (!config.skip_nca_hash_verify && !nca.modified) {
         if (std::memcmp(&nca.content_id, nca.hash, sizeof(nca.content_id))) {
             log_write("nca hash is invalid!!!!\n");
-            R_UNLESS(!std::memcmp(&nca.content_id, nca.hash, sizeof(nca.content_id)), Result_InvalidNcaSha256);
+            R_UNLESS(!std::memcmp(&nca.content_id, nca.hash, sizeof(nca.content_id)), Result_YatiInvalidNcaSha256);
         } else {
             log_write("nca hash is valid!\n");
         }
@@ -987,7 +1002,7 @@ Result Yati::InstallCnmtNca(std::span<TikCollection> tickets, CnmtCollection& cn
             return e.name.find(str.str) != e.name.npos;
         });
 
-        R_UNLESS(it != collections.cend(), Result_NcaNotFound);
+        R_UNLESS(it != collections.cend(), Result_YatiNcaNotFound);
 
         log_write("found: %s\n", str.str);
         cnmt.infos.emplace_back(packed_info);
@@ -1044,7 +1059,7 @@ Result Yati::ParseTicketsIntoCollection(std::vector<TikCollection>& tickets, con
                 return e.name.find(str) != e.name.npos;
             });
 
-            R_UNLESS(cert != collections.cend(), Result_CertNotFound);
+            R_UNLESS(cert != collections.cend(), Result_YatiCertNotFound);
             entry.ticket.resize(collection.size);
             entry.cert.resize(cert->size);
 
@@ -1103,27 +1118,31 @@ Result Yati::GetLatestVersion(const CnmtCollection& cnmt, u32& version_out, bool
 }
 
 Result Yati::ShouldSkip(const CnmtCollection& cnmt, bool& skip) {
-    // skip invalid types
-    if (!(cnmt.key.type & 0x80)) {
-        log_write("\tskipping: invalid: %u\n", cnmt.key.type);
-        skip = true;
-    } else if (config.skip_base && cnmt.key.type == NcmContentMetaType_Application) {
-        log_write("\tskipping: [NcmContentMetaType_Application]\n");
-        skip = true;
-    } else if (config.skip_patch && cnmt.key.type == NcmContentMetaType_Patch) {
-        log_write("\tskipping: [NcmContentMetaType_Application]\n");
-        skip = true;
-    } else if (config.skip_addon && cnmt.key.type == NcmContentMetaType_AddOnContent) {
-        log_write("\tskipping: [NcmContentMetaType_AddOnContent]\n");
-        skip = true;
-    } else if (config.skip_data_patch && cnmt.key.type == NcmContentMetaType_DataPatch) {
-        log_write("\tskipping: [NcmContentMetaType_DataPatch]\n");
-        skip = true;
-    } else if (config.skip_if_already_installed) {
+    if (!skip && config.skip_if_already_installed) {
         bool has;
         R_TRY(ncmContentMetaDatabaseHas(std::addressof(db), std::addressof(has), std::addressof(cnmt.key)));
         if (has) {
             log_write("\tskipping: [ncmContentMetaDatabaseHas()]\n");
+            skip = true;
+        }
+    }
+
+    // skip invalid types
+    if (!skip) {
+        if (!(cnmt.key.type & 0x80)) {
+            log_write("\tskipping: invalid: %u\n", cnmt.key.type);
+            skip = true;
+        } else if (config.skip_base && cnmt.key.type == NcmContentMetaType_Application) {
+            log_write("\tskipping: [NcmContentMetaType_Application]\n");
+            skip = true;
+        } else if (config.skip_patch && cnmt.key.type == NcmContentMetaType_Patch) {
+            log_write("\tskipping: [NcmContentMetaType_Application]\n");
+            skip = true;
+        } else if (config.skip_addon && cnmt.key.type == NcmContentMetaType_AddOnContent) {
+            log_write("\tskipping: [NcmContentMetaType_AddOnContent]\n");
+            skip = true;
+        } else if (config.skip_data_patch && cnmt.key.type == NcmContentMetaType_DataPatch) {
+            log_write("\tskipping: [NcmContentMetaType_DataPatch]\n");
             skip = true;
         }
     }
@@ -1133,12 +1152,16 @@ Result Yati::ShouldSkip(const CnmtCollection& cnmt, bool& skip) {
 
 Result Yati::ImportTickets(std::span<TikCollection> tickets) {
     for (auto& ticket : tickets) {
-        if (ticket.required) {
+        if (ticket.required || config.ticket_only) {
             if (config.skip_ticket) {
                 log_write("WARNING: skipping ticket install, but it's required!\n");
             } else {
-                log_write("patching ticket\n");
-                R_TRY(es::PatchTicket(ticket.ticket, keys));
+                if (!ticket.patched) {
+                    log_write("patching ticket\n");
+                    R_TRY(es::PatchTicket(ticket.ticket, ticket.cert, ticket.key_gen, keys, config.convert_to_common_ticket));
+                    ticket.patched = true;
+                }
+
                 log_write("installing ticket\n");
                 R_TRY(es::ImportTicket(ticket.ticket.data(), ticket.ticket.size(), ticket.cert.data(), ticket.cert.size()));
                 ticket.required = false;
@@ -1179,22 +1202,31 @@ Result Yati::RemoveInstalledNcas(const CnmtCollection& cnmt) {
             }
         }
 
-        for (auto& key : keys) {
+        for (const auto& key : keys) {
             log_write("found key: 0x%016lX type: %u version: %u\n", key.id, key.type, key.version);
             NcmContentMetaHeader header;
             u64 out_size;
             log_write("trying to get from db\n");
             R_TRY(ncmContentMetaDatabaseGet(std::addressof(db), std::addressof(key), std::addressof(out_size), std::addressof(header), sizeof(header)));
-            R_UNLESS(out_size == sizeof(header), Result_NcmDbCorruptHeader);
+            R_UNLESS(out_size == sizeof(header), Result_YatiNcmDbCorruptHeader);
             log_write("trying to list infos\n");
 
             std::vector<NcmContentInfo> infos(header.content_count);
             s32 content_info_out;
             R_TRY(ncmContentMetaDatabaseListContentInfo(std::addressof(db), std::addressof(content_info_out), infos.data(), infos.size(), std::addressof(key), 0));
-            R_UNLESS(content_info_out == infos.size(), Result_NcmDbCorruptInfos);
+            R_UNLESS(content_info_out == infos.size(), Result_YatiNcmDbCorruptInfos);
             log_write("size matches\n");
 
-            for (auto& info : infos) {
+            for (const auto& info : infos) {
+                const auto it = std::ranges::find_if(cnmt.ncas, [&info](auto& e){
+                    return !std::memcmp(&e.content_id, &info.content_id, sizeof(e.content_id));
+                });
+
+                // don't delete the nca if we skipped the install.
+                if ((it != cnmt.ncas.cend() && it->skipped) || (!std::memcmp(&cnmt.content_id, &info.content_id, sizeof(cnmt.content_id)) && cnmt.skipped)) {
+                    continue;
+                }
+
                 R_TRY(ncm::Delete(std::addressof(cs), std::addressof(info.content_id)));
             }
 
@@ -1213,9 +1245,11 @@ Result Yati::RegisterNcasAndPushRecord(const CnmtCollection& cnmt, u32 latest_ve
     const auto app_id = ncm::GetAppId(cnmt.key);
 
     // register all nca's
-    log_write("registering cnmt nca\n");
-    R_TRY(ncm::Register(std::addressof(cs), std::addressof(cnmt.content_id), std::addressof(cnmt.placeholder_id)));
-    log_write("registered cnmt nca\n");
+    if (!cnmt.skipped) {
+        log_write("registering cnmt nca\n");
+        R_TRY(ncm::Register(std::addressof(cs), std::addressof(cnmt.content_id), std::addressof(cnmt.placeholder_id)));
+        log_write("registered cnmt nca\n");
+    }
 
     for (auto& nca : cnmt.ncas) {
         if (!nca.skipped && nca.type != NcmContentType_DeltaFragment) {
@@ -1237,7 +1271,7 @@ Result Yati::RegisterNcasAndPushRecord(const CnmtCollection& cnmt, u32 latest_ve
         buf.write(std::addressof(info.info), sizeof(info.info));
     }
 
-    pbox->NewTransfer("Updating ncm databse"_i18n);
+    pbox->NewTransfer("Updating ncm database"_i18n);
     R_TRY(ncmContentMetaDatabaseSet(std::addressof(db), std::addressof(cnmt.key), buf.buf.data(), buf.tell()));
     R_TRY(ncmContentMetaDatabaseCommit(std::addressof(db)));
 
@@ -1362,7 +1396,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
             });
 
             // this will never fail...but just in case.
-            R_UNLESS(entry != tickets.end(), Result_CertNotFound);
+            R_UNLESS(entry != tickets.end(), Result_YatiCertNotFound);
 
             u64 bytes_read;
             if (collection.name.ends_with(".tik")) {
@@ -1380,7 +1414,7 @@ Result InstallInternalStream(ui::ProgressBox* pbox, std::shared_ptr<source::Base
                 return e.name == cnmt_nca.name;
             });
 
-            R_UNLESS(it != ncas.cend(), Result_NczSectionNotFound);
+            R_UNLESS(it != ncas.cend(), Result_YatiNczSectionNotFound);
             const auto type = cnmt_nca.type;
             cnmt_nca = *it;
             cnmt_nca.type = type;
@@ -1414,7 +1448,7 @@ Result InstallFromFile(ui::ProgressBox* pbox, fs::Fs* fs, const fs::FsPath& path
 
 Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> source, const fs::FsPath& path, const ConfigOverride& override) {
     const auto ext = std::strrchr(path.s, '.');
-    R_UNLESS(ext, Result_ContainerNotFound);
+    R_UNLESS(ext, Result_YatiContainerNotFound);
 
     if (!strcasecmp(ext, ".nsp") || !strcasecmp(ext, ".nsz")) {
         return InstallFromContainer(pbox, std::make_unique<container::Nsp>(source), override);
@@ -1422,7 +1456,7 @@ Result InstallFromSource(ui::ProgressBox* pbox, std::shared_ptr<source::Base> so
         return InstallFromContainer(pbox, std::make_unique<container::Xci>(source), override);
     }
 
-    R_THROW(Result_ContainerNotFound);
+    R_THROW(Result_YatiContainerNotFound);
 }
 
 Result InstallFromContainer(ui::ProgressBox* pbox, std::shared_ptr<container::Base> container, const ConfigOverride& override) {

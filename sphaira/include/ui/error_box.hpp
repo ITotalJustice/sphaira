@@ -16,6 +16,7 @@ public:
 private:
     std::optional<Result> m_code{};
     std::string m_message{};
+    std::string m_code_message{};
 };
 
 } // namespace sphaira::ui

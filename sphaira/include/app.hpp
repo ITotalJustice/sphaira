@@ -192,6 +192,50 @@ public:
         }
     }
 
+    static void SetBoostMode(bool enable, bool force = false) {
+        static Mutex mutex{};
+        static int ref_count{};
+
+        mutexLock(&mutex);
+        ON_SCOPE_EXIT(mutexUnlock(&mutex));
+
+        if (enable) {
+            ref_count++;
+            appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+        } else {
+            if (ref_count) {
+                ref_count--;
+            }
+        }
+
+        if (!ref_count || force) {
+            ref_count = 0;
+            appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+        }
+    }
+
+    static auto GetAccountList() -> std::vector<AccountProfileBase> {
+        std::vector<AccountProfileBase> out;
+
+        AccountUid uids[ACC_USER_LIST_SIZE];
+        s32 account_count;
+        if (R_SUCCEEDED(accountListAllUsers(uids, std::size(uids), &account_count))) {
+            for (s32 i = 0; i < account_count; i++) {
+                AccountProfile profile;
+                if (R_SUCCEEDED(accountGetProfile(&profile, uids[i]))) {
+                    ON_SCOPE_EXIT(accountProfileClose(&profile));
+
+                    AccountProfileBase base;
+                    if (R_SUCCEEDED(accountProfileGet(&profile, nullptr, &base))) {
+                        out.emplace_back(base);
+                    }
+                }
+            }
+        }
+
+        return out;
+    }
+
 // private:
     static constexpr inline auto CONFIG_PATH = "/config/sphaira/config.ini";
     static constexpr inline auto PLAYLOG_PATH = "/config/sphaira/playlog.ini";
@@ -259,6 +303,7 @@ public:
     option::OptionBool m_skip_rsa_header_fixed_key_verify{INI_SECTION, "skip_rsa_header_fixed_key_verify", false};
     option::OptionBool m_skip_rsa_npdm_fixed_key_verify{INI_SECTION, "skip_rsa_npdm_fixed_key_verify", false};
     option::OptionBool m_ignore_distribution_bit{INI_SECTION, "ignore_distribution_bit", false};
+    option::OptionBool m_convert_to_common_ticket{INI_SECTION, "convert_to_common_ticket", true};
     option::OptionBool m_convert_to_standard_crypto{INI_SECTION, "convert_to_standard_crypto", false};
     option::OptionBool m_lower_master_key{INI_SECTION, "lower_master_key", false};
     option::OptionBool m_lower_system_version{INI_SECTION, "lower_system_version", false};
@@ -269,6 +314,7 @@ public:
     option::OptionBool m_dump_trim_xci{"dump", "trim_xci", false};
     option::OptionBool m_dump_label_trim_xci{"dump", "label_trim_xci", false};
     option::OptionBool m_dump_usb_transfer_stream{"dump", "usb_transfer_stream", true};
+    option::OptionBool m_dump_convert_to_common_ticket{"dump", "convert_to_common_ticket", true};
 
     // todo: move this into it's own menu
     option::OptionLong m_text_scroll_speed{"accessibility", "text_scroll_speed", 1}; // normal

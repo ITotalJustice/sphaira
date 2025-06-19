@@ -23,17 +23,12 @@
 namespace sphaira::dump {
 namespace {
 
-struct DumpEntry {
-    DumpLocationType type;
-    s32 index;
-};
-
-struct DumpLocation {
+struct DumpLocationEntry {
     const DumpLocationType type;
     const char* name;
 };
 
-constexpr DumpLocation DUMP_LOCATIONS[]{
+constexpr DumpLocationEntry DUMP_LOCATIONS[]{
     { DumpLocationType_SdCard, "microSD card (/dumps/)" },
     { DumpLocationType_UsbS2S, "USB transfer (Switch 2 Switch)" },
     { DumpLocationType_DevNull, "/dev/null (Speed Test)" },
@@ -232,7 +227,7 @@ Result DumpToUsbS2S(ui::ProgressBox* pbox, BaseSource* source, std::span<const f
                     log_write("skipped polling for exit command\n");
                 }
 
-                if (rc == usb->Result_Exit) {
+                if (rc == Result_UsbUploadExit) {
                     log_write("got exit command\n");
                     R_SUCCEED();
                 }
@@ -308,7 +303,7 @@ Result DumpToNetwork(ui::ProgressBox* pbox, const location::Entry& loc, BaseSour
                     }
                 );
 
-                R_UNLESS(result.success, 0x1);
+                R_UNLESS(result.success, Result_DumpFailedNetworkUpload);
                 R_SUCCEED();
             }
         ));
@@ -319,23 +314,24 @@ Result DumpToNetwork(ui::ProgressBox* pbox, const location::Entry& loc, BaseSour
 
 } // namespace
 
-void Dump(std::shared_ptr<BaseSource> source, const std::vector<fs::FsPath>& paths, OnExit on_exit, u32 location_flags) {
+void DumpGetLocation(const std::string& title, u32 location_flags, OnLocation on_loc) {
+    DumpLocation out;
     ui::PopupList::Items items;
     std::vector<DumpEntry> dump_entries;
 
-    const auto network_locations = location::Load();
+    out.network = location::Load();
     if (location_flags & (1 << DumpLocationType_Network)) {
-        for (s32 i = 0; i < std::size(network_locations); i++) {
+        for (s32 i = 0; i < std::size(out.network); i++) {
             dump_entries.emplace_back(DumpLocationType_Network, i);
-            items.emplace_back(network_locations[i].name);
+            items.emplace_back(out.network[i].name);
         }
     }
 
-    const auto stdio_locations = location::GetStdio(true);
+    out.stdio = location::GetStdio(true);
     if (location_flags & (1 << DumpLocationType_Stdio)) {
-        for (s32 i = 0; i < std::size(stdio_locations); i++) {
+        for (s32 i = 0; i < std::size(out.stdio); i++) {
             dump_entries.emplace_back(DumpLocationType_Stdio, i);
-            items.emplace_back(stdio_locations[i].name);
+            items.emplace_back(out.stdio[i].name);
         }
     }
 
@@ -347,40 +343,44 @@ void Dump(std::shared_ptr<BaseSource> source, const std::vector<fs::FsPath>& pat
     }
 
     App::Push(std::make_shared<ui::PopupList>(
-        "Select dump location"_i18n, items, [source, paths, on_exit, network_locations, stdio_locations, dump_entries](auto op_index){
-            if (!op_index) {
-                on_exit(0xFFFF);
-                return;
-            }
-
-            const auto dump_entry = dump_entries[*op_index];
-
-            App::Push(std::make_shared<ui::ProgressBox>(0, "Dumping"_i18n, "", [source, paths, network_locations, stdio_locations, dump_entry](auto pbox) -> Result {
-                if (dump_entry.type == DumpLocationType_Network) {
-                    R_TRY(DumpToNetwork(pbox, network_locations[dump_entry.index], source.get(), paths));
-                } else if (dump_entry.type == DumpLocationType_Stdio) {
-                    R_TRY(DumpToStdio(pbox, stdio_locations[dump_entry.index], source.get(), paths));
-                } else if (dump_entry.type == DumpLocationType_SdCard) {
-                    R_TRY(DumpToFileNative(pbox, source.get(), paths));
-                } else if (dump_entry.type == DumpLocationType_UsbS2S) {
-                    R_TRY(DumpToUsbS2S(pbox, source.get(), paths));
-                } else if (dump_entry.type == DumpLocationType_DevNull) {
-                    R_TRY(DumpToDevNull(pbox, source.get(), paths));
-                }
-
-                R_SUCCEED();
-            }, [on_exit](Result rc){
-                App::PushErrorBox(rc, "Dump failed!"_i18n);
-
-                if (R_SUCCEEDED(rc)) {
-                    App::Notify("Dump successfull!"_i18n);
-                    log_write("dump successfull!!!\n");
-                }
-
-                on_exit(rc);
-            }));
+        title, items, [dump_entries, out, on_loc](auto op_index) mutable {
+            out.entry = dump_entries[*op_index];
+            on_loc(out);
         }
     ));
+}
+
+void Dump(std::shared_ptr<BaseSource> source, const DumpLocation& location, const std::vector<fs::FsPath>& paths, OnExit on_exit) {
+    App::Push(std::make_shared<ui::ProgressBox>(0, "Dumping"_i18n, "", [source, paths, location](auto pbox) -> Result {
+        if (location.entry.type == DumpLocationType_Network) {
+            R_TRY(DumpToNetwork(pbox, location.network[location.entry.index], source.get(), paths));
+        } else if (location.entry.type == DumpLocationType_Stdio) {
+            R_TRY(DumpToStdio(pbox, location.stdio[location.entry.index], source.get(), paths));
+        } else if (location.entry.type == DumpLocationType_SdCard) {
+            R_TRY(DumpToFileNative(pbox, source.get(), paths));
+        } else if (location.entry.type == DumpLocationType_UsbS2S) {
+            R_TRY(DumpToUsbS2S(pbox, source.get(), paths));
+        } else if (location.entry.type == DumpLocationType_DevNull) {
+            R_TRY(DumpToDevNull(pbox, source.get(), paths));
+        }
+
+        R_SUCCEED();
+    }, [on_exit](Result rc){
+        App::PushErrorBox(rc, "Dump failed!"_i18n);
+
+        if (R_SUCCEEDED(rc)) {
+            App::Notify("Dump successfull!"_i18n);
+            log_write("dump successfull!!!\n");
+        }
+
+        on_exit(rc);
+    }));
+}
+
+void Dump(std::shared_ptr<BaseSource> source, const std::vector<fs::FsPath>& paths, OnExit on_exit, u32 location_flags) {
+    DumpGetLocation("Select dump location"_i18n, location_flags, [source, paths, on_exit](const DumpLocation& loc){
+        Dump(source, loc, paths, on_exit);
+    });
 }
 
 } // namespace sphaira::dump

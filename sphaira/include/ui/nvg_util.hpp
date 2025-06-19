@@ -30,7 +30,8 @@ void drawTextArgs(NVGcontext*, float x, float y, float size, int align, const NV
 
 void drawTextBox(NVGcontext*, float x, float y, float size, float bound, const NVGcolor& c, const char* str, int align = NVG_ALIGN_LEFT | NVG_ALIGN_TOP, const char* end = nullptr);
 
-void textBounds(NVGcontext*, float x, float y, float *bounds, const char* str, ...) __attribute__ ((format (printf, 5, 6)));
+void textBounds(NVGcontext*, float x, float y, float *bounds, const char* str);
+void textBoundsArgs(NVGcontext*, float x, float y, float *bounds, const char* str, ...) __attribute__ ((format (printf, 5, 6)));
 
 auto getButton(Button button) -> const char*;
 void drawScrollbar(NVGcontext*, const Theme*, u32 index_off, u32 count, u32 max_per_page);

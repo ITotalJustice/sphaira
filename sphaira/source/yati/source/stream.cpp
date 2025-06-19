@@ -6,7 +6,7 @@ namespace sphaira::yati::source {
 
 Result Stream::Read(void* _buf, s64 off, s64 size, u64* bytes_read_out) {
     // streams don't allow for random access (seeking backwards).
-    R_UNLESS(off >= m_offset, 0x1);
+    R_UNLESS(off >= m_offset, Result_StreamBadSeek);
 
     auto buf = static_cast<u8*>(_buf);
     *bytes_read_out = 0;

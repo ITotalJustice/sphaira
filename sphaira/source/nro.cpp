@@ -13,15 +13,6 @@
 namespace sphaira {
 namespace {
 
-enum {
-    Module_Nro = 421,
-};
-
-enum NroError {
-    NroError_BadMagic = MAKERESULT(Module_Nro, 1),
-    NroError_BadSize = MAKERESULT(Module_Nro, 2),
-};
-
 struct NroData {
     NroStart start;
     NroHeader header;
@@ -47,11 +38,11 @@ auto nro_parse_internal(fs::Fs* fs, const fs::FsPath& path, NroEntry& entry) -> 
     NroData data;
     u64 bytes_read;
     R_TRY(f.Read(0, &data, sizeof(data), FsReadOption_None, &bytes_read));
-    R_UNLESS(data.header.magic == NROHEADER_MAGIC, NroError_BadMagic);
+    R_UNLESS(data.header.magic == NROHEADER_MAGIC, Result_NroBadMagic);
 
     NroAssetHeader asset;
     R_TRY(f.Read(data.header.size, &asset, sizeof(asset), FsReadOption_None, &bytes_read));
-    // R_UNLESS(asset.magic == NROASSETHEADER_MAGIC, NroError_BadMagic);
+    // R_UNLESS(asset.magic == NROASSETHEADER_MAGIC, Result_NroBadMagic);
 
     // we can avoid a GetSize() call by calculating the size manually.
     entry.size = data.header.size;
@@ -68,17 +59,19 @@ auto nro_parse_internal(fs::Fs* fs, const fs::FsPath& path, NroEntry& entry) -> 
         std::strncpy(nacp.lang.name, file_name, file_name_len - 4);
         std::strcpy(nacp.lang.author, "Unknown");
         std::strcpy(nacp.display_version, "Unknown");
+
+        entry.icon_offset = entry.icon_size = 0;
         entry.is_nacp_valid = false;
     } else {
         entry.size += sizeof(asset) + asset.icon.size + asset.nacp.size + asset.romfs.size;
         R_TRY(f.Read(data.header.size + asset.nacp.offset, &nacp.lang, sizeof(nacp.lang), FsReadOption_None, &bytes_read));
         R_TRY(f.Read(data.header.size + asset.nacp.offset + offsetof(NacpStruct, display_version), nacp.display_version, sizeof(nacp.display_version), FsReadOption_None, &bytes_read));
+
+        // lazy load the icons
+        entry.icon_size = asset.icon.size;
+        entry.icon_offset = data.header.size + asset.icon.offset;
         entry.is_nacp_valid = true;
     }
-
-    // lazy load the icons
-    entry.icon_size = asset.icon.size;
-    entry.icon_offset = data.header.size + asset.icon.offset;
 
     R_SUCCEED();
 }
@@ -192,10 +185,10 @@ auto launch_internal(const std::string& path, const std::string& argv) -> Result
 
 auto nro_verify(std::span<const u8> data) -> Result {
     NroData nro;
-    R_UNLESS(data.size() >= sizeof(nro), NroError_BadSize);
+    R_UNLESS(data.size() >= sizeof(nro), Result_NroBadSize);
 
     memcpy(&nro, data.data(), sizeof(nro));
-    R_UNLESS(nro.header.magic == NROHEADER_MAGIC, NroError_BadMagic);
+    R_UNLESS(nro.header.magic == NROHEADER_MAGIC, Result_NroBadMagic);
 
     R_SUCCEED();
 }
@@ -243,9 +236,9 @@ auto nro_get_nacp(const fs::FsPath& path, NacpStruct& nacp) -> Result {
     R_TRY(fs.OpenFile(path, FsOpenMode_Read, &f));
 
     R_TRY(f.Read(0, &data, sizeof(data), FsReadOption_None, &bytes_read));
-    R_UNLESS(data.header.magic == NROHEADER_MAGIC, NroError_BadMagic);
+    R_UNLESS(data.header.magic == NROHEADER_MAGIC, Result_NroBadMagic);
     R_TRY(f.Read(data.header.size, &asset, sizeof(asset), FsReadOption_None, &bytes_read));
-    R_UNLESS(asset.magic == NROASSETHEADER_MAGIC, NroError_BadMagic);
+    R_UNLESS(asset.magic == NROASSETHEADER_MAGIC, Result_NroBadMagic);
     R_TRY(f.Read(data.header.size + asset.nacp.offset, &nacp, sizeof(nacp), FsReadOption_None, &bytes_read));
 
     R_SUCCEED();

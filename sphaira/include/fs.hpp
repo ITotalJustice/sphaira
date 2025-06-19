@@ -12,10 +12,14 @@ namespace fs {
 
 struct FsPath {
     FsPath() = default;
-    constexpr FsPath(const auto& str) { From(str); }
+
+    constexpr FsPath(const FsPath& p) { From(p); }
+    constexpr FsPath(const char* str) { From(str); }
+    constexpr FsPath(const std::string& str) { From(str); }
+    constexpr FsPath(const std::string_view& str) { From(str); }
 
     constexpr void From(const FsPath& p) {
-        *this = p;
+        From(p.s);
     }
 
     constexpr void From(const char* str) {
@@ -38,6 +42,10 @@ struct FsPath {
 
     constexpr auto toString() const -> std::string {
         return s;
+    }
+
+    constexpr auto starts_with(std::string_view str) const -> bool {
+        return !strncasecmp(s, str.data(), str.length());
     }
 
     constexpr auto empty() const {
@@ -64,6 +72,11 @@ struct FsPath {
     constexpr operator std::string_view() const { return s; }
     constexpr char& operator[](std::size_t idx) { return s[idx]; }
     constexpr const char& operator[](std::size_t idx) const { return s[idx]; }
+
+    constexpr FsPath& operator=(const FsPath& p) noexcept {
+        From(p.s);
+        return *this;
+    }
 
     constexpr FsPath operator+(const FsPath& v) const noexcept {
         FsPath r{*this};
@@ -186,15 +199,14 @@ struct File {
     FsFile m_native{};
     std::FILE* m_stdio{};
     s64 m_stdio_off{};
-    // sadly, fatfs doesn't support fstat, so we have to manually
-    // stat the file to get it's size.
-    FsPath m_path{};
+    u32 m_mode{};
 };
 
 struct Dir {
     ~Dir();
 
     Result GetEntryCount(s64* out);
+    Result Read(s64 *total_entries, size_t max_entries, FsDirectoryEntry *buf);
     Result ReadAll(std::vector<FsDirectoryEntry>& buf);
     void Close();
 
@@ -261,22 +273,6 @@ Result FileGetSizeAndTimestamp(fs::Fs* fs, const FsPath& path, FsTimeStampRaw* t
 Result IsDirEmpty(fs::Fs* m_fs, const fs::FsPath& path, bool* out);
 
 struct Fs {
-    static constexpr inline u32 FsModule = 505;
-    static constexpr inline Result ResultTooManyEntries = MAKERESULT(FsModule, 1);
-    static constexpr inline Result ResultNewPathTooLarge = MAKERESULT(FsModule, 2);
-    static constexpr inline Result ResultInvalidType = MAKERESULT(FsModule, 3);
-    static constexpr inline Result ResultEmpty = MAKERESULT(FsModule, 4);
-    static constexpr inline Result ResultAlreadyRoot = MAKERESULT(FsModule, 5);
-    static constexpr inline Result ResultNoCurrentPath = MAKERESULT(FsModule, 6);
-    static constexpr inline Result ResultBrokenCurrentPath = MAKERESULT(FsModule, 7);
-    static constexpr inline Result ResultIndexOutOfBounds = MAKERESULT(FsModule, 8);
-    static constexpr inline Result ResultFsNotActive = MAKERESULT(FsModule, 9);
-    static constexpr inline Result ResultNewPathEmpty = MAKERESULT(FsModule, 10);
-    static constexpr inline Result ResultLoadingCancelled = MAKERESULT(FsModule, 11);
-    static constexpr inline Result ResultBrokenRoot = MAKERESULT(FsModule, 12);
-    static constexpr inline Result ResultUnknownStdioError = MAKERESULT(FsModule, 13);
-    static constexpr inline Result ResultReadOnly = MAKERESULT(FsModule, 14);
-
     Fs(bool ignore_read_only = true) : m_ignore_read_only{ignore_read_only} {}
     virtual ~Fs() = default;
 
@@ -292,6 +288,7 @@ struct Fs {
     virtual Result GetEntryType(const FsPath& path, FsDirEntryType* out) = 0;
     virtual Result GetFileTimeStampRaw(const FsPath& path, FsTimeStampRaw *out) = 0;
     virtual Result SetTimestamp(const FsPath& path, const FsTimeStampRaw* ts) = 0;
+    virtual Result Commit() = 0;
     virtual bool FileExists(const FsPath& path) = 0;
     virtual bool DirExists(const FsPath& path) = 0;
     virtual bool IsNative() const = 0;
@@ -367,6 +364,9 @@ struct FsStdio : Fs {
     Result SetTimestamp(const FsPath& path, const FsTimeStampRaw *ts) override {
         return fs::SetTimestamp(path, ts);
     }
+    Result Commit() override {
+        R_SUCCEED();
+    }
     bool FileExists(const FsPath& path) override {
         return fs::FileExists(path);
     }
@@ -402,10 +402,6 @@ struct FsNative : Fs {
         }
     }
 
-    Result Commit() {
-        return fsFsCommit(&m_fs);
-    }
-
     Result GetFreeSpace(const FsPath& path, s64* out) {
         return fsFsGetFreeSpace(&m_fs, path, out);
     }
@@ -413,36 +409,6 @@ struct FsNative : Fs {
     Result GetTotalSpace(const FsPath& path, s64* out) {
         return fsFsGetTotalSpace(&m_fs, path, out);
     }
-
-    // Result OpenDirectory(const FsPath& path, u32 mode, FsDir *out) {
-    //     return fsFsOpenDirectory(&m_fs, path, mode, out);
-    // }
-
-    // void DirClose(FsDir *d) {
-    //     fsDirClose(d);
-    // }
-
-    // Result DirGetEntryCount(FsDir *d, s64* out) {
-    //     return fsDirGetEntryCount(d, out);
-    // }
-
-    // Result DirGetEntryCount(const FsPath& path, u32 mode, s64* out) {
-    //     FsDir d;
-    //     R_TRY(OpenDirectory(path, mode, &d));
-    //     ON_SCOPE_EXIT(DirClose(&d));
-    //     return DirGetEntryCount(&d, out);
-    // }
-
-    // Result DirRead(FsDir *d, s64 *total_entries, size_t max_entries, FsDirectoryEntry *buf) {
-    //     return fsDirRead(d, total_entries, max_entries, buf);
-    // }
-
-    // Result DirRead(const FsPath& path, u32 mode, s64 *total_entries, size_t max_entries, FsDirectoryEntry *buf) {
-    //     FsDir d;
-    //     R_TRY(OpenDirectory(path, mode, &d));
-    //     ON_SCOPE_EXIT(DirClose(&d));
-    //     return DirRead(&d, total_entries, max_entries, buf);
-    // }
 
     virtual bool IsFsActive() {
         return serviceIsActive(&m_fs.s);
@@ -488,6 +454,9 @@ struct FsNative : Fs {
     Result SetTimestamp(const FsPath& path, const FsTimeStampRaw *ts) override {
         return fs::SetTimestamp(&m_fs, path, ts);
     }
+    Result Commit() override {
+        return fsFsCommit(&m_fs);
+    }
     bool FileExists(const FsPath& path) override {
         return fs::FileExists(&m_fs, path);
     }
@@ -527,26 +496,40 @@ struct FsNativeSd final : FsNative {
 #endif
 
 struct FsNativeBis final : FsNative {
-    FsNativeBis(FsBisPartitionId id, const FsPath& string, bool ignore_read_only = true) : FsNative{ignore_read_only} {
+    FsNativeBis(FsBisPartitionId id, const FsPath& string) {
         m_open_result = fsOpenBisFileSystem(&m_fs, id, string);
     }
 };
 
 struct FsNativeImage final : FsNative {
-    FsNativeImage(FsImageDirectoryId id, bool ignore_read_only = true) : FsNative{ignore_read_only} {
+    FsNativeImage(FsImageDirectoryId id) {
         m_open_result = fsOpenImageDirectoryFileSystem(&m_fs, id);
     }
 };
 
 struct FsNativeContentStorage final : FsNative {
-    FsNativeContentStorage(FsContentStorageId id, bool ignore_read_only = true) : FsNative{ignore_read_only} {
+    FsNativeContentStorage(FsContentStorageId id) {
         m_open_result = fsOpenContentStorageFileSystem(&m_fs, id);
     }
 };
 
 struct FsNativeGameCard final : FsNative {
-    FsNativeGameCard(const FsGameCardHandle* handle, FsGameCardPartition partition, bool ignore_read_only = true) : FsNative{ignore_read_only} {
+    FsNativeGameCard(const FsGameCardHandle* handle, FsGameCardPartition partition) {
         m_open_result = fsOpenGameCardFileSystem(&m_fs, handle, partition);
+    }
+};
+
+struct FsNativeSave final : FsNative {
+    FsNativeSave(FsSaveDataType data_type, FsSaveDataSpaceId save_data_space_id, const FsSaveDataAttribute *attr, bool read_only) {
+        if (data_type == FsSaveDataType_System || data_type == FsSaveDataType_SystemBcat) {
+            m_open_result = fsOpenSaveDataFileSystemBySystemSaveDataId(&m_fs, FsSaveDataSpaceId_System, attr);
+        } else {
+            if (read_only) {
+                m_open_result = fsOpenReadOnlySaveDataFileSystem(&m_fs, save_data_space_id, attr);
+            } else {
+                m_open_result = fsOpenSaveDataFileSystem(&m_fs, save_data_space_id, attr);
+            }
+        }
     }
 };
 

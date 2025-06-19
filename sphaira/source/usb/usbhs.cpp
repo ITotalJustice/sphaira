@@ -76,7 +76,7 @@ Result UsbHs::IsUsbConnected(u64 timeout) {
     R_TRY(waitObjects(&idx, waiters.data(), waiters.size(), timeout));
 
     if (idx == waiters.size() - 1) {
-        return Result_Cancelled;
+        return Result_UsbCancelled;
     }
 
     return Connect();
@@ -168,7 +168,7 @@ Result UsbHs::WaitTransferCompletion(UsbSessionEndpoint ep, u64 timeout) {
     // check if we got one of the cancel events.
     if (R_SUCCEEDED(rc) && idx == waiters.size() - 1) {
         log_write("got usb cancel event\n");
-        rc = Result_Cancelled;
+        rc = Result_UsbCancelled;
     } else if (R_SUCCEEDED(rc) && idx == waiters.size() - 2) {
         log_write("got usb timeout event\n");
         rc = KERNELRESULT(TimedOut);

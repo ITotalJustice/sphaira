@@ -25,6 +25,7 @@ struct ProgressBox final : Widget {
     auto Update(Controller* controller, TouchInfo* touch) -> void override;
     auto Draw(NVGcontext* vg, Theme* theme) -> void override;
 
+    auto SetActionName(const std::string& action) -> ProgressBox&;
     auto SetTitle(const std::string& title) -> ProgressBox&;
     auto NewTransfer(const std::string& transfer) -> ProgressBox&;
     auto UpdateTransfer(s64 offset, s64 size) -> ProgressBox&;
@@ -38,9 +39,9 @@ struct ProgressBox final : Widget {
     auto ShouldExitResult() -> Result;
 
     // helper functions
-    auto CopyFile(fs::Fs* fs_src, fs::Fs* fs_dst, const fs::FsPath& src, const fs::FsPath& dst) -> Result;
-    auto CopyFile(fs::Fs* fs, const fs::FsPath& src, const fs::FsPath& dst) -> Result;
-    auto CopyFile(const fs::FsPath& src, const fs::FsPath& dst) -> Result;
+    auto CopyFile(fs::Fs* fs_src, fs::Fs* fs_dst, const fs::FsPath& src, const fs::FsPath& dst, bool single_threaded = false) -> Result;
+    auto CopyFile(fs::Fs* fs, const fs::FsPath& src, const fs::FsPath& dst, bool single_threaded = false) -> Result;
+    auto CopyFile(const fs::FsPath& src, const fs::FsPath& dst, bool single_threaded = false) -> Result;
     void Yield();
 
     auto GetCpuId() const {

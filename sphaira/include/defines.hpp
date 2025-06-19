@@ -174,6 +174,7 @@ enum {
     Module_Npln = 321,
     Module_Tspm = 499,
     Module_Devmenu = 500,
+    Module_Sphaira = 505,
 };
 
 enum SvcError {
@@ -494,7 +495,269 @@ enum NcmError {
     NcmError_WriteToReadOnlyContentStorage = 0x17C05,
 };
 
-#define R_SUCCEED() return 0
+enum class SphairaResult : Result {
+    TransferCancelled,
+    StreamBadSeek,
+
+    FsTooManyEntries,
+    FsNewPathTooLarge,
+    FsInvalidType,
+    FsEmpty,
+    FsAlreadyRoot,
+    FsNoCurrentPath,
+    FsBrokenCurrentPath,
+    FsIndexOutOfBounds,
+    FsFsNotActive,
+    FsNewPathEmpty,
+    FsLoadingCancelled,
+    FsBrokenRoot,
+    FsUnknownStdioError,
+    FsReadOnly,
+    FsNotActive,
+    FsFailedStdioStat,
+    FsFailedStdioOpendir,
+
+    NroBadMagic,
+    NroBadSize,
+
+    AppFailedMusicDownload,
+    CurlFailedEasyInit,
+    DumpFailedNetworkUpload,
+
+    UnzOpen2_64,
+    UnzGetGlobalInfo64,
+    UnzLocateFile,
+    UnzGoToFirstFile,
+    UnzGoToNextFile,
+    UnzOpenCurrentFile,
+    UnzGetCurrentFileInfo64,
+    UnzReadCurrentFile,
+
+    ZipOpen2_64,
+    ZipOpenNewFileInZip,
+    ZipWriteInFileInZip,
+
+    FileBrowserFailedUpload,
+    FileBrowserDirNotDaybreak,
+
+    AppstoreFailedZipDownload,
+    AppstoreFailedMd5,
+    AppstoreFailedParseManifest,
+
+    GameBadReadForDump,
+    GameEmptyMetaEntries,
+    GameMultipleKeysFound,
+    GameNoNspEntriesBuilt,
+
+    KeyMissingNcaKeyArea,
+    KeyMissingTitleKek,
+    KeyMissingMasterKey,
+    KeyFailedDecyptETicketDeviceKey,
+
+    NcaFailedNcaHeaderHashVerify,
+    NcaBadSigKeyGen,
+
+    GcBadReadForDump,
+    GcEmptyGamecard,
+    GcBadXciMagic,
+    GcBadXciRomSize,
+    GcFailedToGetSecurityInfo,
+
+    GhdlEmptyAsset,
+    GhdlFailedToDownloadAsset,
+    GhdlFailedToDownloadAssetJson,
+
+    ThemezerFailedToDownloadThemeMeta,
+    ThemezerFailedToDownloadTheme,
+
+    MainFailedToDownloadUpdate,
+
+    UsbDsBadDeviceSpeed,
+
+    NspBadMagic,
+    XciBadMagic,
+
+    EsBadTitleKeyType,
+    EsPersonalisedTicketDeviceIdMissmatch,
+    EsFailedDecryptPersonalisedTicket,
+    EsBadDecryptedPersonalisedTicketSize,
+    EsBadTicketSize,
+    // found ticket has missmatching rights_id from it's name.
+    EsInvalidTicketBadRightsId,
+    EsInvalidTicketFromatVersion,
+    EsInvalidTicketKeyType,
+    EsInvalidTicketKeyRevision,
+
+    OwoBadArgs,
+
+    UsbCancelled,
+    UsbBadMagic,
+    UsbBadVersion,
+    UsbBadCount,
+    UsbBadTransferSize,
+    UsbBadTotalSize,
+
+    UsbUploadBadMagic,
+    UsbUploadExit,
+    UsbUploadBadCount,
+    UsbUploadBadTransferSize,
+    UsbUploadBadTotalSize,
+    UsbUploadBadCommand,
+
+    // unkown container for the source provided.
+    YatiContainerNotFound,
+    // nca required by the cnmt but not found in collection.
+    YatiNcaNotFound,
+    YatiInvalidNcaReadSize,
+    YatiInvalidNcaSigKeyGen,
+    YatiInvalidNcaMagic,
+    YatiInvalidNcaSignature0,
+    YatiInvalidNcaSignature1,
+    // invalid sha256 over the entire nca.
+    YatiInvalidNcaSha256,
+    // section could not be found.
+    YatiNczSectionNotFound,
+    // section count == 0.
+    YatiInvalidNczSectionCount,
+    // block could not be found.
+    YatiNczBlockNotFound,
+    // block version != 2.
+    YatiInvalidNczBlockVersion,
+    // block type != 1.
+    YatiInvalidNczBlockType,
+    // block count == 0.
+    YatiInvalidNczBlockTotal,
+    // block size exponent < 14 || > 32.
+    YatiInvalidNczBlockSizeExponent,
+    // zstd error while decompressing ncz.
+    YatiInvalidNczZstdError,
+    // nca has rights_id but matching ticket wasn't found.
+    YatiTicketNotFound,
+    // found ticket has missmatching rights_id from it's name.
+    YatiInvalidTicketBadRightsId,
+    // cert not found for the ticket.
+    YatiCertNotFound,
+    // unable to fetch header from ncm database.
+    YatiNcmDbCorruptHeader,
+    // unable to total infos from ncm database.
+    YatiNcmDbCorruptInfos,
+};
+
+#define MAKE_SPHAIRA_RESULT_ENUM(x) Result_##x =  MAKERESULT(Module_Sphaira, (Result)SphairaResult::x)
+
+enum : Result {
+    MAKE_SPHAIRA_RESULT_ENUM(TransferCancelled),
+    MAKE_SPHAIRA_RESULT_ENUM(StreamBadSeek),
+    MAKE_SPHAIRA_RESULT_ENUM(FsTooManyEntries),
+    MAKE_SPHAIRA_RESULT_ENUM(FsNewPathTooLarge),
+    MAKE_SPHAIRA_RESULT_ENUM(FsInvalidType),
+    MAKE_SPHAIRA_RESULT_ENUM(FsEmpty),
+    MAKE_SPHAIRA_RESULT_ENUM(FsAlreadyRoot),
+    MAKE_SPHAIRA_RESULT_ENUM(FsNoCurrentPath),
+    MAKE_SPHAIRA_RESULT_ENUM(FsBrokenCurrentPath),
+    MAKE_SPHAIRA_RESULT_ENUM(FsIndexOutOfBounds),
+    MAKE_SPHAIRA_RESULT_ENUM(FsFsNotActive),
+    MAKE_SPHAIRA_RESULT_ENUM(FsNewPathEmpty),
+    MAKE_SPHAIRA_RESULT_ENUM(FsLoadingCancelled),
+    MAKE_SPHAIRA_RESULT_ENUM(FsBrokenRoot),
+    MAKE_SPHAIRA_RESULT_ENUM(FsUnknownStdioError),
+    MAKE_SPHAIRA_RESULT_ENUM(FsReadOnly),
+    MAKE_SPHAIRA_RESULT_ENUM(FsNotActive),
+    MAKE_SPHAIRA_RESULT_ENUM(FsFailedStdioStat),
+    MAKE_SPHAIRA_RESULT_ENUM(FsFailedStdioOpendir),
+    MAKE_SPHAIRA_RESULT_ENUM(NroBadMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(NroBadSize),
+    MAKE_SPHAIRA_RESULT_ENUM(AppFailedMusicDownload),
+    MAKE_SPHAIRA_RESULT_ENUM(CurlFailedEasyInit),
+    MAKE_SPHAIRA_RESULT_ENUM(DumpFailedNetworkUpload),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzOpen2_64),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzGetGlobalInfo64),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzLocateFile),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzGoToFirstFile),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzGoToNextFile),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzOpenCurrentFile),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzGetCurrentFileInfo64),
+    MAKE_SPHAIRA_RESULT_ENUM(UnzReadCurrentFile),
+    MAKE_SPHAIRA_RESULT_ENUM(ZipOpen2_64),
+    MAKE_SPHAIRA_RESULT_ENUM(ZipOpenNewFileInZip),
+    MAKE_SPHAIRA_RESULT_ENUM(ZipWriteInFileInZip),
+    MAKE_SPHAIRA_RESULT_ENUM(FileBrowserFailedUpload),
+    MAKE_SPHAIRA_RESULT_ENUM(FileBrowserDirNotDaybreak),
+    MAKE_SPHAIRA_RESULT_ENUM(AppstoreFailedZipDownload),
+    MAKE_SPHAIRA_RESULT_ENUM(AppstoreFailedMd5),
+    MAKE_SPHAIRA_RESULT_ENUM(AppstoreFailedParseManifest),
+    MAKE_SPHAIRA_RESULT_ENUM(GameBadReadForDump),
+    MAKE_SPHAIRA_RESULT_ENUM(GameEmptyMetaEntries),
+    MAKE_SPHAIRA_RESULT_ENUM(GameMultipleKeysFound),
+    MAKE_SPHAIRA_RESULT_ENUM(GameNoNspEntriesBuilt),
+    MAKE_SPHAIRA_RESULT_ENUM(KeyMissingNcaKeyArea),
+    MAKE_SPHAIRA_RESULT_ENUM(KeyMissingTitleKek),
+    MAKE_SPHAIRA_RESULT_ENUM(KeyMissingMasterKey),
+    MAKE_SPHAIRA_RESULT_ENUM(KeyFailedDecyptETicketDeviceKey),
+    MAKE_SPHAIRA_RESULT_ENUM(NcaFailedNcaHeaderHashVerify),
+    MAKE_SPHAIRA_RESULT_ENUM(NcaBadSigKeyGen),
+    MAKE_SPHAIRA_RESULT_ENUM(GcBadReadForDump),
+    MAKE_SPHAIRA_RESULT_ENUM(GcEmptyGamecard),
+    MAKE_SPHAIRA_RESULT_ENUM(GcBadXciMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(GcBadXciRomSize),
+    MAKE_SPHAIRA_RESULT_ENUM(GcFailedToGetSecurityInfo),
+    MAKE_SPHAIRA_RESULT_ENUM(GhdlEmptyAsset),
+    MAKE_SPHAIRA_RESULT_ENUM(GhdlFailedToDownloadAsset),
+    MAKE_SPHAIRA_RESULT_ENUM(GhdlFailedToDownloadAssetJson),
+    MAKE_SPHAIRA_RESULT_ENUM(ThemezerFailedToDownloadThemeMeta),
+    MAKE_SPHAIRA_RESULT_ENUM(ThemezerFailedToDownloadTheme),
+    MAKE_SPHAIRA_RESULT_ENUM(MainFailedToDownloadUpdate),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbDsBadDeviceSpeed),
+    MAKE_SPHAIRA_RESULT_ENUM(NspBadMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(XciBadMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(EsBadTitleKeyType),
+    MAKE_SPHAIRA_RESULT_ENUM(EsPersonalisedTicketDeviceIdMissmatch),
+    MAKE_SPHAIRA_RESULT_ENUM(EsFailedDecryptPersonalisedTicket),
+    MAKE_SPHAIRA_RESULT_ENUM(EsBadDecryptedPersonalisedTicketSize),
+    MAKE_SPHAIRA_RESULT_ENUM(EsBadTicketSize),
+    MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketBadRightsId),
+    MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketFromatVersion),
+    MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketKeyType),
+    MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketKeyRevision),
+    MAKE_SPHAIRA_RESULT_ENUM(OwoBadArgs),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbCancelled),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbBadMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbBadVersion),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbBadCount),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbBadTransferSize),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbBadTotalSize),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbUploadExit),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadCount),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadTransferSize),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadTotalSize),
+    MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadCommand),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiContainerNotFound),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiNcaNotFound),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaReadSize),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaSigKeyGen),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaSignature0),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaSignature1),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaSha256),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiNczSectionNotFound),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNczSectionCount),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiNczBlockNotFound),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNczBlockVersion),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNczBlockType),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNczBlockTotal),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNczBlockSizeExponent),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNczZstdError),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiTicketNotFound),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidTicketBadRightsId),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiCertNotFound),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiNcmDbCorruptHeader),
+    MAKE_SPHAIRA_RESULT_ENUM(YatiNcmDbCorruptInfos),
+};
+
+#undef MAKE_SPHAIRA_RESULT_ENUM
+
+#define R_SUCCEED() return (Result)0
 
 #define R_THROW(_rc) return _rc
 
@@ -521,8 +784,8 @@ enum NcmError {
 #define ANONYMOUS_VARIABLE(pref) CONCATENATE(pref, __COUNTER__)
 
 #define ON_SCOPE_EXIT(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { _f; }};
-#define ON_SCOPE_FAIL(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { if (R_FAILED(rc)) { _f; } }};
-#define ON_SCOPE_SUCCESS(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { if (R_SUCCEEDED(rc)) { _f; } }};
+// #define ON_SCOPE_FAIL(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { if (R_FAILED(rc)) { _f; } }};
+// #define ON_SCOPE_SUCCESS(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { if (R_SUCCEEDED(rc)) { _f; } }};
 
 // threading helpers.
 #define PRIO_PREEMPTIVE 0x3B
@@ -535,4 +798,6 @@ enum NcmError {
 #define THREAD_AFFINITY_ALL (THREAD_AFFINITY_CORE0|THREAD_AFFINITY_CORE1|THREAD_AFFINITY_CORE2)
 
 // mutex helpers.
-#define SCOPED_MUTEX(mutex) mutexLock(mutex); ON_SCOPE_EXIT(mutexUnlock(mutex))
+#define SCOPED_MUTEX(mutex) \
+    mutexLock(mutex); \
+    ON_SCOPE_EXIT(mutexUnlock(mutex))

@@ -64,7 +64,7 @@ Result Nsp::GetCollections(Collections& out) {
     // get header
     Pfs0Header header{};
     R_TRY(m_source->Read(std::addressof(header), off, sizeof(header), std::addressof(bytes_read)));
-    R_UNLESS(header.magic == PFS0_MAGIC, 0x1);
+    R_UNLESS(header.magic == PFS0_MAGIC, Result_NspBadMagic);
     off += bytes_read;
 
     // get file table
@@ -120,9 +120,9 @@ auto Nsp::Build(std::span<CollectionEntry> entries, s64& size) -> std::vector<u8
     if (padded_string_table_size == string_table.size()) {
         padded_string_table_size += 0x20;
     }
-    
+
     string_table.resize(padded_string_table_size);
-    
+
     header.magic = PFS0_MAGIC;
     header.total_files = entries.size();
     header.string_table_size = string_table.size();

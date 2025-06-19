@@ -221,7 +221,7 @@ struct XciSource final : dump::BaseSource {
                 span = initial;
             }
 
-            R_UNLESS(!span.empty(), 0x1);
+            R_UNLESS(!span.empty(), Result_GcBadReadForDump);
 
             size = ClipSize(off, size, span.size());
             *bytes_read = size;
@@ -376,7 +376,7 @@ Result GcSource::Read(void* buf, s64 off, s64 size, u64* bytes_read) {
         }
 
         // this will never fail, unless i break something in yati.
-        R_UNLESS(found, 0x1);
+        R_UNLESS(found, Result_GcBadReadForDump);
     }
 
     return m_file.Read(off - m_offset, buf, size, 0, bytes_read);
@@ -405,6 +405,55 @@ auto ApplicationEntry::GetSize() const -> s64 {
 
 Menu::Menu(u32 flags) : MenuBase{"GameCard"_i18n, flags} {
     this->SetActions(
+        std::make_pair(Button::A, Action{"OK"_i18n, [this](){
+            if (m_option_index == 2) {
+                SetPop();
+            } else {
+                if (!m_mounted) {
+                    return;
+                }
+
+                if (m_option_index == 0) {
+                    if (!App::GetInstallEnable()) {
+                        App::Push(std::make_shared<ui::OptionBox>(
+                            "Install disabled...\n"
+                            "Please enable installing via the install options."_i18n,
+                            "OK"_i18n
+                        ));
+                    } else {
+                        log_write("[GC] doing install A\n");
+                        App::Push(std::make_shared<ui::ProgressBox>(m_icon, "Installing "_i18n, m_entries[m_entry_index].lang_entry.name, [this](auto pbox) -> Result {
+                            auto source = std::make_shared<GcSource>(m_entries[m_entry_index], m_fs.get());
+                            return yati::InstallFromCollections(pbox, source, source->m_collections, source->m_config);
+                        }, [this](Result rc){
+                            App::PushErrorBox(rc, "Gc install failed!"_i18n);
+
+                            if (R_SUCCEEDED(rc)) {
+                                App::Notify("Gc install success!"_i18n);
+                            }
+                        }));
+                    }
+                } else {
+                    auto options = std::make_shared<Sidebar>("Select content to dump"_i18n, Sidebar::Side::RIGHT);
+                    ON_SCOPE_EXIT(App::Push(options));
+
+                    const auto add = [&](const std::string& name, u32 flags){
+                        options->Add(std::make_shared<SidebarEntryCallback>(name, [this, flags](){
+                            DumpGames(flags);
+                            m_dirty = true;
+                        }, true));
+                    };
+
+                    add("Dump All"_i18n, DumpFileFlag_All);
+                    add("Dump All Bins"_i18n, DumpFileFlag_AllBin);
+                    add("Dump XCI"_i18n, DumpFileFlag_XCI);
+                    add("Dump Card ID Set"_i18n, DumpFileFlag_Set);
+                    add("Dump Card UID"_i18n, DumpFileFlag_UID);
+                    add("Dump Certificate"_i18n, DumpFileFlag_Cert);
+                    add("Dump Initial Data"_i18n, DumpFileFlag_Initial);
+                }
+            }
+        }}),
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
             SetPop();
         }}),
@@ -529,7 +578,7 @@ Result Menu::GcMount() {
     // the fs, same as mounting storage.
     for (u32 i = 0; i < REMOUNT_ATTEMPT_MAX; i++) {
         R_TRY(fsDeviceOperatorGetGameCardHandle(std::addressof(m_dev_op), std::addressof(m_handle)));
-        m_fs = std::make_unique<fs::FsNativeGameCard>(std::addressof(m_handle), FsGameCardPartition_Secure, false);
+        m_fs = std::make_unique<fs::FsNativeGameCard>(std::addressof(m_handle), FsGameCardPartition_Secure);
         if (R_SUCCEEDED(m_fs->GetFsOpenResult())) {
             break;
         }
@@ -593,7 +642,7 @@ Result Menu::GcMount() {
                 return !std::strncmp(str.str, e.name, std::strlen(str.str));
             });
 
-            R_UNLESS(it != buf.cend(), yati::Result_NcaNotFound);
+            R_UNLESS(it != buf.cend(), Result_YatiNcaNotFound);
             collections.emplace_back(it->name, it->file_size, info.content_type, info.id_offset);
         }
 
@@ -624,7 +673,7 @@ Result Menu::GcMount() {
         }
     }
 
-    R_UNLESS(m_entries.size(), 0x1);
+    R_UNLESS(m_entries.size(), Result_GcEmptyGamecard);
 
     // append tickets to every application, yati will ignore if undeeded.
     for (auto& e : m_entries) {
@@ -642,57 +691,6 @@ Result Menu::GcMount() {
             e.lang_entry = *lang_entry;
         }
     }
-
-    SetAction(Button::A, Action{"OK"_i18n, [this](){
-        if (m_option_index == 2) {
-            SetPop();
-        } else {
-            log_write("[GC] pressed A\n");
-            if (!m_mounted) {
-                return;
-            }
-
-            if (m_option_index == 0) {
-                if (!App::GetInstallEnable()) {
-                    App::Push(std::make_shared<ui::OptionBox>(
-                        "Install disabled...\n"
-                        "Please enable installing via the install options."_i18n,
-                        "OK"_i18n
-                    ));
-                } else {
-                    log_write("[GC] doing install A\n");
-                    App::Push(std::make_shared<ui::ProgressBox>(m_icon, "Installing "_i18n, m_entries[m_entry_index].lang_entry.name, [this](auto pbox) -> Result {
-                        auto source = std::make_shared<GcSource>(m_entries[m_entry_index], m_fs.get());
-                        return yati::InstallFromCollections(pbox, source, source->m_collections, source->m_config);
-                    }, [this](Result rc){
-                        App::PushErrorBox(rc, "Gc install failed!"_i18n);
-
-                        if (R_SUCCEEDED(rc)) {
-                            App::Notify("Gc install success!"_i18n);
-                        }
-                    }));
-                }
-            } else {
-                auto options = std::make_shared<Sidebar>("Select content to dump"_i18n, Sidebar::Side::RIGHT);
-                ON_SCOPE_EXIT(App::Push(options));
-
-                const auto add = [&](const std::string& name, u32 flags){
-                    options->Add(std::make_shared<SidebarEntryCallback>(name, [this, flags](){
-                        DumpGames(flags);
-                        m_dirty = true;
-                    }, true));
-                };
-
-                add("Dump All"_i18n, DumpFileFlag_All);
-                add("Dump All Bins"_i18n, DumpFileFlag_AllBin);
-                add("Dump XCI"_i18n, DumpFileFlag_XCI);
-                add("Dump Card ID Set"_i18n, DumpFileFlag_Set);
-                add("Dump Card UID"_i18n, DumpFileFlag_UID);
-                add("Dump Certificate"_i18n, DumpFileFlag_Cert);
-                add("Dump Initial Data"_i18n, DumpFileFlag_Initial);
-            }
-        }
-    }});
 
     if (m_entries.size() > 1) {
         SetAction(Button::L2, Action{"Prev"_i18n, [this](){
@@ -742,12 +740,12 @@ Result Menu::GcMountStorage() {
     std::memcpy(&trim_size, header + 0x118, sizeof(trim_size));
     std::memcpy(&m_package_id, header + 0x110, sizeof(m_package_id));
     std::memcpy(m_initial_data_hash, header + 0x160, sizeof(m_initial_data_hash));
-    R_UNLESS(magic == XCI_MAGIC, 0x1);
+    R_UNLESS(magic == XCI_MAGIC, Result_GcBadXciMagic);
 
     // calculate the reported size, error if not found.
     m_storage_full_size = GetXciSizeFromRomSize(rom_size);
     log_write("[GC] m_storage_full_size: %zd rom_size: 0x%X\n", m_storage_full_size, rom_size);
-    R_UNLESS(m_storage_full_size > 0, 0x1);
+    R_UNLESS(m_storage_full_size > 0, Result_GcBadXciRomSize);
 
     R_TRY(fsStorageGetSize(&m_storage, &m_parition_normal_size));
     R_TRY(GcMountPartition(FsGameCardPartitionRaw_Secure));
@@ -982,8 +980,8 @@ Result Menu::DumpGames(u32 flags) {
     R_TRY(GcMountStorage());
 
     const auto do_dump = [this](u32 flags) -> Result {
-        appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-        ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
+        App::SetBoostMode(true);
+        ON_SCOPE_EXIT(App::SetBoostMode(false));
 
         u32 location_flags = dump::DumpLocationFlag_All;
 
@@ -1047,25 +1045,35 @@ Result Menu::DumpGames(u32 flags) {
     bool is_trimmed = false;
     Result trim_rc = 0;
     if ((flags & DumpFileFlag_XCI) && m_storage_trimmed_size < m_storage_total_size) {
-        u8 temp{};
-        if (R_FAILED(trim_rc = GcStorageRead(&temp, m_storage_trimmed_size, sizeof(temp)))) {
-            log_write("[GC] WARNING! GameCard is already trimmed: 0x%X FlashError: %u\n", trim_rc, trim_rc == 0x13D002);
+        const auto start_offset = std::min<s64>(0, m_storage_trimmed_size - 0x4000);
+        // works on fw 1.2.0 and below.
+        std::vector<u8> temp(1024*1024*1);
+        if (R_FAILED(trim_rc = GcStorageRead(temp.data(), m_storage_trimmed_size, std::min<s64>(temp.size(), m_storage_total_size - start_offset)))) {
+            log_write("[GC] WARNING1! GameCard is already trimmed: 0x%X FlashError: %u\n", trim_rc, trim_rc == 0x13D002);
             is_trimmed = true;
+        }
+
+        if (!is_trimmed) {
+            // works on fw 1.2.0 and below.
+            if (R_FAILED(trim_rc = GcStorageRead(temp.data(), m_storage_total_size - temp.size(), temp.size()))) {
+                log_write("[GC] WARNING2! GameCard is already trimmed: 0x%X FlashError: %u\n", trim_rc, trim_rc == 0x13D002);
+                is_trimmed = true;
+            }
         }
     }
 
     // if trimmed and the user wants to dump the full xci, error.
     if ((flags & DumpFileFlag_XCI) && is_trimmed && App::GetApp()->m_dump_trim_xci.Get()) {
-        App::PushErrorBox(trim_rc, "GameCard is already trimmed!"_i18n);
-    } else if ((flags & DumpFileFlag_XCI) && is_trimmed) {
         App::Push(std::make_shared<ui::OptionBox>(
             "WARNING: GameCard is already trimmed!"_i18n,
             "Back"_i18n, "Continue"_i18n, 0, [&](auto op_index){
                 if (op_index && *op_index) {
                     do_dump(flags);
                 }
-            }
+            }, m_icon
         ));
+    } else if ((flags & DumpFileFlag_XCI) && is_trimmed) {
+        App::PushErrorBox(trim_rc, "GameCard is trimmed, full dump is not possible!"_i18n);
     } else {
         do_dump(flags);
     }
@@ -1141,7 +1149,7 @@ Result Menu::GcGetSecurityInfo(GameCardSecurityInformation& out) {
         }
     }
 
-    R_THROW(0x1);
+    R_THROW(Result_GcFailedToGetSecurityInfo);
 }
 
 } // namespace sphaira::ui::menu::gc

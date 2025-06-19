@@ -23,7 +23,7 @@ void thread_func(void* user) {
         }
 
         const auto rc = app->m_usb_source->IsUsbConnected(CONNECTION_TIMEOUT);
-        if (rc == ::sphaira::usb::UsbDs::Result_Cancelled) {
+        if (rc == Result_UsbCancelled) {
             break;
         }
 

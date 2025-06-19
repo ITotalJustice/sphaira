@@ -21,6 +21,7 @@
 #include "hasher.hpp"
 #include "location.hpp"
 #include "threaded_file_transfer.hpp"
+#include "minizip_helper.hpp"
 
 #include "yati/yati.hpp"
 #include "yati/source/file.hpp"
@@ -42,6 +43,8 @@
 
 namespace sphaira::ui::menu::filebrowser {
 namespace {
+
+constinit UEvent g_change_uevent;
 
 constexpr FsEntry FS_ENTRY_DEFAULT{
     "microSD card", "/", FsType::Sd, FsEntryFlag_Assoc,
@@ -288,6 +291,10 @@ auto GetRomIcon(fs::Fs* fs, ProgressBox* pbox, std::string filename, const RomDa
 
 } // namespace
 
+void SignalChange() {
+    ueventSignal(&g_change_uevent);
+}
+
 FsView::FsView(Menu* menu, const fs::FsPath& path, const FsEntry& entry, ViewSide side) : m_menu{menu}, m_side{side} {
     this->SetActions(
         std::make_pair(Button::L2, Action{[this](){
@@ -435,7 +442,6 @@ FsView::~FsView() {
 }
 
 void FsView::Update(Controller* controller, TouchInfo* touch) {
-    Widget::Update(controller, touch);
     m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
         if (touch && m_index == i) {
             FireAction(Button::A);
@@ -722,10 +728,12 @@ void FsView::UnzipFiles(fs::FsPath dir_path) {
     }
 
     App::Push(std::make_shared<ui::ProgressBox>(0, "Extracting "_i18n, "", [this, dir_path, targets](auto pbox) -> Result {
+        const auto is_hdd_fs = m_fs->Root().starts_with("ums");
+
         for (auto& e : targets) {
             pbox->SetTitle(e.GetName());
             const auto zip_out = GetNewPath(e);
-            R_TRY(thread::TransferUnzipAll(pbox, zip_out, m_fs.get(), dir_path));
+            R_TRY(thread::TransferUnzipAll(pbox, zip_out, m_fs.get(), dir_path, nullptr, is_hdd_fs ? thread::Mode::SingleThreaded : thread::Mode::SingleThreadedIfSmaller));
         }
 
         R_SUCCEED();
@@ -780,6 +788,7 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
     App::Push(std::make_shared<ui::ProgressBox>(0, "Compressing "_i18n, "", [this, zip_out, targets](auto pbox) -> Result {
         const auto t = std::time(NULL);
         const auto tm = std::localtime(&t);
+        const auto is_hdd_fs = m_fs->Root().starts_with("ums");
 
         // pre-calculate the time rather than calculate it in the loop.
         zip_fileinfo zip_info{};
@@ -790,8 +799,11 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
         zip_info.tmz_date.tm_mon = tm->tm_mon;
         zip_info.tmz_date.tm_year = tm->tm_year;
 
-        auto zfile = zipOpen(zip_out, APPEND_STATUS_CREATE);
-        R_UNLESS(zfile, 0x1);
+        zlib_filefunc64_def file_func;
+        mz::FileFuncStdio(&file_func);
+
+        auto zfile = zipOpen2_64(zip_out, APPEND_STATUS_CREATE, nullptr, &file_func);
+        R_UNLESS(zfile, Result_ZipOpen2_64);
         ON_SCOPE_EXIT(zipClose(zfile, "sphaira v" APP_VERSION_HASH));
 
         const auto zip_add = [&](const fs::FsPath& file_path) -> Result {
@@ -804,7 +816,7 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
             }
 
             // root paths are banned in zips, they will warn when extracting otherwise.
-            if (file_name_in_zip[0] == '/') {
+            while (file_name_in_zip[0] == '/') {
                 file_name_in_zip++;
             }
 
@@ -812,11 +824,11 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
 
             if (ZIP_OK != zipOpenNewFileInZip(zfile, file_name_in_zip, &zip_info, NULL, 0, NULL, 0, NULL, Z_DEFLATED, Z_DEFAULT_COMPRESSION)) {
                 log_write("failed to add zip for %s\n", file_path.s);
-                R_THROW(0x1);
+                R_THROW(Result_ZipOpenNewFileInZip);
             }
             ON_SCOPE_EXIT(zipCloseFileInZip(zfile));
 
-            return thread::TransferZip(pbox, zfile, m_fs.get(), file_path);
+            return thread::TransferZip(pbox, zfile, m_fs.get(), file_path, nullptr, is_hdd_fs ? thread::Mode::SingleThreaded : thread::Mode::SingleThreadedIfSmaller);
         };
 
         for (auto& e : targets) {
@@ -918,7 +930,7 @@ void FsView::UploadFiles() {
                                 }
                             );
 
-                            R_UNLESS(result.success, 0x1);
+                            R_UNLESS(result.success, Result_FileBrowserFailedUpload);
                             R_SUCCEED();
                         }
                     );
@@ -959,8 +971,8 @@ void FsView::UploadFiles() {
 }
 
 auto FsView::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    ON_SCOPE_EXIT(appletSetCpuBoostMode(ApmCpuBoostMode_Normal));
+    App::SetBoostMode(true);
+    ON_SCOPE_EXIT(App::SetBoostMode(false));
 
     log_write("new scan path: %s\n", new_path.s);
     if (!is_walk_up && !m_path.empty() && !m_entries_current.empty()) {
@@ -1080,13 +1092,17 @@ void FsView::Sort() {
     std::sort(m_entries_current.begin(), m_entries_current.end(), sorter);
 }
 
-void FsView::SortAndFindLastFile() {
+void FsView::SortAndFindLastFile(bool scan) {
     std::optional<LastFile> last_file;
     if (!m_path.empty() && !m_entries_current.empty()) {
         last_file = LastFile(GetEntry().name, m_index, m_list->GetYoff(), m_entries_current.size());
     }
 
-    Sort();
+    if (scan) {
+        Scan(m_path);
+    } else {
+        Sort();
+    }
 
     if (last_file.has_value()) {
         SetIndexFromLastFile(*last_file);
@@ -1167,7 +1183,7 @@ void FsView::OnDeleteCallback() {
                 }
             }
 
-            return DeleteAllCollections(pbox, src_fs, selected, collections);
+            return DeleteAllCollectionsWithSelected(pbox, src_fs, selected, collections);
         }, [this](Result rc){
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
@@ -1194,6 +1210,7 @@ void FsView::OnPasteCallback() {
         App::Push(std::make_shared<ProgressBox>(0, "Pasting"_i18n, "", [this](auto pbox) -> Result {
             auto& selected = m_menu->m_selected;
             auto src_fs = selected.m_view->GetFs();
+            const auto is_same_fs = selected.SameFs(this);
 
             if (selected.SameFs(this) && selected.m_type == SelectedType::Cut) {
                 for (const auto& p : selected.m_files) {
@@ -1258,7 +1275,7 @@ void FsView::OnPasteCallback() {
                     } else {
                         pbox->SetTitle(p.name);
                         pbox->NewTransfer("Copying "_i18n + src_path);
-                        R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path));
+                        R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path, is_same_fs));
                         R_TRY(on_paste_file(src_path, dst_path));
                     }
                 }
@@ -1288,7 +1305,7 @@ void FsView::OnPasteCallback() {
 
                         pbox->SetTitle(p.name);
                         pbox->NewTransfer("Copying "_i18n + src_path);
-                        R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path));
+                        R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path, is_same_fs));
                         R_TRY(on_paste_file(src_path, dst_path));
                     }
                 }
@@ -1300,7 +1317,7 @@ void FsView::OnPasteCallback() {
                 // the folders cannot be deleted until the end as they have to be removed in
                 // reverse order so that the folder can be deleted (it must be empty).
                 if (selected.m_type == SelectedType::Cut) {
-                    R_TRY(DeleteAllCollections(pbox, src_fs, selected, collections, FsDirOpenMode_ReadDirs));
+                    R_TRY(DeleteAllCollectionsWithSelected(pbox, src_fs, selected, collections, FsDirOpenMode_ReadDirs));
                 }
             }
 
@@ -1319,8 +1336,8 @@ void FsView::OnRenameCallback() {
 }
 
 auto FsView::CheckIfUpdateFolder() -> Result {
-    R_UNLESS(IsSd(), FsError_InvalidMountName);
-    R_UNLESS(m_fs->IsNative(), 0x1);
+    R_UNLESS(IsSd(), Result_FileBrowserDirNotDaybreak);
+    R_UNLESS(m_fs->IsNative(), Result_FileBrowserDirNotDaybreak);
 
     // check if we have already tried to find daybreak
     if (m_daybreak_path.has_value() && m_daybreak_path.value().empty()) {
@@ -1344,16 +1361,16 @@ auto FsView::CheckIfUpdateFolder() -> Result {
     }
 
     // check that we have enough ncas and not too many
-    R_UNLESS(m_entries.size() > 150 && m_entries.size() < 300, 0x1);
+    R_UNLESS(m_entries.size() > 150 && m_entries.size() < 300, Result_FileBrowserDirNotDaybreak);
 
     // check that all entries end in .nca
     const auto nca_ext = std::string_view{".nca"};
     for (auto& e : m_entries) {
         // check that we are at the bottom level
-        R_UNLESS(e.type == FsDirEntryType_File, 0x1);
+        R_UNLESS(e.type == FsDirEntryType_File, Result_FileBrowserDirNotDaybreak);
 
         const auto ext = std::strrchr(e.name, '.');
-        R_UNLESS(ext && ext == nca_ext, 0x1);
+        R_UNLESS(ext && ext == nca_ext, Result_FileBrowserDirNotDaybreak);
     }
 
     R_SUCCEED();
@@ -1411,7 +1428,7 @@ auto FsView::get_collections(const fs::FsPath& path, const fs::FsPath& parent_na
     return get_collections(m_fs.get(), path, parent_name, out, inc_size);
 }
 
-static Result DeleteAllCollections(ProgressBox* pbox, fs::Fs* fs, const SelectedStash& selected, const FsDirCollections& collections, u32 mode = FsDirOpenMode_ReadDirs|FsDirOpenMode_ReadFiles) {
+Result FsView::DeleteAllCollections(ProgressBox* pbox, fs::Fs* fs, const FsDirCollections& collections, u32 mode) {
     // delete everything in collections, reversed
     for (const auto& c : std::views::reverse(collections)) {
         const auto delete_func = [&](auto& array) -> Result {
@@ -1439,6 +1456,12 @@ static Result DeleteAllCollections(ProgressBox* pbox, fs::Fs* fs, const Selected
         R_TRY(delete_func(c.files));
         R_TRY(delete_func(c.dirs));
     }
+
+    R_SUCCEED();
+}
+
+static Result DeleteAllCollectionsWithSelected(ProgressBox* pbox, fs::Fs* fs, const SelectedStash& selected, const FsDirCollections& collections, u32 mode = FsDirOpenMode_ReadDirs|FsDirOpenMode_ReadFiles) {
+    R_TRY(FsView::DeleteAllCollections(pbox, fs, collections, mode));
 
     for (const auto& p : selected.m_files) {
         pbox->Yield();
@@ -1753,7 +1776,7 @@ void FsView::DisplayAdvancedOptions() {
     options->Add(std::make_shared<SidebarEntryArray>("Mount"_i18n, mount_items, [this, fs_entries](s64& index_out){
         App::PopToMenu();
         SetFs(fs_entries[index_out].root, fs_entries[index_out]);
-    }, m_fs_entry.name));
+    }, i18n::get(m_fs_entry.name)));
 
     options->Add(std::make_shared<SidebarEntryCallback>("Create File"_i18n, [this](){
         std::string out;
@@ -1848,23 +1871,38 @@ Menu::Menu(u32 flags) : MenuBase{"FileBrowser"_i18n, flags} {
     }
 
     view = view_left = std::make_shared<FsView>(this, ViewSide::Left);
+    ueventCreate(&g_change_uevent, true);
 }
 
 Menu::~Menu() {
 }
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
+    if (R_SUCCEEDED(waitSingle(waiterForUEvent(&g_change_uevent), 0))) {
+        if (IsSplitScreen()) {
+            view_left->SortAndFindLastFile(true);
+            view_right->SortAndFindLastFile(true);
+        } else {
+            view->SortAndFindLastFile(true);
+        }
+    }
+
+    // workaround the buttons not being display properly.
+    // basically, inherit all actions from the view, draw them,
+    // then restore state after.
+    const auto view_actions = view->GetActions();
+    m_actions.insert_range(view_actions);
+    ON_SCOPE_EXIT(RemoveActions(view_actions));
+
     MenuBase::Update(controller, touch);
     view->Update(controller, touch);
 }
 
 void Menu::Draw(NVGcontext* vg, Theme* theme) {
-    // workaround the buttons not being display properly.
-    // basically, inherit all actions from the view, draw them,
-    // then restore state after.
-    const auto actions_copy = GetActions();
-    ON_SCOPE_EXIT(m_actions = actions_copy);
-    m_actions.insert_range(view->GetActions());
+    // see Menu::Update().
+    const auto view_actions = view->GetActions();
+    m_actions.insert_range(view_actions);
+    ON_SCOPE_EXIT(RemoveActions(view_actions));
 
     MenuBase::Draw(vg, theme);
 

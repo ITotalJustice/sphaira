@@ -131,7 +131,7 @@ Result EncryptKeak(const keys::Keys& keys, Header& header, u8 key_generation) {
 }
 
 Result VerifyFixedKey(const Header& header) {
-    R_UNLESS(header.sig_key_gen < std::size(nca_hdr_fixed_key_moduli_retail), 0x1);
+    R_UNLESS(header.sig_key_gen < std::size(nca_hdr_fixed_key_moduli_retail), Result_NcaBadSigKeyGen);
     auto mod = nca_hdr_fixed_key_moduli_retail[header.sig_key_gen];
 
     const u8 E[3] = { 1, 0, 1 };
@@ -141,7 +141,7 @@ Result VerifyFixedKey(const Header& header) {
         new_header.distribution_type ^= 1;
         if (!rsa2048VerifySha256BasedPssSignature(&new_header.magic, 0x200, new_header.rsa_fixed_key, mod, E, sizeof(E))) {
             log_write("FAILED nca header hash\n");
-            R_THROW(0x1);
+            R_THROW(Result_NcaFailedNcaHeaderHashVerify);
         } else {
             log_write("WARNING! nca is converted! distribution_type: %u\n", new_header.distribution_type);
             R_SUCCEED();

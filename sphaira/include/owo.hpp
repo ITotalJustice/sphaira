@@ -20,17 +20,6 @@ struct OwoConfig {
     std::vector<u8> program_nca{};
 };
 
-enum {
-    Module_Owo = 424,
-};
-
-enum OwoError {
-    OwoError_BadArgs = MAKERESULT(Module_Owo, 1),
-};
-
-// fwd
-// struct ui::ProgressBox;
-
 auto install_forwarder(OwoConfig& config, NcmStorageId storage_id) -> Result;
 auto install_forwarder(ui::ProgressBox* pbox, OwoConfig& config, NcmStorageId storage_id) -> Result;
 

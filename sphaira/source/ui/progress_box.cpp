@@ -21,7 +21,7 @@ void threadFunc(void* arg) {
 
 ProgressBox::ProgressBox(int image, const std::string& action, const std::string& title, ProgressBoxCallback callback, ProgressBoxDoneCallback done, int cpuid, int prio, int stack_size) {
     if (App::GetApp()->m_progress_boost_mode.Get()) {
-        appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+        App::SetBoostMode(true);
     }
 
     SetAction(Button::B, Action{"Back"_i18n, [this](){
@@ -67,7 +67,7 @@ ProgressBox::~ProgressBox() {
     FreeImage();
     m_done(m_thread_data.result);
 
-    appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+    App::SetBoostMode(false);
 }
 
 auto ProgressBox::Update(Controller* controller, TouchInfo* touch) -> void {
@@ -88,6 +88,7 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
         m_last_offset = m_offset;
     }
 
+    const auto action = m_action;
     const auto title = m_title;
     const auto transfer = m_transfer;
     const auto size = m_size;
@@ -166,7 +167,7 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
         gfx::drawTextArgs(vg, center_x, prog_bar.y + prog_bar.h + 30, 18, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%s (%s)", time_str, speed_str);
     }
 
-    gfx::drawTextArgs(vg, center_x, m_pos.y + 40, 24, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), m_action.c_str());
+    gfx::drawTextArgs(vg, center_x, m_pos.y + 40, 24, NVG_ALIGN_CENTER | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), action.c_str());
 
     const auto draw_text = [&](ScrollingText& scroll, const std::string& txt, float y, float size, float pad, ThemeEntryID id){
         float bounds[4];
@@ -185,6 +186,14 @@ auto ProgressBox::Draw(NVGcontext* vg, Theme* theme) -> void {
     }
 
     nvgRestore(vg);
+}
+
+auto ProgressBox::SetActionName(const std::string& action)  -> ProgressBox& {
+    mutexLock(&m_mutex);
+    m_action = action;
+    mutexUnlock(&m_mutex);
+    Yield();
+    return *this;
 }
 
 auto ProgressBox::SetTitle(const std::string& title)  -> ProgressBox& {
@@ -249,12 +258,12 @@ auto ProgressBox::ShouldExit() -> bool {
 
 auto ProgressBox::ShouldExitResult() -> Result {
     if (ShouldExit()) {
-        R_THROW(0xFFFF);
+        R_THROW(Result_TransferCancelled);
     }
     R_SUCCEED();
 }
 
-auto ProgressBox::CopyFile(fs::Fs* fs_src, fs::Fs* fs_dst, const fs::FsPath& src_path, const fs::FsPath& dst_path) -> Result {
+auto ProgressBox::CopyFile(fs::Fs* fs_src, fs::Fs* fs_dst, const fs::FsPath& src_path, const fs::FsPath& dst_path, bool single_threaded) -> Result {
     const auto is_file_based_emummc = App::IsFileBaseEmummc();
     const auto is_both_native = fs_src->IsNative() && fs_dst->IsNative();
 
@@ -291,20 +300,20 @@ auto ProgressBox::CopyFile(fs::Fs* fs_src, fs::Fs* fs_dst, const fs::FsPath& src
             }
 
             return rc;
-        }
+        }, single_threaded ? thread::Mode::SingleThreaded : thread::Mode::MultiThreaded
     ));
 
     R_SUCCEED();
 }
 
-auto ProgressBox::CopyFile(fs::Fs* fs, const fs::FsPath& src_path, const fs::FsPath& dst_path) -> Result {
-    return CopyFile(fs, fs, src_path, dst_path);
+auto ProgressBox::CopyFile(fs::Fs* fs, const fs::FsPath& src_path, const fs::FsPath& dst_path, bool single_threaded) -> Result {
+    return CopyFile(fs, fs, src_path, dst_path, single_threaded);
 }
 
-auto ProgressBox::CopyFile(const fs::FsPath& src_path, const fs::FsPath& dst_path) -> Result {
+auto ProgressBox::CopyFile(const fs::FsPath& src_path, const fs::FsPath& dst_path, bool single_threaded) -> Result {
     fs::FsNativeSd fs;
     R_TRY(fs.GetFsOpenResult());
-    return CopyFile(&fs, src_path, dst_path);
+    return CopyFile(&fs, src_path, dst_path, single_threaded);
 }
 
 void ProgressBox::Yield() {
