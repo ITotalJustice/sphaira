@@ -89,7 +89,11 @@
   "Delete successfull!": "Удаление успешно!",
   "Delete failed!": "Ошибка удаления!",
   "Success": "Успех",
+  "Refresh": "Обновить",
+  "Create contents folder": "Создать папку Contents",
+  "Create save": "Создать сохранение",
   "Title cache": "Кэш заголовков",
+  "Delete title cache": "Удалить кэш заголовков",
 
   "Saves": "Сохранения",
   "Save Options": "Опции сохранений",
@@ -234,6 +238,7 @@
 
   "Advanced": "Продвинутые",
   "Advanced Options": "Расширенные опции",
+  "Advanced options": "Расширенные опции",
   "Logging": "Логи",
   "Replace hbmenu on exit": "Замена hbmenu при выходе",
   "Restore hbmenu?": "Восстановить hbmenu?",
@@ -276,6 +281,7 @@
   "Convert to standard crypto": "Конверт. в стандарт. крипт.",
   "Lower master key": "Снизить мастер-ключ",
   "Lower system version": "Снизить версию системы",
+  "Disable erpt_reports": "Отключить \"erpt_reports\"",
 
   "Homebrew": "Homebrew",
   "Apps": "Приложения",
