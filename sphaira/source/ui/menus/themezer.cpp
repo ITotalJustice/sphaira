@@ -60,9 +60,6 @@ constexpr const char* REQUEST_ORDER[]{
     "asc"
 };
 
-// https://api.themezer.net/?query=query($nsfw:Boolean,$target:String,$page:Int,$limit:Int,$sort:String,$order:String,$query:String,$creators:[String!]){themeList(nsfw:$nsfw,target:$target,page:$page,limit:$limit,sort:$sort,order:$order,query:$query,creators:$creators){id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}}&variables={"nsfw":false,"target":null,"page":1,"limit":10,"sort":"updated","order":"desc","query":null,"creators":["695065006068334622"]}
-// https://api.themezer.net/?query=query($nsfw:Boolean,$page:Int,$limit:Int,$sort:String,$order:String,$query:String,$creators:[String!]){packList(nsfw:$nsfw,page:$page,limit:$limit,sort:$sort,order:$order,query:$query,creators:$creators){id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count,themes{id,creator{display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}}}&variables={"nsfw":false,"page":1,"limit":10,"sort":"updated","order":"desc","query":null,"creators":["695065006068334622"]}
-
 auto GetNroPath() -> const char* {
     fs::FsNativeSd fs;
     for (auto& path : NRO_PATHS) {
@@ -78,56 +75,34 @@ auto HasNro() -> bool {
     return GetNroPath() != nullptr;
 }
 
-// i know, this is cursed
-// todo: send actual POST request rather than GET.
+// New API URL
 auto apiBuildUrlListInternal(const Config& e, bool is_pack) -> std::string {
-    std::string api = "https://api.themezer.net/?query=query";
-    // std::string fields = "{id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count";
-    std::string fields = "{id,creator{id,display_name},details{name}";
-    const char* boolarr[2] = { "false", "true" };
-
-    std::string cmd;
-    std::string p0 = "$nsfw:Boolean,$page:Int,$limit:Int,$sort:String,$order:String";
-    std::string p1 = "nsfw:$nsfw,page:$page,limit:$limit,sort:$sort,order:$order";
-    std::string json = "\"nsfw\":"+std::string{boolarr[e.nsfw]}+",\"page\":"+std::to_string(e.page)+",\"limit\":"+std::to_string(e.limit)+",\"sort\":\""+std::string{REQUEST_SORT[e.sort_index]}+"\",\"order\":\""+std::string{REQUEST_ORDER[e.order_index]}+"\"";
-
-    if (is_pack) {
-        cmd = "packList";
-        // fields += ",themes{id,creator{display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}";
-        fields += ",themes{id,preview{thumb}}";
-    } else {
-        cmd = "themeList";
-        p0 += ",$target:String";
-        p1 += ",target:$target";
-        if (e.target_index < 7) {
-            json += ",\"target\":\"" + std::string{REQUEST_TARGET[e.target_index]} + "\"";
-        } else {
-            json += ",\"target\":null";
-        }
-    }
-
+    std::string base_url = "https://api.themezer.net/switch/nxinstaller/";
+    
+    std::string params;
+    params += "?nsfw=" + std::string(e.nsfw ? "true" : "false");
+    params += "&page=" + std::to_string(e.page);
+    params += "&limit=" + std::to_string(e.limit);
+    params += "&sort=" + std::string(REQUEST_SORT[e.sort_index]);
+    params += "&order=" + std::string(REQUEST_ORDER[e.order_index]);
+    
     if (!e.creator.empty()) {
-        p0 += ",$creators:[String!]";
-        p1 += ",creators:$creators";
-        json += ",\"creators\":[\"" + e.creator + "\"]";
+        params += "&creators=" + e.creator;
     }
-
+    
     if (!e.query.empty()) {
-        p0 += ",$query:String";
-        p1 += ",query:$query";
-        json += ",\"query\":\"" + e.query + "\"";
+        params += "&query=" + curl::EscapeString(e.query);
     }
-
-    json = curl::EscapeString('{'+json+'}');
-
-    return api+"("+p0+"){"+cmd+"("+p1+")"+fields+"}}&variables="+json;
+    
+    if (!is_pack && e.target_index < 7) {
+        params += "&target=" + std::string(REQUEST_TARGET[e.target_index]);
+    }
+    
+    return base_url + params;
 }
 
 auto apiBuildUrlDownloadInternal(const std::string& id, bool is_pack) -> std::string {
-    char url[2048];
-    std::snprintf(url, sizeof(url), "https://api.themezer.net/?query=query{download%s(id:\"%s\"){filename,url,mimetype}}", is_pack ? "Pack" : "Theme", id.c_str());
-    return url;
-    // https://api.themezer.net/?query=query{downloadPack(id:"11"){filename,url,mimetype}}
+    return "https://api.themezer.net/switch/nxinstaller/" + id + "/download";
 }
 
 auto apiBuildUrlDownloadPack(const PackListEntry& e) -> std::string {
@@ -153,9 +128,7 @@ auto apiBuildIconCache(const ThemeEntry& e) -> fs::FsPath {
 auto loadThemeImage(ThemeEntry& e) -> bool {
     auto& image = e.preview.lazy_image;
 
-    // already have the image
     if (e.preview.lazy_image.image) {
-        // log_write("warning, tried to load image: %s when already loaded\n", path.c_str());
         return true;
     }
     auto vg = App::GetVg();
@@ -174,7 +147,6 @@ auto loadThemeImage(ThemeEntry& e) -> bool {
         log_write("failed to load image from file: %s\n", path.s);
         return false;
     } else {
-        // log_write("loaded image from file: %s\n", path);
         return true;
     }
 }
@@ -234,9 +206,12 @@ void from_json(const std::vector<u8>& data, DownloadPack& e) {
 }
 
 void from_json(const fs::FsPath& path, PackList& e) {
-    JSON_INIT_VEC_FILE(path, "data", nullptr);
+    JSON_INIT_VEC_FILE(path, "themes", nullptr); // 新的API响应中主题列表在"themes"字段中
     JSON_OBJ_ITR(
         JSON_SET_ARR_OBJ(packList);
+        if (yyjson_obj_get(root, "groupname")) {
+            JSON_SET_STR(groupname);
+        }
         JSON_SET_OBJ(pagination);
     );
 }
@@ -247,35 +222,14 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
     fs::FsNativeSd fs;
     R_TRY(fs.GetFsOpenResult());
 
-    DownloadPack download_pack;
+    std::string download_url = apiBuildUrlDownloadPack(entry);
 
-    // 1. download the zip
     if (!pbox->ShouldExit()) {
         pbox->NewTransfer("Downloading "_i18n + entry.details.name);
-        log_write("starting download\n");
-
-        const auto url = apiBuildUrlDownloadPack(entry);
-        log_write("using url: %s\n", url.c_str());
-        const auto result = curl::Api().ToMemory(
-            curl::Url{url},
-            curl::OnProgress{pbox->OnDownloadProgressCallback()}
-        );
-
-        if (!result.success || result.data.empty()) {
-            log_write("error with download: %s\n", url.c_str());
-            R_THROW(Result_ThemezerFailedToDownloadThemeMeta);
-        }
-
-        from_json(result.data, download_pack);
-    }
-
-    // 2. download the zip
-    if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.details.name);
-        log_write("starting download: %s\n", download_pack.url.c_str());
+        log_write("starting download: %s\n", download_url.c_str());
 
         const auto result = curl::Api().ToFile(
-            curl::Url{download_pack.url},
+            curl::Url{download_url},
             curl::Path{zip_out},
             curl::OnProgress{pbox->OnDownloadProgressCallback()}
         );
@@ -285,39 +239,29 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
 
     ON_SCOPE_EXIT(fs.DeleteFile(zip_out));
 
-    // replace invalid characters in the name.
     fs::FsPath name_buf{entry.details.name};
     title::utilsReplaceIllegalCharacters(name_buf, false);
 
-    // replace invalid characters in the author.
     fs::FsPath author_buf{entry.creator.display_name};
     title::utilsReplaceIllegalCharacters(author_buf, false);
 
-    // create directories.
     fs::FsPath dir_path;
     std::snprintf(dir_path, sizeof(dir_path), "%s/%s - By %s", THEME_FOLDER.s, name_buf.s, author_buf.s);
     fs.CreateDirectoryRecursively(dir_path);
 
-    // 3. extract the zip
     std::vector<std::string> nxtheme_paths;
     if (!pbox->ShouldExit()) {
         R_TRY(thread::TransferUnzipAll(pbox, zip_out, &fs, dir_path, [&nxtheme_paths](const fs::FsPath& name, fs::FsPath& path){
-            // just in case theme packs start adding invalid entries.
             if (!path.ends_with(".nxtheme")) {
                 return false;
             }
-
-            // store path for later.
             nxtheme_paths.emplace_back(path);
             return true;
         }));
     }
 
-    // ensure that we actually downloaded the theme.
-    // todo: add new error for this.
     R_UNLESS(!nxtheme_paths.empty(), Result_ThemezerFailedToDownloadTheme);
 
-    // if we have nxtheme installed, prompt the user to install the theme now.
     if (HasNro()) {
         App::Push<OptionBox>(
             "Theme downloaded, install now?"_i18n,
@@ -326,19 +270,15 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
                     std::string args;
 
                     for (const auto& paths : nxtheme_paths) {
-                        // add space between each arg.
                         if (!args.empty()) {
                             args += ' ';
                         }
-
-                        // converts path to sdmc:/path.
                         args += nro_add_arg_file(paths);
                     }
 
                     log_write("themezer nro: %s\n", GetNroPath());
                     log_write("themezer args: %s\n", args.c_str());
 
-                    // launch nro with args to the nxthemes.
                     const auto rc = nro_launch(GetNroPath(), args);
                     App::PushErrorBox(rc, "Failed to launch NXthemes_Installer.nro"_i18n);
                 }
@@ -362,7 +302,6 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
     fs::FsNativeSd().CreateDirectoryRecursively(CACHE_PATH);
 
     SetAction(Button::B, Action{"Back"_i18n, [this]{
-        // if search is valid, then we are in search mode, return back to normal.
         if (!m_search.empty()) {
             m_search.clear();
             InvalidateAllPages();
@@ -380,13 +319,10 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
                         const auto& page = m_pages[m_page_index];
                         if (page.m_packList.size() && page.m_ready == PageLoadState::Done) {
                             const auto& entry = page.m_packList[m_index];
-                            const auto url = apiBuildUrlDownloadPack(entry);
-
                             App::Push<ProgressBox>(entry.themes[0].preview.lazy_image.image, "Downloading "_i18n, entry.details.name, [this, &entry](auto pbox) -> Result {
                                 return InstallTheme(pbox, entry);
                             }, [this, &entry](Result rc){
                                 App::PushErrorBox(rc, "Failed to download theme"_i18n);
-
                                 if (R_SUCCEEDED(rc)) {
                                     App::Notify("Downloaded "_i18n + entry.details.name);
                                 }
@@ -474,7 +410,6 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             return;
     }
 
-    // max images per frame, in order to not hit io / gpu too hard.
     const int image_load_max = 2;
     int image_load_count = 0;
 
@@ -493,12 +428,10 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
         const float xoff = (350 - 320) / 2;
 
-        // lazy load image
         if (e.themes.size()) {
             auto& theme = e.themes[0];
             auto& image = e.themes[0].preview.lazy_image;
 
-            // try and load cached image.
             if (image_load_count < image_load_max && !image.image && !image.tried_cache) {
                 image.tried_cache = true;
                 image.cached = loadThemeImage(theme);
@@ -524,7 +457,6 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
                             curl::OnComplete{[this, &image](auto& result) {
                                 if (result.success) {
                                     image.state = ImageDownloadState::Done;
-                                    // data hasn't changed
                                     if (result.code == 304) {
                                         image.cached = false;
                                     }
@@ -568,7 +500,6 @@ void Menu::OnFocusGained() {
     if (!m_checked_for_nro) {
         m_checked_for_nro = true;
 
-        // check if we have the nro, if not, then prompt the user to download from the appstore.
         if (!HasNro()) {
             App::Push<OptionBox>(
                 "NXthemes_Installer.nro not found, download now?"_i18n,
@@ -576,7 +507,6 @@ void Menu::OnFocusGained() {
                     if (op_index && *op_index) {
                         const gh::AssetEntry asset{
                             .name = "NXThemesInstaller.nro",
-                            // same path as appstore
                             .path = "/switch/Switch_themes_Installer/NXThemesInstaller.nro",
                         };
 
@@ -604,7 +534,6 @@ void Menu::PackListDownload() {
     m_index = 0;
     m_list->SetYoff(0);
 
-    // already downloaded
     if (m_pages[m_page_index].m_ready != PageLoadState::None) {
         return;
     }
@@ -709,7 +638,6 @@ void Menu::DisplayOptions() {
         std::string out;
         if (R_SUCCEEDED(swkbd::ShowText(out)) && !out.empty()) {
             m_search = out;
-            // PackListDownload();
             InvalidateAllPages();
         }
     });
