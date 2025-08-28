@@ -3,6 +3,10 @@
 #include "threaded_file_transfer.hpp"
 #include <mbedtls/md5.h>
 #include <utility>
+#include <array>
+#include <algorithm>
+#include <cstring>
+#include <cstdio>
 
 namespace sphaira::hash {
 namespace {
@@ -18,10 +22,16 @@ struct FileSource final : BaseSource {
     }
 
     Result Size(s64* out) override {
+        if (R_FAILED(m_open_result)) return m_open_result;
         return m_file.GetSize(out);
     }
 
     Result Read(void* buf, s64 off, s64 size, u64* bytes_read) override {
+        if (R_FAILED(m_open_result)) {
+            if (bytes_read) *bytes_read = 0;
+            return m_open_result;
+        }
+
         const auto rc = m_file.Read(off, buf, size, 0, bytes_read);
         if (m_fs->IsNative() && m_is_file_based_emummc) {
             svcSleepThread(2e+6); // 2ms
@@ -40,14 +50,25 @@ struct MemSource final : BaseSource {
     MemSource(std::span<const u8> data) : m_data{data} { }
 
     Result Size(s64* out) override {
-        *out = m_data.size();
+        *out = static_cast<s64>(m_data.size());
         R_SUCCEED();
     }
 
     Result Read(void* buf, s64 off, s64 size, u64* bytes_read) override {
-        size = std::min<s64>(size, m_data.size() - off);
-        std::memcpy(buf, m_data.data() + off, size);
-        *bytes_read = size;
+        if (off < 0) {
+            if (bytes_read) *bytes_read = 0;
+            R_SUCCEED();
+        }
+
+        const auto avail = static_cast<s64>(m_data.size()) - off;
+        if (avail <= 0) {
+            if (bytes_read) *bytes_read = 0;
+            R_SUCCEED();
+        }
+
+        const auto to_read = std::min<s64>(size, avail);
+        std::memcpy(buf, m_data.data() + off, static_cast<size_t>(to_read));
+        if (bytes_read) *bytes_read = static_cast<u64>(to_read);
         R_SUCCEED();
     }
 
@@ -68,7 +89,13 @@ struct HashCrc32 final : HashSource {
 
     void Get(std::string& out) override {
         char str[CalculateHashStrLen(sizeof(m_seed))];
-        std::snprintf(str, sizeof(str), "%08x", m_seed);
+        const char* hex = "0123456789abcdef";
+        for (size_t i = 0; i < sizeof(m_seed); ++i) {
+            const auto byte = static_cast<unsigned char>((m_seed >> ((sizeof(m_seed) - 1 - i) * 8)) & 0xFF);
+            str[i * 2] = hex[(byte >> 4) & 0xF];
+            str[i * 2 + 1] = hex[byte & 0xF];
+        }
+        str[sizeof(m_seed) * 2] = '\0';
         out = str;
     }
 
@@ -79,7 +106,7 @@ private:
 struct HashMd5 final : HashSource {
     HashMd5() {
         mbedtls_md5_init(&m_ctx);
-        mbedtls_md5_starts_ret(&m_ctx);
+        (void)mbedtls_md5_starts_ret(&m_ctx);
     }
 
     ~HashMd5() {
@@ -87,19 +114,22 @@ struct HashMd5 final : HashSource {
     }
 
     void Update(const void* buf, s64 size) override {
-        mbedtls_md5_update_ret(&m_ctx, (const u8*)buf, size);
+        (void)mbedtls_md5_update_ret(&m_ctx, reinterpret_cast<const unsigned char*>(buf), static_cast<size_t>(size));
     }
 
     void Get(std::string& out) override {
-        u8 hash[16];
-        mbedtls_md5_finish_ret(&m_ctx, hash);
+        unsigned char hash[16];
+        (void)mbedtls_md5_finish_ret(&m_ctx, hash);
 
-        char str[CalculateHashStrLen(sizeof(hash))];
-        for (u32 i = 0; i < sizeof(hash); i++) {
-            std::sprintf(str + i * 2, "%02x", hash[i]);
+        constexpr size_t N = sizeof(hash) * 2 + 1;
+        std::array<char, N> str{};
+        const char* hex = "0123456789abcdef";
+        for (size_t i = 0; i < sizeof(hash); ++i) {
+            str[i * 2] = hex[(hash[i] >> 4) & 0xF];
+            str[i * 2 + 1] = hex[hash[i] & 0xF];
         }
-
-        out = str;
+        str[sizeof(hash) * 2] = '\0';
+        out.assign(str.data());
     }
 
 private:
@@ -119,12 +149,15 @@ struct HashSha1 final : HashSource {
         u8 hash[SHA1_HASH_SIZE];
         sha1ContextGetHash(&m_ctx, hash);
 
-        char str[CalculateHashStrLen(sizeof(hash))];
-        for (u32 i = 0; i < sizeof(hash); i++) {
-            std::sprintf(str + i * 2, "%02x", hash[i]);
+        constexpr size_t N = sizeof(hash) * 2 + 1;
+        std::array<char, N> str{};
+        const char* hex = "0123456789abcdef";
+        for (size_t i = 0; i < sizeof(hash); ++i) {
+            str[i * 2] = hex[(hash[i] >> 4) & 0xF];
+            str[i * 2 + 1] = hex[hash[i] & 0xF];
         }
-
-        out = str;
+        str[sizeof(hash) * 2] = '\0';
+        out.assign(str.data());
     }
 
 private:
@@ -144,12 +177,15 @@ struct HashSha256 final : HashSource {
         u8 hash[SHA256_HASH_SIZE];
         sha256ContextGetHash(&m_ctx, hash);
 
-        char str[CalculateHashStrLen(sizeof(hash))];
-        for (u32 i = 0; i < sizeof(hash); i++) {
-            std::sprintf(str + i * 2, "%02x", hash[i]);
+        constexpr size_t N = sizeof(hash) * 2 + 1;
+        std::array<char, N> str{};
+        const char* hex = "0123456789abcdef";
+        for (size_t i = 0; i < sizeof(hash); ++i) {
+            str[i * 2] = hex[(hash[i] >> 4) & 0xF];
+            str[i * 2 + 1] = hex[hash[i] & 0xF];
         }
-
-        out = str;
+        str[sizeof(hash) * 2] = '\0';
+        out.assign(str.data());
     }
 
 private:
@@ -206,4 +242,4 @@ Result Hash(ui::ProgressBox* pbox, Type type, std::span<const u8> data, std::str
     return Hash(pbox, type, source.get(), out);
 }
 
-} // namespace sphaira::has
+} // namespace sphaira::hash
