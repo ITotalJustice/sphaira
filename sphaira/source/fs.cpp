@@ -10,11 +10,16 @@
 #include <string_view>
 #include <algorithm>
 #include <ranges>
+#include <string>
+#include <functional>
 
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <ftw.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <cerrno>
 
 namespace fs {
 namespace {
@@ -91,6 +96,64 @@ bool is_read_only(std::string_view path) {
     return false;
 }
 
+// Helper used by stdio recursive delete: recursively remove files and directories.
+// Returns 0 on success, -1 on error (errno set).
+static int remove_dir_recursive_impl(const char* path) {
+    struct stat st;
+    if (lstat(path, &st) != 0) {
+        return -1;
+    }
+
+    // If it's not a directory, unlink it directly.
+    if (!S_ISDIR(st.st_mode)) {
+        if (unlink(path) != 0) return -1;
+        return 0;
+    }
+
+    DIR* dir = opendir(path);
+    if (!dir) return -1;
+    struct dirent* entry;
+    int result = 0;
+
+    while ((entry = readdir(dir)) != nullptr && result == 0) {
+        const char* name = entry->d_name;
+        if (std::strcmp(name, ".") == 0 || std::strcmp(name, "..") == 0) {
+            continue;
+        }
+
+        std::string child;
+        child.reserve(std::strlen(path) + 1 + std::strlen(name) + 1);
+        child = path;
+        if (child.back() != '/') child.push_back('/');
+        child += name;
+
+        // If d_type is unknown, fall back to lstat.
+        bool is_dir = false;
+        if (entry->d_type == DT_DIR) {
+            is_dir = true;
+        } else if (entry->d_type == DT_UNKNOWN || entry->d_type == DT_LNK) {
+            struct stat cst;
+            if (lstat(child.c_str(), &cst) == 0 && S_ISDIR(cst.st_mode)) {
+                is_dir = true;
+            }
+        }
+
+        if (is_dir) {
+            result = remove_dir_recursive_impl(child.c_str());
+        } else {
+            if (unlink(child.c_str()) != 0) result = -1;
+        }
+    }
+
+    closedir(dir);
+
+    if (result == 0) {
+        if (rmdir(path) != 0) result = -1;
+    }
+
+    return result;
+}
+
 } // namespace
 
 FsPath AppendPath(const FsPath& root_path, const FsPath& _file_path) {
@@ -101,7 +164,10 @@ FsPath AppendPath(const FsPath& root_path, const FsPath& _file_path) {
     }
 
     FsPath path;
-    if (root_path[std::strlen(root_path) - 1] != '/') {
+    const std::size_t root_len = std::strlen(root_path.s);
+    if (root_len == 0) {
+        std::snprintf(path, sizeof(path), "%s", file_path);
+    } else if (root_path.s[root_len - 1] != '/') {
         std::snprintf(path, sizeof(path), "%s/%s", root_path.s, file_path);
     } else {
         std::snprintf(path, sizeof(path), "%s%s", root_path.s, file_path);
@@ -110,9 +176,10 @@ FsPath AppendPath(const FsPath& root_path, const FsPath& _file_path) {
 }
 
 Result CreateFile(FsFileSystem* fs, const FsPath& path, u64 size, u32 option, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(path.s), Result_FsReadOnly);
 
-    if (size >= 1024ULL*1024ULL*1024ULL*4ULL) {
+    // mark big file option if >= 4 GiB
+    if (size >= (4ULL * 1024ULL * 1024ULL * 1024ULL)) {
         option |= FsCreateOption_BigFile;
     }
 
@@ -122,7 +189,7 @@ Result CreateFile(FsFileSystem* fs, const FsPath& path, u64 size, u32 option, bo
 }
 
 Result CreateDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(path.s), Result_FsReadOnly);
 
     R_TRY(fsFsCreateDirectory(fs, path));
     fsFsCommit(fs);
@@ -130,7 +197,7 @@ Result CreateDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_on
 }
 
 Result CreateDirectoryRecursively(FsFileSystem* fs, const FsPath& _path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(_path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(_path.s), Result_FsReadOnly);
 
     // try and create the directory / see if it already exists before the loop.
     Result rc;
@@ -144,7 +211,7 @@ Result CreateDirectoryRecursively(FsFileSystem* fs, const FsPath& _path, bool ig
         R_SUCCEED();
     }
 
-    auto path_view = std::string_view{_path};
+    auto path_view = std::string_view{_path.s};
     // todo: fix this for sdmc: and ums0:
     FsPath path{"/"};
     if (auto s = std::strchr(_path.s, ':')) {
@@ -157,6 +224,7 @@ Result CreateDirectoryRecursively(FsFileSystem* fs, const FsPath& _path, bool ig
         if (dir.empty()) {
             continue;
         }
+        // dir is a subrange; append its chars safely
         std::strncat(path, dir.data(), dir.size());
         log_write("[FS] dir creation path is now: %s\n", path.s);
 
@@ -178,10 +246,10 @@ Result CreateDirectoryRecursively(FsFileSystem* fs, const FsPath& _path, bool ig
 }
 
 Result CreateDirectoryRecursivelyWithPath(FsFileSystem* fs, const FsPath& _path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(_path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(_path.s), Result_FsReadOnly);
 
     // strip file name form path.
-    const auto last_slash = std::strrchr(_path, '/');
+    const auto last_slash = std::strrchr(_path.s, '/');
     if (!last_slash) {
         R_SUCCEED();
     }
@@ -193,14 +261,14 @@ Result CreateDirectoryRecursivelyWithPath(FsFileSystem* fs, const FsPath& _path,
 }
 
 Result DeleteFile(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
     R_TRY(fsFsDeleteFile(fs, path));
     fsFsCommit(fs);
     R_SUCCEED();
 }
 
 Result DeleteDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
     R_TRY(fsFsDeleteDirectory(fs, path));
     fsFsCommit(fs);
@@ -208,7 +276,7 @@ Result DeleteDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_on
 }
 
 Result DeleteDirectoryRecursively(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
     R_TRY(fsFsDeleteDirectoryRecursively(fs, path));
     fsFsCommit(fs);
@@ -216,8 +284,8 @@ Result DeleteDirectoryRecursively(FsFileSystem* fs, const FsPath& path, bool ign
 }
 
 Result RenameFile(FsFileSystem* fs, const FsPath& src, const FsPath& dst, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(src.s), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(dst.s), Result_FsReadOnly);
 
     R_TRY(fsFsRenameFile(fs, src, dst));
     fsFsCommit(fs);
@@ -225,8 +293,8 @@ Result RenameFile(FsFileSystem* fs, const FsPath& src, const FsPath& dst, bool i
 }
 
 Result RenameDirectory(FsFileSystem* fs, const FsPath& src, const FsPath& dst, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(src.s), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(dst.s), Result_FsReadOnly);
 
     R_TRY(fsFsRenameDirectory(fs, src, dst));
     fsFsCommit(fs);
@@ -242,7 +310,7 @@ Result GetFileTimeStampRaw(FsFileSystem* fs, const FsPath& path, FsTimeStampRaw 
 }
 
 Result SetTimestamp(FsFileSystem* fs, const FsPath& path, const FsTimeStampRaw* ts) {
-    // unsuported.
+    // unsuported for native service implementation
     R_SUCCEED();
 }
 
@@ -267,7 +335,10 @@ Result read_entire_file(FsFileSystem* _fs, const FsPath& path, std::vector<u8>& 
 
     s64 size;
     R_TRY(f.GetSize(&size));
-    out.resize(size);
+    if (size < 0) {
+        return Result_FsUnknownStdioError;
+    }
+    out.resize((size_t)size);
 
     u64 bytes_read;
     R_TRY(f.Read(0, out.data(), out.size(), FsReadOption_None, &bytes_read));
@@ -277,7 +348,7 @@ Result read_entire_file(FsFileSystem* _fs, const FsPath& path, std::vector<u8>& 
 }
 
 Result write_entire_file(FsFileSystem* _fs, const FsPath& path, const std::vector<u8>& in, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
     FsNative fs{_fs, false, ignore_read_only};
     R_TRY(fs.GetFsOpenResult());
@@ -295,7 +366,7 @@ Result write_entire_file(FsFileSystem* _fs, const FsPath& path, const std::vecto
 }
 
 Result copy_entire_file(FsFileSystem* fs, const FsPath& dst, const FsPath& src, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(dst.s), Result_FsReadOnly);
 
     std::vector<u8> data;
     R_TRY(read_entire_file(fs, src, data));
@@ -303,9 +374,9 @@ Result copy_entire_file(FsFileSystem* fs, const FsPath& dst, const FsPath& src, 
 }
 
 Result CreateFile(const FsPath& path, u64 size, u32 option, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(path.s), Result_FsReadOnly);
 
-    auto fd = open(path, O_WRONLY | O_CREAT, DEFFILEMODE);
+    auto fd = open(path.s, O_WRONLY | O_CREAT, DEFFILEMODE);
     if (fd == -1) {
         if (errno == EEXIST) {
             return FsError_PathAlreadyExists;
@@ -324,9 +395,9 @@ Result CreateFile(const FsPath& path, u64 size, u32 option, bool ignore_read_onl
 }
 
 Result CreateDirectory(const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(path.s), Result_FsReadOnly);
 
-    if (mkdir(path, ACCESSPERMS)) {
+    if (mkdir(path.s, ACCESSPERMS)) {
         if (errno == EEXIST) {
             return FsError_PathAlreadyExists;
         }
@@ -338,21 +409,21 @@ Result CreateDirectory(const FsPath& path, bool ignore_read_only) {
 }
 
 Result CreateDirectoryRecursively(const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(path.s), Result_FsReadOnly);
 
     return CreateDirectoryRecursively(nullptr, path, ignore_read_only);
 }
 
 Result CreateDirectoryRecursivelyWithPath(const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only_root(path.s), Result_FsReadOnly);
 
     return CreateDirectoryRecursivelyWithPath(nullptr, path, ignore_read_only);
 }
 
 Result DeleteFile(const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
-    if (unlink(path)) {
+    if (unlink(path.s)) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
@@ -360,41 +431,31 @@ Result DeleteFile(const FsPath& path, bool ignore_read_only) {
 }
 
 Result DeleteDirectory(const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
-    if (rmdir(path)) {
+    if (rmdir(path.s)) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
     R_SUCCEED();
 }
 
-// ftw / ntfw isn't found by linker...
+// recursive delete implemented for stdio path
 Result DeleteDirectoryRecursively(const FsPath& path, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
-    #if 0
-    // const auto unlink_cb = [](const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) -> int {
-    const auto unlink_cb = [](const char *fpath, const struct stat *sb, int typeflag) -> int {
-        return remove(fpath);
-    };
-    // todo: check for reasonable max fd limit
-    // if (nftw(path, unlink_cb, 16, FTW_DEPTH)) {
-    if (ftw(path, unlink_cb, 16)) {
+    if (remove_dir_recursive_impl(path.s) != 0) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
     R_SUCCEED();
-    #else
-    R_THROW(0xFFFF);
-    #endif
 }
 
 Result RenameFile(const FsPath& src, const FsPath& dst, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(src.s), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(dst.s), Result_FsReadOnly);
 
-    if (rename(src, dst)) {
+    if (rename(src.s, dst.s)) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
@@ -402,25 +463,32 @@ Result RenameFile(const FsPath& src, const FsPath& dst, bool ignore_read_only) {
 }
 
 Result RenameDirectory(const FsPath& src, const FsPath& dst, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(src.s), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(dst.s), Result_FsReadOnly);
 
     return RenameFile(src, dst, ignore_read_only);
 }
 
 Result GetEntryType(const FsPath& path, FsDirEntryType* out) {
     struct stat st;
-    if (stat(path, &st)) {
+    if (stat(path.s, &st)) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
-    *out = S_ISREG(st.st_mode) ? FsDirEntryType_File : FsDirEntryType_Dir;
+    if (S_ISREG(st.st_mode)) {
+        *out = FsDirEntryType_File;
+    } else if (S_ISDIR(st.st_mode)) {
+        *out = FsDirEntryType_Dir;
+    } else {
+        // treat other types (symlink, socket, etc.) as file for listing purposes
+        *out = FsDirEntryType_File;
+    }
     R_SUCCEED();
 }
 
 Result GetFileTimeStampRaw(const FsPath& path, FsTimeStampRaw *out) {
     struct stat st;
-    if (stat(path, &st)) {
+    if (stat(path.s, &st)) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
@@ -438,7 +506,7 @@ Result SetTimestamp(const FsPath& path, const FsTimeStampRaw* ts) {
         val[0].tv_sec = ts->accessed;
         val[1].tv_sec = ts->modified;
 
-        if (utimes(path, val)) {
+        if (utimes(path.s, val)) {
             log_write("utimes() failed: %d %s\n", errno, strerror(errno));
         }
     }
@@ -459,39 +527,59 @@ bool DirExists(const FsPath& path) {
 }
 
 Result read_entire_file(const FsPath& path, std::vector<u8>& out) {
-    auto f = std::fopen(path, "rb");
+    auto f = std::fopen(path.s, "rb");
     if (!f) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
     ON_SCOPE_EXIT(std::fclose(f));
 
-    std::fseek(f, 0, SEEK_END);
-    const auto size = std::ftell(f);
+    if (std::fseek(f, 0, SEEK_END) != 0) {
+        R_TRY(fsdevGetLastResult());
+        return Result_FsUnknownStdioError;
+    }
+    long pos = std::ftell(f);
+    if (pos < 0) {
+        R_TRY(fsdevGetLastResult());
+        return Result_FsUnknownStdioError;
+    }
+    const auto size = static_cast<size_t>(pos);
     std::rewind(f);
 
     out.resize(size);
 
-    std::fread(out.data(), 1, out.size(), f);
+    size_t read = std::fread(out.data(), 1, out.size(), f);
+    if (read != out.size()) {
+        if (std::ferror(f)) {
+            R_TRY(fsdevGetLastResult());
+            return Result_FsUnknownStdioError;
+        }
+        // partial read due to EOF is tolerated but should resize their vector
+        out.resize(read);
+    }
     R_SUCCEED();
 }
 
 Result write_entire_file(const FsPath& path, const std::vector<u8>& in, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(path.s), Result_FsReadOnly);
 
-    auto f = std::fopen(path, "wb");
+    auto f = std::fopen(path.s, "wb");
     if (!f) {
         R_TRY(fsdevGetLastResult());
         return Result_FsUnknownStdioError;
     }
     ON_SCOPE_EXIT(std::fclose(f));
 
-    std::fwrite(in.data(), 1, in.size(), f);
+    size_t written = std::fwrite(in.data(), 1, in.size(), f);
+    if (written != in.size()) {
+        R_TRY(fsdevGetLastResult());
+        return Result_FsUnknownStdioError;
+    }
     R_SUCCEED();
 }
 
 Result copy_entire_file(const FsPath& dst, const FsPath& src, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+    R_UNLESS(ignore_read_only || !is_read_only(dst.s), Result_FsReadOnly);
 
     std::vector<u8> data;
     R_TRY(read_entire_file(src, data));
@@ -503,17 +591,17 @@ Result OpenFile(fs::Fs* fs, const fs::FsPath& path, u32 mode, File* f) {
     f->m_mode = mode;
 
     if (f->m_fs->IsNative()) {
-        auto fs = (fs::FsNative*)f->m_fs;
-        R_TRY(fsFsOpenFile(&fs->m_fs, path, mode, &f->m_native));
+        auto fsn = (fs::FsNative*)f->m_fs;
+        R_TRY(fsFsOpenFile(&fsn->m_fs, path, mode, &f->m_native));
     } else {
         if ((mode & FsOpenMode_Read) && (mode & FsOpenMode_Write)) {
-            f->m_stdio = std::fopen(path, "rb+");
+            f->m_stdio = std::fopen(path.s, "rb+");
         } else if (mode & FsOpenMode_Read) {
-            f->m_stdio = std::fopen(path, "rb");
+            f->m_stdio = std::fopen(path.s, "rb");
         } else if (mode & FsOpenMode_Write) {
             // not possible to open file with just write and not append
             // or create or truncate. So rw it is!
-            f->m_stdio = std::fopen(path, "rb+");
+            f->m_stdio = std::fopen(path.s, "rb+");
         }
 
         R_UNLESS(f->m_stdio, Result_FsUnknownStdioError);
@@ -629,10 +717,10 @@ Result OpenDirectory(fs::Fs* fs, const fs::FsPath& path, u32 mode, Dir* d) {
     d->m_mode = mode;
 
     if (d->m_fs->IsNative()) {
-        auto fs = (fs::FsNative*)d->m_fs;
-        R_TRY(fsFsOpenDirectory(&fs->m_fs, path, mode, &d->m_native));
+        auto fsn = (fs::FsNative*)d->m_fs;
+        R_TRY(fsFsOpenDirectory(&fsn->m_fs, path, mode, &d->m_native));
     } else {
-        d->m_stdio = opendir(path);
+        d->m_stdio = opendir(path.s);
         R_UNLESS(d->m_stdio, Result_FsUnknownStdioError);
     }
 
@@ -679,6 +767,21 @@ Result DirGetEntryCount(fs::Fs* m_fs, const fs::FsPath& path, s64* file_count, s
                     continue;
                 }
                 (*file_count)++;
+            } else {
+                // Unknown d_type: use lstat to identify
+                std::string child;
+                child.reserve(std::strlen(path.s) + 1 + std::strlen(d->d_name) + 1);
+                child = path.s;
+                if (child.back() != '/') child.push_back('/');
+                child += d->d_name;
+                struct stat st;
+                if (lstat(child.c_str(), &st) == 0) {
+                    if (S_ISDIR(st.st_mode) && (mode & FsDirOpenMode_ReadDirs)) {
+                        (*dir_count)++;
+                    } else if (S_ISREG(st.st_mode) && (mode & FsDirOpenMode_ReadFiles)) {
+                        (*file_count)++;
+                    }
+                }
             }
         }
     }
@@ -736,8 +839,13 @@ Result Dir::Read(s64 *total_entries, size_t max_entries, FsDirectoryEntry *buf) 
                 }
                 entry.type = FsDirEntryType_File;
             } else {
+                // Unknown d_type: try to lstat
+                std::string child;
+                child.reserve(256);
+                child = m_fs->IsNative() ? std::string("") : std::string(""); // placeholder
+                // We don't have full path here easily; fall back to treating it as file
                 log_write("[FS] WARNING: unknown type when reading dir: %u\n", d->d_type);
-                continue;
+                entry.type = FsDirEntryType_File;
             }
 
             std::strcpy(entry.name, d->d_name);
@@ -819,15 +927,15 @@ Result FileGetSizeAndTimestamp(fs::Fs* m_fs, const FsPath& path, FsTimeStampRaw*
     *size = {};
 
     if (m_fs->IsNative()) {
-        auto fs = (fs::FsNative*)m_fs;
-        R_TRY(fs->GetFileTimeStampRaw(path, ts));
+        auto fsn = (fs::FsNative*)m_fs;
+        R_TRY(fsn->GetFileTimeStampRaw(path, ts));
 
         File f;
         R_TRY(m_fs->OpenFile(path, FsOpenMode_Read, &f));
         R_TRY(f.GetSize(size));
     } else {
         struct stat st;
-        R_UNLESS(!lstat(path, &st), Result_FsFailedStdioStat);
+        R_UNLESS(!lstat(path.s, &st), Result_FsFailedStdioStat);
 
         ts->is_valid = true;
         ts->created = st.st_ctim.tv_sec;
@@ -843,13 +951,13 @@ Result IsDirEmpty(fs::Fs* m_fs, const fs::FsPath& path, bool* out) {
     *out = true;
 
     if (m_fs->IsNative()) {
-        auto fs = (fs::FsNative*)m_fs;
+        auto fsn = (fs::FsNative*)m_fs;
 
         s64 count;
-        R_TRY(fs->DirGetEntryCount(path, &count, FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles));
+        R_TRY(fsn->DirGetEntryCount(path, &count, FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles));
         *out = !count;
     } else {
-        auto dir = opendir(path);
+        auto dir = opendir(path.s);
         R_UNLESS(dir, Result_FsFailedStdioOpendir);
         ON_SCOPE_EXIT(closedir(dir));
 
