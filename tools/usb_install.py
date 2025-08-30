@@ -4,13 +4,13 @@ from io import BufferedReader
 import sys
 import os
 from pathlib import Path
-from usb_common import *
+from usb_common import Usb, USB_ENUM as UE
 
 try:
     import rarfile
-    has_rar_support: bool = True
+    has_rar_support = True
 except:
-    has_rar_support: bool = False
+    has_rar_support = False
 
 # list of installable exts that sphaira supports.
 INSTALLABLE_EXTS = (".nsp", ".xci", ".nsz", ".xcz")
@@ -26,21 +26,21 @@ def send_file_info_result(usb: Usb, result: int, file_size: int, flags: int):
     usb.send_result(result, size_msb, size_lsb)
 
 def file_transfer_loop(usb: Usb, file: BufferedReader, flags: int) -> None:
-    print("inside file transfer loop now")
+    print("> Transfer Loop")
 
     while True:
         # get offset + size.
         [off, size, _] = usb.get_send_data_header()
 
         # check if we should finish now.
-        if (off == 0 and size == 0):
-            usb.send_result(RESULT_OK)
+        if off == 0 and size == 0:
+            usb.send_result(UE.RESULT_OK)
             break
 
         # if we cannot seek, ensure that sphaira doesn't try to seek backwards.
-        if (flags & FLAG_STREAM) and off < file.tell():
-            print("Error: tried to seek on file without random access.")
-            usb.send_result(RESULT_ERROR)
+        if (flags & UE.FLAG_STREAM) and off < file.tell():
+            print(">> Error: Tried to seek on file without random access.")
+            usb.send_result(UE.RESULT_ERROR)
             continue
 
         # read file and calculate the hash.
@@ -48,12 +48,12 @@ def file_transfer_loop(usb: Usb, file: BufferedReader, flags: int) -> None:
             file.seek(off)
             buf = file.read(size)
         except BlockingIOError as e:
-            print("Error: failed to read: {} at: {} size: {} error: {}".format(e.filename, off, size, str(e)))
-            usb.send_result(RESULT_ERROR)
+            print(f">> Error: Failed to read: {e.filename} at: {off} size: {size} error: {e}")
+            usb.send_result(UE.RESULT_ERROR)
             continue
 
         # respond back with the length of the data and the crc32c.
-        usb.send_result(RESULT_OK, len(buf), crc32c.crc32c(buf))
+        usb.send_result(UE.RESULT_OK, len(buf), crc32c.crc32c(buf))
 
         # send the data.
         usb.write(buf)
@@ -63,8 +63,8 @@ def wait_for_input(usb: Usb, file_index: int) -> None:
 
     # open file / rar. (todo: learn how to make a class with inheritance)
     try:
-        [path, internal_path] = paths[file_index]
-        flags: int = FLAG_NONE
+        path, internal_path = paths[file_index]
+        flags: int = UE.FLAG_NONE
 
         if path.endswith(".rar"):
             with rarfile.RarFile(path, part_only=True) as rf:
@@ -72,22 +72,22 @@ def wait_for_input(usb: Usb, file_index: int) -> None:
                 with rf.open(internal_path) as file:
                     # if the file is compressed, disable seek.
                     if info.compress_type != rarfile.RAR_M0:
-                        flags |= FLAG_STREAM
+                        flags |= UE.FLAG_STREAM
 
                     print("opened file: {} flags: {}".format(internal_path, flags))
-                    send_file_info_result(usb, RESULT_OK, info.file_size, flags)
+                    send_file_info_result(usb, UE.RESULT_OK, info.file_size, flags)
                     file_transfer_loop(usb, file, flags)
         else:
             with open(path, "rb") as file:
                 print("opened file {}".format(path))
                 file.seek(0, os.SEEK_END)
                 file_size = file.tell()
-                send_file_info_result(usb, RESULT_OK, file_size, flags)
+                send_file_info_result(usb, UE.RESULT_OK, file_size, flags)
                 file_transfer_loop(usb, file, flags)
 
     except OSError as e:
         print("Error: failed to open: {} error: {}".format(e.filename, str(e)))
-        usb.send_result(RESULT_ERROR)
+        usb.send_result(UE.RESULT_ERROR)
 
 def add_file_to_install_list(path: str) -> None:
     # if the type if a rar, check if it contains a support ext internally.
@@ -108,7 +108,7 @@ def add_file_to_install_list(path: str) -> None:
         paths.append([path, path])
 
 if __name__ == '__main__':
-    print("hello world")
+    print(SPLASH)
 
     # check which mode the user has selected.
     args = len(sys.argv)
@@ -125,7 +125,7 @@ if __name__ == '__main__':
             if os.path.isfile(f):
                 add_file_to_install_list(f)
     else:
-        raise ValueError('must be a file!')
+        raise ValueError('Must be a file!')
 
     usb: Usb = Usb()
 
@@ -135,27 +135,27 @@ if __name__ == '__main__':
 
         # build string table.
         string_table: bytes
-        for [_, path] in paths:
+        for _, path in paths:
             string_table += bytes(Path(path).name.__str__(), 'utf8') + b'\n'
 
         # this reads the send header and checks the magic.
         usb.get_send_header()
 
         # send recv and string table.
-        usb.send_result(RESULT_OK, len(string_table))
+        usb.send_result(UE.RESULT_OK, len(string_table))
         usb.write(string_table)
 
         # wait for command.
         while True:
-            [cmd, arg3, arg4] = usb.get_send_header()
+            cmd, arg3, arg4 = usb.get_send_header()
 
-            if cmd == CMD_QUIT:
-                usb.send_result(RESULT_OK)
+            if cmd == UE.CMD_QUIT:
+                usb.send_result(UE.RESULT_OK)
                 break
-            elif cmd == CMD_OPEN:
+            elif cmd == UE.CMD_OPEN:
                 wait_for_input(usb, arg3)
             else:
-                usb.send_result(RESULT_ERROR)
+                usb.send_result(UE.RESULT_ERROR)
                 break
 
     except Exception as inst:

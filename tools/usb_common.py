@@ -1,50 +1,101 @@
 import struct
-import usb.core
-import usb.util
-import time
+from time import sleep
+from usb.core import USBError, find as usb_find
+from usb.util import (
+    ENDPOINT_IN as USB_ENDPOINT_IN,
+    ENDPOINT_OUT as USB_ENDPOINT_OUT,
+    endpoint_direction as ep_dir,
+    find_descriptor
+)
 
-# magic number (SPH0) for the script and switch.
-MAGIC = 0x53504830
+SPLASH = """                                           
+      :@@@@@@@@@@@@@@@@@@@@@@@@@@:      
+      #@                        @#      
+      #@                        @#      
+      #@                        @#      
+      #@    @@@@@@    @@@@@@    @#      
+      #@    @@@@@@    @@@@@@    @#      
+      #@    @@@@@@    @@@@@@    @#      
+      #@                        @#      
+      #@                        @#      
+      #@                        @#      
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   
+   @          @%         @@@@@@@@@@@@  
+  #@  *@@@@*  @%         @@@@@@@@@@@@@  
+  #@ @@@@@@@@ @%         @@@@@@@@@@@@@  
+  #@ @@@@@@@@ @%         @@@@@@@@@@@@@  
+  #@  *@@@@*  @%         @@@@@@@@@@@@@  
+  #@          @%         @@@@@@@@@@@@@  
+  #@          @%         @@@@@@@@@@@@@  
+  #@          @%         @@@@@@@@@@@@@  
+  #@          @%         @@@@@@@@@@@@@  
+  #@          @%         @@@@@@@@@@@@@  
+  #@          @%         @@@@@=--=@@@@  
+  #@          @%         @@@-      -@@  
+  #@          @%         @@@        @@  
+  #@          @%         @@@-      -@@  
+  =@@         @%         @@@@@=--=@@@@  
+   =@@        @%         @@@@@@@@@@@@   
+     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                                      
+"""
 
-# commands
-CMD_QUIT = 0
-CMD_OPEN = 1
-CMD_EXPORT = 1
+class USB_ENUM:
+    # (SPH0) for the script and Switch
+    MAGIC = 0x53504830 
 
-# results
-RESULT_OK = 0
-RESULT_ERROR = 1
+    # Commands
+    CMD_QUIT = 0
+    CMD_OPEN = 1
+    CMD_EXPORT = 1
 
-# flags
-FLAG_NONE = 0
-FLAG_STREAM = 1 << 0
+    # Result Codes
+    RESULT_OK = 0
+    RESULT_ERROR = 1
 
-# disabled, see usbds.cpp usbDsEndpoint_SetZlt
-ENABLE_ZLT = 0
+    # Flags
+    FLAG_NONE = 0
+    FLAG_STREAM = 1 << 0
+
+    # Switch Vendor / Product ID
+    VENDOR_ID = 0x057E
+    PRODUCT_ID = 0x3000
+
+    ENABLE_ZLY = 0
+
+
+def find_switch() -> object | None:
+    return usb_find(
+        idVendor=USB_ENUM.VENDOR_ID,
+        idProduct=USB_ENUM.PRODUCT_ID
+    )
 
 class Usb:
     def __init__(self):
-        self.__out_ep = None
-        self.__in_ep = None
-        self.__packet_size = 0
+        self._out_ep = None
+        self._in_ep = None
+        self._packet_size = 0
+        self._packet_index = 0
 
     def wait_for_connect(self) -> None:
-        print("waiting for switch")
+        print(SPLASH)
+        print("Waiting for Switch...", end="")
 
         dev = None
-        while (dev is None):
-            dev = usb.core.find(idVendor=0x057E, idProduct=0x3000)
-            if (dev is None):
-                time.sleep(0.5)
+        while dev is None:
+            if (dev := find_switch()):
+                break
+            print(".", end="")
+            sleep(0.5)
 
-        print("found the switch!\n")
+        print("Found the Switch!\n")
         cfg = None
 
+        print("Getting configuration...")
         try:
             cfg = dev.get_active_configuration()
-            print("found active config")
-        except usb.core.USBError:
-            print("no currently active config")
+            print("Found active config")
+        except USBError:
+            print("No currently active config")
             cfg = None
 
         if cfg is None:
@@ -52,28 +103,37 @@ class Usb:
             dev.set_configuration()
             cfg = dev.get_active_configuration()
 
-        is_out_ep = lambda ep: usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_OUT
-        is_in_ep = lambda ep: usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_IN
-        self.__out_ep = usb.util.find_descriptor(cfg[(0,0)], custom_match=is_out_ep)
-        self.__in_ep = usb.util.find_descriptor(cfg[(0,0)], custom_match=is_in_ep)
-        assert self.__out_ep is not None
-        assert self.__in_ep is not None
+        is_out_ep = lambda ep: ep_direction(ep.bEndpointAddress) == USB_ENDPOINT_OUT
+        is_in_ep = lambda ep: ep_direction(ep.bEndpointAddress) == USB_ENDPOINT_IN
+        self._out_ep = find_descriptor(cfg[(0,0)], custom_match=is_out_ep)
+        self._in_ep = find_descriptor(cfg[(0,0)], custom_match=is_in_ep)
 
-        print("iManufacturer: {} iProduct: {} iSerialNumber: {}".format(dev.manufacturer, dev.product, dev.serial_number))
-        print("bcdUSB: {} bMaxPacketSize0: {}".format(hex(dev.bcdUSB), dev.bMaxPacketSize0))
-        self.__packet_size = 1 << dev.bMaxPacketSize0
+        if not self._out_ep:
+            raise ValueError("Failed to get USB OUT address")
+        if not self._in_ep:
+            raise ValueError("Failed to get USB IN address")
+
+        print(f"iManufacturer: {dev.manufacturer} \
+            iProduct: {dev.product} \
+            iSerialNumber: {dev.serial_number}")
+
+        print(f"bcdUSB: {hex(dev.bcdUSB)} \
+            bMaxPacketSize0: {dev.bMaxPacketSize0}")
+        self._packet_size = 1 << dev.bMaxPacketSize0
 
     def read(self, size: int, timeout: int = 0) -> bytes:
-        if (ENABLE_ZLT and size and (size % self.__packet_size) == 0):
-            size += 1
-        return self.__in_ep.read(size, timeout)
+        size += int((ENABLE_ZLT and size and not (size % self._packet_size)))
+        return self._in_ep.read(size, timeout)
 
     def write(self, buf: bytes, timeout: int = 0) -> int:
-        return self.__out_ep.write(data=buf, timeout=timeout)
+        packet = self._packet_index
+        self._packet_index += 1
+        # Todo, implement packet index long
+        return self._out_ep.write(data=buf, timeout=timeout)
 
     def get_send_header(self) -> tuple[int, int, int]:
         header = self.read(16)
-        [magic, arg2, arg3, arg4] = struct.unpack('<IIII', header)
+        magic, arg2, arg3, arg4 = struct.unpack('<IIII', header)
 
         if magic != MAGIC:
             raise Exception("Unexpected magic {}".format(magic))
