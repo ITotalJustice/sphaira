@@ -1,12 +1,7 @@
 import struct
 from time import sleep
-from usb.core import USBError, find as usb_find
-from usb.util import (
-    ENDPOINT_IN,
-    ENDPOINT_OUT,
-    endpoint_direction,
-    find_descriptor
-)
+from usb.core
+import usb.util
 
 SPLASH = """                                           
       :@@@@@@@@@@@@@@@@@@@@@@@@@@:      
@@ -64,7 +59,7 @@ class USB_ENUM:
 
 
 def find_switch() -> object | None:
-    return usb_find(
+    return usb.core.find(
         idVendor=USB_ENUM.VENDOR_ID,
         idProduct=USB_ENUM.PRODUCT_ID
     )
@@ -94,7 +89,7 @@ class Usb:
         try:
             cfg = dev.get_active_configuration()
             print("Found active config")
-        except USBError:
+        except usb.core.USBError:
             print("No currently active config")
             cfg = None
 
@@ -103,10 +98,10 @@ class Usb:
             dev.set_configuration()
             cfg = dev.get_active_configuration()
 
-        is_out_ep = lambda ep: endpoint_direction(ep.bEndpointAddress) == ENDPOINT_OUT
-        is_in_ep = lambda ep: endpoint_direction(ep.bEndpointAddress) == ENDPOINT_IN
-        self._out_ep = find_descriptor(cfg[(0,0)], custom_match=is_out_ep)
-        self._in_ep = find_descriptor(cfg[(0,0)], custom_match=is_in_ep)
+        is_out_ep = lambda ep: usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_OUT
+        is_in_ep = lambda ep: usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_IN
+        self._out_ep = usb.util.find_descriptor(cfg[(0,0)], custom_match=is_out_ep)
+        self._in_ep = usb.util.find_descriptor(cfg[(0,0)], custom_match=is_in_ep)
 
         if not self._out_ep:
             raise ValueError("Failed to get USB OUT address")
