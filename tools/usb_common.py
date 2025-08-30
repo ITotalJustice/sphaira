@@ -2,9 +2,9 @@ import struct
 from time import sleep
 from usb.core import USBError, find as usb_find
 from usb.util import (
-    ENDPOINT_IN as USB_ENDPOINT_IN,
-    ENDPOINT_OUT as USB_ENDPOINT_OUT,
-    endpoint_direction as ep_dir,
+    ENDPOINT_IN,
+    ENDPOINT_OUT,
+    endpoint_direction,
     find_descriptor
 )
 
@@ -60,7 +60,7 @@ class USB_ENUM:
     VENDOR_ID = 0x057E
     PRODUCT_ID = 0x3000
 
-    ENABLE_ZLY = 0
+    ENABLE_ZLT = 0
 
 
 def find_switch() -> object | None:
@@ -103,8 +103,8 @@ class Usb:
             dev.set_configuration()
             cfg = dev.get_active_configuration()
 
-        is_out_ep = lambda ep: ep_direction(ep.bEndpointAddress) == USB_ENDPOINT_OUT
-        is_in_ep = lambda ep: ep_direction(ep.bEndpointAddress) == USB_ENDPOINT_IN
+        is_out_ep = lambda ep: endpoint_direction(ep.bEndpointAddress) == ENDPOINT_OUT
+        is_in_ep = lambda ep: endpoint_direction(ep.bEndpointAddress) == ENDPOINT_IN
         self._out_ep = find_descriptor(cfg[(0,0)], custom_match=is_out_ep)
         self._in_ep = find_descriptor(cfg[(0,0)], custom_match=is_in_ep)
 
@@ -122,7 +122,8 @@ class Usb:
         self._packet_size = 1 << dev.bMaxPacketSize0
 
     def read(self, size: int, timeout: int = 0) -> bytes:
-        size += int((ENABLE_ZLT and size and not (size % self._packet_size)))
+        if (ENABLE_ZLT and size and not (size % self._packet_size)):
+            size += 1
         return self._in_ep.read(size, timeout)
 
     def write(self, buf: bytes, timeout: int = 0) -> int:
