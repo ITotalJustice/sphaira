@@ -117,7 +117,7 @@ class Usb:
         self._packet_size = 1 << dev.bMaxPacketSize0
 
     def read(self, size: int, timeout: int = 0) -> bytes:
-        if (ENABLE_ZLT and size and not (size % self._packet_size)):
+        if (USB_ENUM.ENABLE_ZLT and size and not (size % self._packet_size)):
             size += 1
         return self._in_ep.read(size, timeout)
 
@@ -131,7 +131,7 @@ class Usb:
         header = self.read(16)
         magic, arg2, arg3, arg4 = struct.unpack('<IIII', header)
 
-        if magic != MAGIC:
+        if magic != USB_ENUM.MAGIC:
             raise Exception("Unexpected magic {}".format(magic))
 
         return arg2, arg3, arg4
@@ -141,5 +141,5 @@ class Usb:
         return struct.unpack('<QII', header)
 
     def send_result(self, result: int, arg3: int = 0, arg4: int = 0) -> None:
-        send_data = struct.pack('<IIII', MAGIC, result, arg3, arg4)
+        send_data = struct.pack('<IIII', USB_ENUM.MAGIC, result, arg3, arg4)
         self.write(send_data)

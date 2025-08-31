@@ -108,8 +108,6 @@ def add_file_to_install_list(path: str) -> None:
         paths.append([path, path])
 
 if __name__ == '__main__':
-    print(SPLASH)
-
     # check which mode the user has selected.
     args = len(sys.argv)
     if (args != 2):

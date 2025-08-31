@@ -51,14 +51,13 @@ def wait_for_input(usb: Usb, path: os.PathLike) -> None:
                 f.write(buf)
                 usb.send_result(UE.RESULT_OK)
             except BlockingIOError as e:
-                print("Error: failed to write: {} at: {} size: {} error: {}".format(e.filename, off, size, str(e)))
+                print(f"Error: failed to write: {e.filename} at: {off} size: {size} error: {str(e)}")
                 usb.send_result(UE.RESULT_ERROR)
 
 if __name__ == '__main__':
-    print(SPLASH)
-
-    if not len(args) == 2:
-        print("Pass root path as argument.")
+    # Check which mode the user has selected.
+    if (len(sys.argv) != 2):
+        print("Run python usb_total.py \"path/to/game.nsp\" OR drag-and-drop the game onto the .py file (Python must be in your path)")
         sys.exit(1)
 
     root_path = sys.argv[1]
