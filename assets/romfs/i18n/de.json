@@ -88,7 +88,7 @@
   "Dump failed!": "Dump fehlgeschlagen!",
   "Delete successfull!": "Löschen erfolgreich!",
   "Delete failed!": "Löschen fehlgeschlagen!",
-  "Success": "Erfolg"
+  "Success": "Erfolg",
 
   "Themezer": "Themezer | NX Themes",
   "Themezer Options": " Themezer | Optionen",
@@ -319,7 +319,7 @@
   "Hash": "Hash",
   "Hash Options": "Hash-Optionen",
   "Hashing": "Hash wird erstellt",
-  "Failed to hash file...": "Datei konnte nicht gehasht werden..."
+  "Failed to hash file...": "Datei konnte nicht gehasht werden...",
   "Ignore read only": "Schreibschutz umgehen?",
   "Mount": "Mounten",
   "Sd": "SD-Karte | Root-Verzeichnis",
