@@ -69,12 +69,24 @@ private:
     void Sort();
     void UpdateSubheading();
 
-    void DownloadEntries();
-
 private:
     std::vector<Entry> m_entries{};
     s64 m_index{};
     std::unique_ptr<List> m_list{};
 };
+
+// creates a popup box on another thread.
+void DownloadEntries(const Entry& entry);
+
+// parses the params into entry struct and calls DonwloadEntries
+bool Download(const std::string& url, const std::vector<AssetEntry>& assets = {}, const std::string& tag = {}, const std::string& pre_install_message = {}, const std::string& post_install_message = {});
+
+// calls the above function by pushing the asset to an array.
+inline bool Download(const std::string& url, const AssetEntry& asset, const std::string& tag = {}, const std::string& pre_install_message = {}, const std::string& post_install_message = {}) {
+    std::vector<AssetEntry> assets;
+    assets.emplace_back(asset);
+
+    return Download(url, assets, tag, pre_install_message, post_install_message);
+}
 
 } // namespace sphaira::ui::menu::gh

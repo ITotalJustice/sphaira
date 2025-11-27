@@ -11,8 +11,8 @@ constexpr u64 MAX_ENTRIES = 9;
 
 } // namespace
 
-NotifEntry::NotifEntry(std::string text, Side side)
-: m_text{std::move(text)}
+NotifEntry::NotifEntry(const std::string& text, Side side)
+: m_text{text}
 , m_side{side} {
 }
 

@@ -1,5 +1,3 @@
-#if ENABLE_NETWORK_INSTALL
-
 #include "usb/usbhs.hpp"
 #include "log.hpp"
 #include "defines.hpp"
@@ -202,5 +200,3 @@ Result UsbHs::GetTransferResult(UsbSessionEndpoint ep, u32 xfer_id, u32 *out_req
 }
 
 } // namespace sphaira::usb
-
-#endif

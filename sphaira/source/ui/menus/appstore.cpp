@@ -20,6 +20,8 @@
 #include "web.hpp"
 #include "minizip_helper.hpp"
 
+#include "utils/utils.hpp"
+
 #include <minIni.h>
 #include <string>
 #include <cstring>
@@ -288,7 +290,7 @@ void DrawIcon(NVGcontext* vg, const LazyImage& l, const LazyImage& d, float x, f
     }
 }
 
-void DrawIcon(NVGcontext* vg, const LazyImage& l, const LazyImage& d, Vec4 vec, bool rounded = true, float scale = 1.0) {
+void DrawIcon(NVGcontext* vg, const LazyImage& l, const LazyImage& d, const Vec4& vec, bool rounded = true, float scale = 1.0) {
     DrawIcon(vg, l, d, vec.x, vec.y, vec.w, vec.h, rounded, scale);
 }
 
@@ -352,7 +354,7 @@ auto UninstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
 
     // remove directory, this will also delete manifest and info
     const auto dir = BuildPackageCachePath(entry);
-    pbox->NewTransfer("Removing "_i18n + dir.toString());
+    pbox->NewTransfer(i18n::Reorder("Removing ", dir.toString()));
     if (R_FAILED(fs.DeleteDirectoryRecursively(dir))) {
         log_write("failed to delete folder: %s\n", dir.s);
     } else {
@@ -382,7 +384,7 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.title);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", entry.title));
         log_write("starting download\n");
 
         const auto url = BuildZipUrl(entry);
@@ -577,13 +579,13 @@ EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
         std::make_pair(Button::DPAD_DOWN | Button::RS_DOWN, Action{[this](){
             if (m_index < (m_options.size() - 1)) {
                 SetIndex(m_index + 1);
-                App::PlaySoundEffect(SoundEffect_Focus);
+                App::PlaySoundEffect(SoundEffect::Focus);
             }
         }}),
         std::make_pair(Button::DPAD_UP | Button::RS_UP, Action{[this](){
             if (m_index != 0) {
                 SetIndex(m_index - 1);
-                App::PlaySoundEffect(SoundEffect_Focus);
+                App::PlaySoundEffect(SoundEffect::Focus);
             }
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){
@@ -597,7 +599,8 @@ EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
 
             options->Add<SidebarEntryCallback>("Leave Feedback"_i18n, [this](){
                 std::string out;
-                if (R_SUCCEEDED(swkbd::ShowText(out)) && !out.empty()) {
+                std::string header = "Leave feedback for " + m_entry.title;
+                if (R_SUCCEEDED(swkbd::ShowText(out, header.c_str())) && !out.empty()) {
                     const auto post = "name=" "switch_user" "&package=" + m_entry.name + "&message=" + out;
                     const auto file = BuildFeedbackCachePath(m_entry);
 
@@ -634,7 +637,7 @@ EntryMenu::EntryMenu(Entry& entry, const LazyImage& default_icon, Menu& menu)
                 const auto path = BuildManifestCachePath(m_entry);
                 std::vector<u8> data;
 
-                if (R_SUCCEEDED(fs::read_entire_file(path, data))) {
+                if (R_SUCCEEDED(fs::FsNativeSd().read_entire_file(path, data))) {
                     m_file_list_state = ImageDownloadState::Done;
                     data.push_back('\0');
                     m_manifest_list = std::make_unique<ScrollableText>((const char*)data.data(), 0, 374, 250, 768, 18);
@@ -736,9 +739,9 @@ void EntryMenu::Draw(NVGcontext* vg, Theme* theme) {
     text_start_y += text_inc_y;
     gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "updated: %s"_i18n.c_str(), m_entry.updated.c_str());
     text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "category: %s"_i18n.c_str(), m_entry.category.c_str());
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "category: %s"_i18n.c_str(), i18n::get(m_entry.category).c_str());
     text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "extracted: %.2f MiB"_i18n.c_str(), (double)m_entry.extracted / 1024.0);
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "extracted: %s"_i18n.c_str(), utils::formatSizeStorage(m_entry.extracted).c_str());
     text_start_y += text_inc_y;
     gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "app_dls: %s"_i18n.c_str(), AppDlToStr(m_entry.app_dls).c_str());
     text_start_y += text_inc_y;
@@ -803,7 +806,7 @@ void EntryMenu::UpdateOptions() {
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
             if (R_SUCCEEDED(rc)) {
-                App::Notify("Downloaded "_i18n + m_entry.title);
+                App::Notify(i18n::Reorder("Downloaded ", m_entry.title));
                 m_entry.status = EntryStatus::Installed;
                 m_menu.SetDirty();
                 UpdateOptions();
@@ -819,7 +822,7 @@ void EntryMenu::UpdateOptions() {
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
             if (R_SUCCEEDED(rc)) {
-                App::Notify("Removed "_i18n + m_entry.title);
+                App::Notify(i18n::Reorder("Removed ", m_entry.title));
                 m_entry.status = EntryStatus::Get;
                 m_menu.SetDirty();
                 UpdateOptions();
@@ -830,7 +833,7 @@ void EntryMenu::UpdateOptions() {
     const Option install_option{"Install"_i18n, install};
     const Option update_option{"Update"_i18n, install};
     const Option launch_option{"Launch"_i18n, launch};
-    const Option remove_option{"Remove"_i18n, "Completely remove "_i18n + m_entry.title + '?', uninstall};
+    const Option remove_option{"Remove"_i18n, i18n::Reorder("Completely remove ", m_entry.title) + '?', uninstall};
 
     m_options.clear();
     switch (m_entry.status) {
@@ -968,7 +971,7 @@ Menu::Menu(u32 flags) : grid::Menu{"AppStore"_i18n, flags} {
 
             options->Add<SidebarEntryCallback>("Search"_i18n, [this](){
                 std::string out;
-                if (R_SUCCEEDED(swkbd::ShowText(out)) && !out.empty()) {
+                if (R_SUCCEEDED(swkbd::ShowText(out, "Search for app")) && !out.empty()) {
                     SetSearch(out);
                     log_write("got %s\n", out.c_str());
                 }
@@ -1007,7 +1010,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
-            App::PlaySoundEffect(SoundEffect_Focus);
+            App::PlaySoundEffect(SoundEffect::Focus);
             SetIndex(i);
         }
     });

@@ -6,13 +6,16 @@ namespace {
 
 } // namespace
 
-Menu::Menu(const fs::FsPath& path) : MenuBase{path, MenuFlag_None}, m_path{path} {
+Menu::Menu(fs::Fs* fs, const fs::FsPath& path)
+: MenuBase{path, MenuFlag_None}
+, m_fs{fs}
+, m_path{path} {
     SetAction(Button::B, Action{"Back"_i18n, [this](){
         SetPop();
     }});
 
     std::string buf;
-    if (R_SUCCEEDED(m_fs.OpenFile(m_path, FsOpenMode_Read, &m_file))) {
+    if (R_SUCCEEDED(m_fs->OpenFile(m_path, FsOpenMode_Read, &m_file))) {
         m_file.GetSize(&m_file_size);
         buf.resize(m_file_size + 1);
 

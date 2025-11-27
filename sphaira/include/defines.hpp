@@ -511,7 +511,22 @@ enum class SphairaResult : Result {
     FsNewPathEmpty,
     FsLoadingCancelled,
     FsBrokenRoot,
+
     FsUnknownStdioError,
+    FsStdioFailedToSeek,
+    FsStdioFailedToRead,
+    FsStdioFailedToWrite,
+    FsStdioFailedToOpenFile,
+    FsStdioFailedToCreate,
+    FsStdioFailedToTruncate,
+    FsStdioFailedToFlush,
+    FsStdioFailedToCreateDirectory,
+    FsStdioFailedToDeleteFile,
+    FsStdioFailedToDeleteDirectory,
+    FsStdioFailedToOpenDirectory,
+    FsStdioFailedToRename,
+    FsStdioFailedToStat,
+
     FsReadOnly,
     FsNotActive,
     FsFailedStdioStat,
@@ -536,6 +551,9 @@ enum class SphairaResult : Result {
     ZipOpen2_64,
     ZipOpenNewFileInZip,
     ZipWriteInFileInZip,
+
+    MmzBadLocalHeaderSig,
+    MmzBadLocalHeaderRead,
 
     FileBrowserFailedUpload,
     FileBrowserDirNotDaybreak,
@@ -574,6 +592,7 @@ enum class SphairaResult : Result {
 
     UsbDsBadDeviceSpeed,
 
+    NcaBadMagic,
     NspBadMagic,
     XciBadMagic,
     XciSecurePartitionNotFound,
@@ -645,6 +664,17 @@ enum class SphairaResult : Result {
     YatiNcmDbCorruptHeader,
     // unable to total infos from ncm database.
     YatiNcmDbCorruptInfos,
+
+    NszFailedCreateCctx,
+    NszFailedSetCompressionLevel,
+    NszFailedSetThreadCount,
+    NszFailedSetLongDistanceMode,
+    NszFailedResetCctx,
+    NszFailedCompress2,
+    NszFailedCompressStream2,
+    NszTooManyBlocks,
+    // set when nca finished but not all blocks were handled.
+    NszMissingBlocks,
 };
 
 #define MAKE_SPHAIRA_RESULT_ENUM(x) Result_##x =  MAKERESULT(Module_Sphaira, (Result)SphairaResult::x)
@@ -665,6 +695,19 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(FsLoadingCancelled),
     MAKE_SPHAIRA_RESULT_ENUM(FsBrokenRoot),
     MAKE_SPHAIRA_RESULT_ENUM(FsUnknownStdioError),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToSeek),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToRead),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToWrite),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToOpenFile),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToCreate),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToTruncate),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToFlush),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToCreateDirectory),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToDeleteFile),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToDeleteDirectory),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToOpenDirectory),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToRename),
+    MAKE_SPHAIRA_RESULT_ENUM(FsStdioFailedToStat),
     MAKE_SPHAIRA_RESULT_ENUM(FsReadOnly),
     MAKE_SPHAIRA_RESULT_ENUM(FsNotActive),
     MAKE_SPHAIRA_RESULT_ENUM(FsFailedStdioStat),
@@ -685,6 +728,8 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(ZipOpen2_64),
     MAKE_SPHAIRA_RESULT_ENUM(ZipOpenNewFileInZip),
     MAKE_SPHAIRA_RESULT_ENUM(ZipWriteInFileInZip),
+    MAKE_SPHAIRA_RESULT_ENUM(MmzBadLocalHeaderSig),
+    MAKE_SPHAIRA_RESULT_ENUM(MmzBadLocalHeaderRead),
     MAKE_SPHAIRA_RESULT_ENUM(FileBrowserFailedUpload),
     MAKE_SPHAIRA_RESULT_ENUM(FileBrowserDirNotDaybreak),
     MAKE_SPHAIRA_RESULT_ENUM(AppstoreFailedZipDownload),
@@ -712,8 +757,11 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(ThemezerFailedToDownloadTheme),
     MAKE_SPHAIRA_RESULT_ENUM(MainFailedToDownloadUpdate),
     MAKE_SPHAIRA_RESULT_ENUM(UsbDsBadDeviceSpeed),
+
     MAKE_SPHAIRA_RESULT_ENUM(NspBadMagic),
     MAKE_SPHAIRA_RESULT_ENUM(XciBadMagic),
+    MAKE_SPHAIRA_RESULT_ENUM(NcaBadMagic),
+
     MAKE_SPHAIRA_RESULT_ENUM(XciSecurePartitionNotFound),
     MAKE_SPHAIRA_RESULT_ENUM(EsBadTitleKeyType),
     MAKE_SPHAIRA_RESULT_ENUM(EsPersonalisedTicketDeviceIdMissmatch),
@@ -724,7 +772,9 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketFromatVersion),
     MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketKeyType),
     MAKE_SPHAIRA_RESULT_ENUM(EsInvalidTicketKeyRevision),
+
     MAKE_SPHAIRA_RESULT_ENUM(OwoBadArgs),
+
     MAKE_SPHAIRA_RESULT_ENUM(UsbCancelled),
     MAKE_SPHAIRA_RESULT_ENUM(UsbBadMagic),
     MAKE_SPHAIRA_RESULT_ENUM(UsbBadVersion),
@@ -739,6 +789,7 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadTransferSize),
     MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadTotalSize),
     MAKE_SPHAIRA_RESULT_ENUM(UsbUploadBadCommand),
+
     MAKE_SPHAIRA_RESULT_ENUM(YatiContainerNotFound),
     MAKE_SPHAIRA_RESULT_ENUM(YatiNcaNotFound),
     MAKE_SPHAIRA_RESULT_ENUM(YatiInvalidNcaReadSize),
@@ -760,6 +811,16 @@ enum : Result {
     MAKE_SPHAIRA_RESULT_ENUM(YatiCertNotFound),
     MAKE_SPHAIRA_RESULT_ENUM(YatiNcmDbCorruptHeader),
     MAKE_SPHAIRA_RESULT_ENUM(YatiNcmDbCorruptInfos),
+
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedCreateCctx),
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedSetCompressionLevel),
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedSetThreadCount),
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedSetLongDistanceMode),
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedResetCctx),
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedCompress2),
+    MAKE_SPHAIRA_RESULT_ENUM(NszFailedCompressStream2),
+    MAKE_SPHAIRA_RESULT_ENUM(NszTooManyBlocks),
+    MAKE_SPHAIRA_RESULT_ENUM(NszMissingBlocks),
 };
 
 #undef MAKE_SPHAIRA_RESULT_ENUM
@@ -790,21 +851,83 @@ enum : Result {
 #define CONCATENATE(s1, s2) CONCATENATE_IMPL(s1, s2)
 #define ANONYMOUS_VARIABLE(pref) CONCATENATE(pref, __COUNTER__)
 
-#define ON_SCOPE_EXIT(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { _f; }};
+template<typename Function>
+struct ScopeGuard {
+    ScopeGuard(Function&& function) : m_function(std::forward<Function>(function)) {
+
+    }
+    ~ScopeGuard() {
+        m_function();
+    }
+
+    ScopeGuard(const ScopeGuard&) = delete;
+    void operator=(const ScopeGuard&) = delete;
+
+private:
+    const Function m_function;
+};
+
+struct ScopedMutex {
+    ScopedMutex(Mutex* mutex) : m_mutex{mutex} {
+        mutexLock(m_mutex);
+    }
+    ~ScopedMutex() {
+        mutexUnlock(m_mutex);
+    }
+
+    ScopedMutex(const ScopedMutex&) = delete;
+    void operator=(const ScopedMutex&) = delete;
+
+private:
+    Mutex* const m_mutex;
+};
+
+struct ScopedRMutex {
+    ScopedRMutex(RMutex* _mutex) : mutex{_mutex} {
+        rmutexLock(mutex);
+    }
+
+    ~ScopedRMutex() {
+        rmutexUnlock(mutex);
+    }
+
+    ScopedRMutex(const ScopedRMutex&) = delete;
+    void operator=(const ScopedRMutex&) = delete;
+
+private:
+    RMutex* const mutex;
+};
+
+struct ScopedRwLock {
+    ScopedRwLock(RwLock* _lock, bool _write) : lock{_lock}, write{_write} {
+        if (write) {
+            rwlockWriteLock(lock);
+        } else {
+            rwlockReadLock(lock);
+        }
+    }
+
+    ~ScopedRwLock() {
+        if (write) {
+            rwlockWriteUnlock(lock);
+        } else {
+            rwlockReadUnlock(lock);
+        }
+    }
+
+    ScopedRwLock(const ScopedRwLock&) = delete;
+    void operator=(const ScopedRwLock&) = delete;
+
+private:
+    RwLock* const lock;
+    bool const write;
+};
+
+// #define ON_SCOPE_EXIT(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { _f; }};
+#define ON_SCOPE_EXIT(_f) ScopeGuard ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { _f; }};
+#define SCOPED_MUTEX(_m) ScopedMutex ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){_m}
+#define SCOPED_RMUTEX(_m) ScopedRMutex ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){_m}
+#define SCOPED_RWLOCK(_m, _write) ScopedRwLock ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){_m, _write}
+
 // #define ON_SCOPE_FAIL(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { if (R_FAILED(rc)) { _f; } }};
 // #define ON_SCOPE_SUCCESS(_f) std::experimental::scope_exit ANONYMOUS_VARIABLE(SCOPE_EXIT_STATE_){[&] { if (R_SUCCEEDED(rc)) { _f; } }};
-
-// threading helpers.
-#define PRIO_PREEMPTIVE 0x3B
-
-// threading affinity, use with svcSetThreadCoreMask().
-#define THREAD_AFFINITY_CORE0 BIT(0)
-#define THREAD_AFFINITY_CORE1 BIT(1)
-#define THREAD_AFFINITY_CORE2 BIT(2)
-#define THREAD_AFFINITY_DEFAULT(core) (BIT(core)|THREAD_AFFINITY_CORE1|THREAD_AFFINITY_CORE2)
-#define THREAD_AFFINITY_ALL (THREAD_AFFINITY_CORE0|THREAD_AFFINITY_CORE1|THREAD_AFFINITY_CORE2)
-
-// mutex helpers.
-#define SCOPED_MUTEX(mutex) \
-    mutexLock(mutex); \
-    ON_SCOPE_EXIT(mutexUnlock(mutex))

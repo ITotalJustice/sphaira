@@ -52,7 +52,7 @@ struct Fields {
 
 struct Header {
     Header() = default;
-    Header(std::initializer_list<std::pair<const std::string, std::string>> p) : m_map{p} {}
+    Header(std::initializer_list<std::pair<const std::string, std::string>>&& p) : m_map{std::forward<decltype(p)>(p)} {}
     std::unordered_map<std::string, std::string> m_map;
 
     auto Find(const std::string& key) const {
@@ -91,7 +91,7 @@ struct UserPass {
 struct UploadInfo {
     UploadInfo() = default;
     UploadInfo(const std::string& name) : m_name{name} {}
-    UploadInfo(const std::string& name, s64 size, OnUploadCallback cb) : m_name{name}, m_size{size}, m_callback{cb} {}
+    UploadInfo(const std::string& name, s64 size, const OnUploadCallback& cb) : m_name{name}, m_size{size}, m_callback{cb} {}
     UploadInfo(const std::string& name, const std::vector<u8>& data) : m_name{name}, m_data{data} {}
     std::string m_name{};
     std::vector<u8> m_data{};
@@ -142,6 +142,7 @@ struct DownloadEventData {
 
 auto Init() -> bool;
 void Exit();
+void ExitSignal();
 
 // sync functions
 auto ToMemory(const Api& e) -> ApiResult;

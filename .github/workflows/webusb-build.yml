@@ -1,0 +1,55 @@
+name: Build and Deploy WebUSB Site
+
+on:
+  push:
+    paths:
+      - 'tools/webusb/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install minifiers
+        run: |
+          npm install -g html-minifier-terser terser csso-cli
+
+      - name: Minify HTML
+        run: |
+          html-minifier-terser --collapse-whitespace --remove-comments --minify-css true --minify-js true -o tools/webusb/index.html.min tools/webusb/index.html
+
+      - name: Minify JS
+        run: |
+          terser tools/webusb/index.js -c -m -o tools/webusb/index.js.min
+
+      - name: Minify CSS
+        run: |
+          csso tools/webusb/index.css --output tools/webusb/index.css.min
+
+      - name: Prepare deploy branch
+        run: |
+          rm -rf webusb
+          mkdir webusb
+          cp tools/webusb/index.html.min webusb/index.html
+          cp tools/webusb/index.js.min webusb/index.js
+          cp tools/webusb/index.css.min webusb/index.css
+          cp -r tools/webusb/assets webusb/assets
+
+      - name: Commit and force-push to webusb branch
+        run: |
+          cd webusb
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Deploy minified webusb build"
+          git branch -M webusb
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push --force origin webusb

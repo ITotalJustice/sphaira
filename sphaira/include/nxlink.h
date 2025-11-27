@@ -44,6 +44,9 @@ bool nxlinkInitialize(NxlinkCallback callback);
 // signal for the event to close and then join the thread.
 void nxlinkExit();
 
+// async the exit, call this first and then call exit later to avoid blocking.
+void nxlinkSignalExit();
+
 #ifdef __cplusplus
 }
 #endif

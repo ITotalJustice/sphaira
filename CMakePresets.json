@@ -18,23 +18,47 @@
             "inherits":["core"],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
-                "ENABLE_NETWORK_INSTALL": false
+                "LTO": true
             }
         },
         {
-            "name": "ReleaseWithInstall",
-            "displayName": "ReleaseWithInstall",
+            "name": "Lite",
+            "displayName": "Lite",
             "inherits":["core"],
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
-                "ENABLE_NETWORK_INSTALL": true
+                "LTO": true,
+
+                "ENABLE_NVJPG": false,
+                "ENABLE_NSZ": false,
+
+                "ENABLE_LIBUSBHSFS": false,
+                "ENABLE_LIBUSBDVD": false,
+                "ENABLE_FTPSRV": false,
+                "ENABLE_LIBHAZE": false,
+
+                "ENABLE_AUDIO_MP3": false,
+                "ENABLE_AUDIO_OGG": false,
+                "ENABLE_AUDIO_WAV": false,
+                "ENABLE_AUDIO_FLAC": false,
+
+                "ENABLE_DEVOPTAB_HTTP": false,
+                "ENABLE_DEVOPTAB_NFS": false,
+                "ENABLE_DEVOPTAB_SMB2": false,
+                "ENABLE_DEVOPTAB_FTP": false,
+                "ENABLE_DEVOPTAB_SFTP": false,
+                "ENABLE_DEVOPTAB_WEBDAV": false
             }
         },
         {
-            "name": "Debug",
-            "displayName": "Debug",
+            "name": "Dev",
+            "displayName": "Dev",
             "inherits":["core"],
-            "cacheVariables": { "CMAKE_BUILD_TYPE":"Debug" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
+                "LTO": false,
+                "DEV_BUILD": true
+            }
         }
     ],
     "buildPresets": [
@@ -44,13 +68,13 @@
             "jobs": 16
         },
         {
-            "name": "ReleaseWithInstall",
-            "configurePreset": "ReleaseWithInstall",
+            "name": "Lite",
+            "configurePreset": "Lite",
             "jobs": 16
         },
         {
-            "name": "Debug",
-            "configurePreset": "Debug",
+            "name": "Dev",
+            "configurePreset": "Dev",
             "jobs": 16
         }
     ]

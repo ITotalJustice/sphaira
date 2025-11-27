@@ -54,7 +54,7 @@ public:
         m_pos = { x, y, w, h };
     }
 
-    auto SetPos(Vec4 v) noexcept -> void {
+    auto SetPos(const Vec4& v) noexcept -> void {
         m_pos = v;
     }
 

@@ -201,6 +201,29 @@ Result EncryptTitleKey(keys::KeyEntry& out, u8 key_gen, const keys::Keys& keys);
 
 Result ShouldPatchTicket(const TicketData& data, std::span<const u8> ticket, std::span<const u8> cert_chain, bool patch_personalised, bool& should_patch);
 Result ShouldPatchTicket(std::span<const u8> ticket, std::span<const u8> cert_chain, bool patch_personalised, bool& should_patch);
-Result PatchTicket(std::vector<u8>& ticket, std::span<const u8> cert_chain, u8 key_gen, const keys::Keys& keys, bool patch_personalised);
+// cert chain may be modified if the ticket is converted to common ticket.
+Result PatchTicket(std::vector<u8>& ticket, std::vector<u8>& cert_chain, u8 key_gen, const keys::Keys& keys, bool patch_personalised);
+
+// fills out with the list of common / personalised rights ids.
+Result GetCommonTickets(std::vector<FsRightsId>& out);
+Result GetPersonalisedTickets(std::vector<FsRightsId>& out);
+
+// checks if the rights id is found in common / personalised.
+Result IsRightsIdCommon(const FsRightsId& id, bool* out);
+Result IsRightsIdPersonalised(const FsRightsId& id, bool* out);
+
+// helper for the above if the db has already been parsed.
+bool IsRightsIdValid(const FsRightsId& id);
+bool IsRightsIdFound(const FsRightsId& id, std::span<const FsRightsId> ids);
+
+// wrapper around ipc.
+Result GetCommonTicketAndCertificate(const FsRightsId& rights_id, std::vector<u8>& tik_out, std::vector<u8>& cert_out);
+// fetches data from system es save.
+Result GetPersonalisedTicketData(u64 *size_out, void *tik_data, u64 tik_size, const FsRightsId* rightsId);
+Result GetPersonalisedTicketAndCertificate(const FsRightsId& rights_id, std::vector<u8>& tik_out, std::vector<u8>& cert_out);
+
+// fills out with the decrypted title key.
+Result GetTitleKeyDecrypted(const FsRightsId& rights_id, u8 key_gen, const keys::Keys& keys, keys::KeyEntry& out);
+Result GetTitleKeyDecrypted(std::span<const u8> ticket, const FsRightsId& rights_id, u8 key_gen, const keys::Keys& keys, keys::KeyEntry& out);
 
 } // namespace sphaira::es

@@ -9,8 +9,14 @@
 
 namespace sphaira {
 
+struct NroData {
+    NroStart start;
+    NroHeader header;
+};
+
 struct Hbini {
     u64 timestamp{}; // timestamp of last launch
+    bool hidden{};
 };
 
 struct MiniNacp {
@@ -61,7 +67,7 @@ auto nro_parse(const fs::FsPath& path, NroEntry& entry) -> Result;
  *                     nro found.
  *                     this does nothing if nested=false.
  */
-auto nro_scan(const fs::FsPath& path, std::vector<NroEntry>& nros, bool hide_spahira, bool nested = true, bool scan_all_dir = true) -> Result;
+auto nro_scan(const fs::FsPath& path, std::vector<NroEntry>& nros, bool nested = true, bool scan_all_dir = true) -> Result;
 
 auto nro_get_icon(const fs::FsPath& path, u64 size, u64 offset) -> std::vector<u8>;
 auto nro_get_icon(const fs::FsPath& path) -> std::vector<u8>;

@@ -49,55 +49,57 @@ auto MiscMenuFuncGenerator(u32 flags) {
 }
 
 const MiscMenuEntry MISC_MENU_ENTRIES[] = {
+    { .name = "Homebrew", .title = "Homebrew", .func = MiscMenuFuncGenerator<ui::menu::homebrew::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
+        "The homebrew menu.\n\n"
+        "Allows you to launch, delete and mount homebrew!"},
+
     { .name = "Appstore", .title = "Appstore", .func = MiscMenuFuncGenerator<ui::menu::appstore::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "Download and update apps.\n\n"\
+        "Download and update apps.\n\n"
         "Internet connection required." },
 
     { .name = "Games", .title = "Games", .func = MiscMenuFuncGenerator<ui::menu::game::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "View all installed games. "\
+        "View all installed games. "
         "In this menu you can launch, backup, create savedata and much more." },
 
     { .name = "FileBrowser", .title = "FileBrowser", .func = MiscMenuFuncGenerator<ui::menu::filebrowser::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "Browse files on you SD Card. "\
-        "You can move, copy, delete, extract zip, create zip, upload and much more.\n\n"\
+        "Browse files on you SD Card. "
+        "You can move, copy, delete, extract zip, create zip, upload and much more.\n\n"
         "A connected USB/HDD can be opened by mounting it in the advanced options." },
 
     { .name = "Saves", .title = "Saves", .func = MiscMenuFuncGenerator<ui::menu::save::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "View save data for each user. "\
-        "You can backup and restore saves.\n\n"\
+        "View save data for each user. "
+        "You can backup and restore saves.\n\n"
         "Experimental support for backing up system saves is possible." },
 
+#if 0
     { .name = "Themezer", .title = "Themezer", .func = MiscMenuFuncGenerator<ui::menu::themezer::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "Download themes from themezer.net. "\
-        "Themes are downloaded to /themes/sphaira\n"\
+        "Download themes from themezer.net. "
+        "Themes are downloaded to /themes/sphaira\n"
         "To install the themes, NXThemesInstaller needs to be installed (can be downloaded via the AppStore)." },
+#endif
 
     { .name = "GitHub", .title = "GitHub", .func = MiscMenuFuncGenerator<ui::menu::gh::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "Download releases directly from GitHub. "\
+        "Download releases directly from GitHub. "
         "Custom entries can be added to /config/sphaira/github" },
 
-#if ENABLE_NETWORK_INSTALL
+#ifdef ENABLE_FTPSRV
     { .name = "FTP", .title = "FTP Install", .func = MiscMenuFuncGenerator<ui::menu::ftp::Menu>, .flag = MiscMenuFlag_Install, .info =
-        "Install apps via FTP.\n\n"\
-        "NOTE: This feature does not always work, use at your own risk. "\
-        "If you encounter an issue, do not open an issue, it will not be fixed." },
+        "Install apps via FTP." },
+#endif // ENABLE_FTPSRV
 
+#ifdef ENABLE_LIBHAZE
     { .name = "MTP", .title = "MTP Install", .func = MiscMenuFuncGenerator<ui::menu::mtp::Menu>, .flag = MiscMenuFlag_Install, .info =
-        "Install apps via MTP.\n\n"\
-        "NOTE: This feature does not always work, use at your own risk. "\
-        "If you encounter an issue, do not open an issue, it will not be fixed." },
+        "Install apps via MTP." },
+#endif // ENABLE_LIBHAZE
 
     { .name = "USB", .title = "USB Install", .func = MiscMenuFuncGenerator<ui::menu::usb::Menu>, .flag = MiscMenuFlag_Install, .info =
-        "Install apps via USB.\n\n"\
-        "A USB client is required on PC, such as ns-usbloader and fluffy.\n\n"\
-        "NOTE: This feature does not always work, use at your own risk. "\
-        "If you encounter an issue, do not open an issue, it will not be fixed." },
+        "Install apps via USB.\n\n"
+        "A USB client is required on PC." },
 
-#endif
     { .name = "GameCard", .title = "GameCard", .func = MiscMenuFuncGenerator<ui::menu::gc::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
-        "View info on the inserted Game Card (GC). "\
-        "You can backup and install the inserted GC. "\
-        "To swap GC's, simply remove the old GC and insert the new one. "\
+        "View info on the inserted Game Card (GC). "
+        "You can backup and install the inserted GC. "
+        "To swap GC's, simply remove the old GC and insert the new one. "
         "You do not need to exit the menu." },
 
     { .name = "IRS", .title = "IRS (Infrared Joycon Camera)", .func = MiscMenuFuncGenerator<ui::menu::irs::Menu>, .flag = MiscMenuFlag_Shortcut, .info =
@@ -112,7 +114,7 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + version);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", version));
         log_write("starting download: %s\n", url.c_str());
 
         const auto result = curl::Api().ToFile(
@@ -165,10 +167,35 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
     R_SUCCEED();
 }
 
-auto CreateLeftSideMenu(std::string& name_out) -> std::unique_ptr<MenuBase> {
+auto CreateCenterMenu(std::string& name_out) -> std::unique_ptr<MenuBase> {
+    const auto name = App::GetApp()->m_center_menu.Get();
+
+    for (auto& e : GetMenuMenuEntries()) {
+        if (e.name == name) {
+            name_out = name;
+            return e.func(MenuFlag_Tab);
+        }
+    }
+
+    name_out = "Homebrew";
+    return std::make_unique<ui::menu::homebrew::Menu>(MenuFlag_Tab);
+}
+
+auto CreateLeftSideMenu(std::string_view center_name, std::string& name_out) -> std::unique_ptr<MenuBase> {
     const auto name = App::GetApp()->m_left_menu.Get();
 
-    for (auto& e : GetMiscMenuEntries()) {
+    // handle if the user tries to mount the same menu twice.
+    if (name == center_name) {
+        // check if we can mount the default.
+        if (center_name != "FileBrowser") {
+            return std::make_unique<ui::menu::filebrowser::Menu>(MenuFlag_Tab);
+        } else {
+            // otherwise, fallback to center default.
+            return std::make_unique<ui::menu::homebrew::Menu>(MenuFlag_Tab);
+        }
+    }
+
+    for (auto& e : GetMenuMenuEntries()) {
         if (e.name == name) {
             name_out = name;
             return e.func(MenuFlag_Tab);
@@ -179,6 +206,7 @@ auto CreateLeftSideMenu(std::string& name_out) -> std::unique_ptr<MenuBase> {
     return std::make_unique<ui::menu::filebrowser::Menu>(MenuFlag_Tab);
 }
 
+// todo: handle center / left menu being the same.
 auto CreateRightSideMenu(std::string_view left_name) -> std::unique_ptr<MenuBase> {
     const auto name = App::GetApp()->m_right_menu.Get();
 
@@ -193,7 +221,7 @@ auto CreateRightSideMenu(std::string_view left_name) -> std::unique_ptr<MenuBase
         }
     }
 
-    for (auto& e : GetMiscMenuEntries()) {
+    for (auto& e : GetMenuMenuEntries()) {
         if (e.name == name) {
             return e.func(MenuFlag_Tab);
         }
@@ -204,7 +232,7 @@ auto CreateRightSideMenu(std::string_view left_name) -> std::unique_ptr<MenuBase
 
 } // namespace
 
-auto GetMiscMenuEntries() -> std::span<const MiscMenuEntry> {
+auto GetMenuMenuEntries() -> std::span<const MiscMenuEntry> {
     return MISC_MENU_ENTRIES;
 }
 
@@ -276,9 +304,9 @@ MainMenu::MainMenu() {
 
     this->SetActions(
         std::make_pair(Button::START, Action{App::Exit}),
-        std::make_pair(Button::SELECT, Action{App::DisplayMiscOptions}),
+        std::make_pair(Button::SELECT, Action{App::DisplayMenuOptions}),
         std::make_pair(Button::Y, Action{"Menu"_i18n, [this](){
-            auto options = std::make_unique<Sidebar>("Menu Options"_i18n, "v" APP_VERSION_HASH, Sidebar::Side::LEFT);
+            auto options = std::make_unique<Sidebar>("Menu Options"_i18n, "v" APP_DISPLAY_VERSION, Sidebar::Side::LEFT);
             ON_SCOPE_EXIT(App::Push(std::move(options)));
 
             SidebarEntryArray::Items language_items;
@@ -289,18 +317,32 @@ MainMenu::MainMenu() {
             language_items.push_back("German"_i18n);
             language_items.push_back("Italian"_i18n);
             language_items.push_back("Spanish"_i18n);
-            language_items.push_back("Chinese"_i18n);
+            language_items.push_back("Chinese (Simplified)"_i18n);
             language_items.push_back("Korean"_i18n);
             language_items.push_back("Dutch"_i18n);
             language_items.push_back("Portuguese"_i18n);
             language_items.push_back("Russian"_i18n);
+            language_items.push_back("Chinese (Traditional)"_i18n);
             language_items.push_back("Swedish"_i18n);
             language_items.push_back("Vietnamese"_i18n);
             language_items.push_back("Ukrainian"_i18n);
 
-            options->Add<SidebarEntryCallback>("Theme"_i18n, [](){
-                App::DisplayThemeOptions();
-            }, "Customise the look of Sphaira by changing the theme"_i18n);
+            // build menus info.
+            std::string menus_info = "Launch one of Sphaira's menus:\n"_i18n;
+            for (auto& e : GetMenuMenuEntries()) {
+                if (e.name == App::GetApp()->m_left_menu.Get()) {
+                    continue;
+                } else if (e.name == App::GetApp()->m_right_menu.Get()) {
+                    continue;
+                }
+
+                menus_info += "- " + i18n::get(e.title) + "\n";
+            }
+            menus_info += "\nYou can change the left/right menu in the Advanced Options."_i18n;
+
+            options->Add<SidebarEntryCallback>("Menus"_i18n, [](){
+                App::DisplayMenuOptions();
+            },  menus_info);
 
             options->Add<SidebarEntryCallback>("Network"_i18n, [this](){
                 auto options = std::make_unique<Sidebar>("Network Options"_i18n, Sidebar::Side::LEFT);
@@ -315,7 +357,7 @@ MainMenu::MainMenu() {
 
                             if (R_SUCCEEDED(rc)) {
                                 m_update_state = UpdateState::None;
-                                App::Notify("Updated to "_i18n + m_update_version);
+                                App::Notify(i18n::Reorder("Updated to ", m_update_version));
                                 App::Push<OptionBox>(
                                     "Press OK to restart Sphaira"_i18n, "OK"_i18n, [](auto){
                                         App::ExitRestart();
@@ -326,56 +368,60 @@ MainMenu::MainMenu() {
                     });
                 }
 
-                options->Add<SidebarEntryBool>("Ftp"_i18n, App::GetFtpEnable(), [](bool& enable){
-                    App::SetFtpEnable(enable);
-                },  "Enable FTP server to run in the background.\n\n"\
-                    "The default port is 5000 with no user/pass set. "\
-                    "You can change this behaviour in /config/ftpsrv/config.ini"_i18n);
+                options->Add<SidebarEntryCallback>("FTP"_i18n, [](){ App::DisplayFtpOptions(); },
+                    i18n::get("ftp_settings_info",
+                        "Enable / modify the FTP server settings such as port, user/pass and the folders that are shown.\n\n"
+                        "NOTE: Changing any of the options will automatically restart the FTP server when exiting the options menu.")
+                );
 
-                options->Add<SidebarEntryBool>("Mtp"_i18n, App::GetMtpEnable(), [](bool& enable){
-                    App::SetMtpEnable(enable);
-                },  "Enable MTP server to run in the background."_i18n);
+                options->Add<SidebarEntryCallback>("MTP"_i18n, [](){ App::DisplayMtpOptions(); },
+                    i18n::get("mtp_settings_info",
+                        "Enable / modify the MTP responder settings such as the folders that are shown.\n\n"
+                        "NOTE: Changing any of the options will automatically restart the MTP server when exiting the options menu.")
+                );
 
-                options->Add<SidebarEntryBool>("Nxlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
+                options->Add<SidebarEntryCallback>("HDD"_i18n, [](){
+                    App::DisplayHddOptions();
+                },  "Enable / modify the HDD mount options."_i18n);
+
+                options->Add<SidebarEntryBool>("NXlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
                     App::SetNxlinkEnable(enable);
-                },  "Enable NXlink server to run in the background. "\
-                    "NXlink is used to send .nro's from PC to the switch\n\n"\
-                    "If you are not a developer, you can disable this option."_i18n);
+                },  i18n::get("nxlink_enable_info",
+                        "Enable NXlink server to run in the background. "
+                        "NXlink is used to send .nro's from PC to the switch\n\n"
+                        "If you are not a developer, you can disable this option."));
 
-                options->Add<SidebarEntryBool>("Hdd"_i18n, App::GetHddEnable(), [](bool& enable){
-                    App::SetHddEnable(enable);
-                },  "Enable mounting of connected USB/HDD devices. "\
-                    "Connected devices can be used in the FileBrowser, as well as a backup location when dumping games and saves."_i18n);
+            },  i18n::get("nxlink_toggle_info",
+                    "Toggle FTP, MTP, HDD and NXlink\n\n"
+                    "If Sphaira has a update available, you can download it from this menu"));
 
-                options->Add<SidebarEntryBool>("Hdd write protect"_i18n, App::GetWriteProtect(), [](bool& enable){
-                    App::SetWriteProtect(enable);
-                },  "Makes the connected HDD read-only."_i18n);
-            }, "Toggle FTP, MTP, HDD and NXlink\n\n" \
-               "If Sphaira has a update available, you can download it from this menu"_i18n);
+            options->Add<SidebarEntryCallback>("Theme"_i18n, [](){
+                App::DisplayThemeOptions();
+            }, "Customise the look of Sphaira by changing the theme"_i18n);
 
             options->Add<SidebarEntryArray>("Language"_i18n, language_items, [](s64& index_out){
                 App::SetLanguage(index_out);
             }, (s64)App::GetLanguage(),
-                "Change the language.\n\n"
-                "If your language isn't found, or translations are missing, please consider opening a PR at "\
-                "github.com/ITotalJustice/sphaira"_i18n);
+                i18n::get("translation_info",
+                    "Change the language.\n\n"
+                    "If your language isn't found, or translations are missing, please consider opening a PR at "
+                    "github.com/ITotalJustice/sphaira"));
 
-            options->Add<SidebarEntryCallback>("Misc"_i18n, [](){
-                App::DisplayMiscOptions();
-            }, "View and launch one of Sphaira's menus"_i18n);
-
-            options->Add<SidebarEntryCallback>("Advanced"_i18n, [](){
+            options->Add<SidebarEntryCallback>("Advanced Options"_i18n, [](){
                 App::DisplayAdvancedOptions();
-            },  "Change the advanced options. "\
-                "Please view the info boxes to better understand each option."_i18n);
+            },  i18n::get("advanced_options_info",
+                    "Change the advanced options. "
+                    "Please view the info boxes to better understand each option."));
         }}
     ));
 
-    m_centre_menu = std::make_unique<homebrew::Menu>();
+    std::string center_name;
+    m_centre_menu = CreateCenterMenu(center_name);
     m_current_menu = m_centre_menu.get();
 
     std::string left_side_name;
-    m_left_menu = CreateLeftSideMenu(left_side_name);
+    m_left_menu = CreateLeftSideMenu(center_name, left_side_name);
+
     m_right_menu = CreateRightSideMenu(left_side_name);
 
     AddOnLRPress();

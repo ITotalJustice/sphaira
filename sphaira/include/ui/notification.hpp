@@ -11,8 +11,7 @@ public:
     enum class Side { LEFT, RIGHT };
 
 public:
-    NotifEntry(std::string text, Side side);
-    ~NotifEntry() = default;
+    NotifEntry(const std::string& text, Side side);
 
     auto Draw(NVGcontext* vg, Theme* theme, float y) -> bool;
     auto GetSide() const noexcept { return m_side; }
@@ -22,17 +21,14 @@ private:
     void Draw(NVGcontext* vg, Theme* theme) override;
 
 private:
-    std::string m_text{};
+    std::string m_text;
+    Side m_side;
     std::size_t m_count{180}; // count down to zero
-    Side m_side{};
     bool m_bounds_measured{};
 };
 
 class NotifMananger final : public Object {
 public:
-    NotifMananger() = default;
-    ~NotifMananger() = default;
-
     void Draw(NVGcontext* vg, Theme* theme) override;
 
     void Push(const NotifEntry& entry);

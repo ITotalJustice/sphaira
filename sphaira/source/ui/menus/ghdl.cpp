@@ -108,7 +108,7 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
 
     // 2. download the asset
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + gh_asset.name);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", gh_asset.name));
         log_write("starting download: %s\n", gh_asset.browser_download_url.c_str());
 
         const auto result = curl::Api().ToFile(
@@ -176,7 +176,7 @@ Menu::Menu(u32 flags) : MenuBase{"GitHub"_i18n, flags} {
                 return;
             }
 
-            DownloadEntries();
+            DownloadEntries(GetEntry());
         }}),
 
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
@@ -197,7 +197,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
-            App::PlaySoundEffect(SoundEffect_Focus);
+            App::PlaySoundEffect(SoundEffect::Focus);
             SetIndex(i);
         }
     });
@@ -206,8 +206,6 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
 void Menu::Draw(NVGcontext* vg, Theme* theme) {
     MenuBase::Draw(vg, theme);
 
-    const auto& text_col = theme->GetColour(ThemeEntryID_TEXT);
-
     if (m_entries.empty()) {
         gfx::drawTextArgs(vg, SCREEN_WIDTH / 2.f, SCREEN_HEIGHT / 2.f, 36.f, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "Empty..."_i18n.c_str());
         return;
@@ -215,7 +213,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
     constexpr float text_xoffset{15.f};
 
-    m_list->Draw(vg, theme, m_entries.size(), [this, text_col](auto* vg, auto* theme, auto v, auto i) {
+    m_list->Draw(vg, theme, m_entries.size(), [this](auto* vg, auto* theme, auto& v, auto i) {
         const auto& [x, y, w, h] = v;
         auto& e = m_entries[i];
 
@@ -235,7 +233,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         nvgRestore(vg);
 
         if (!e.tag.empty()) {
-            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f), 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->GetColour(text_id), "version: %s", e.tag.c_str());
+            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f), 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "version: %s"_i18n.c_str(), e.tag.c_str());
         }
     });
 }
@@ -341,14 +339,14 @@ void Menu::UpdateSubheading() {
     this->SetSubHeading(std::to_string(index) + " / " + std::to_string(m_entries.size()));
 }
 
-void Menu::DownloadEntries() {
+void DownloadEntries(const Entry& entry) {
     // hack
     static std::vector<GhApiEntry> gh_entries;
     gh_entries = {};
 
-    App::Push<ProgressBox>(0, "Downloading "_i18n, GetEntry().repo, [this](auto pbox) -> Result {
-        return DownloadReleaseJsonJson(pbox, GenerateApiUrl(GetEntry()), gh_entries);
-    }, [this](Result rc){
+    App::Push<ProgressBox>(0, "Downloading "_i18n, entry.repo, [entry](auto pbox) -> Result {
+        return DownloadReleaseJsonJson(pbox, GenerateApiUrl(entry), gh_entries);
+    }, [entry](Result rc){
         App::PushErrorBox(rc, "Failed to download json"_i18n);
         if (R_FAILED(rc) || gh_entries.empty()) {
             return;
@@ -356,27 +354,27 @@ void Menu::DownloadEntries() {
 
         PopupList::Items entry_items;
         for (const auto& e : gh_entries) {
-            std::string str;
+            std::string str = " [" + e.published_at.substr(0, 10) + "]";
+
             if (!e.name.empty()) {
-                str += e.name + "   |  ";
+                str += " " + e.name;
             } else {
-                str += e.tag_name + "   |  ";
+                str += " " + e.tag_name;
             }
             if (e.prerelease) {
                 str += " (Pre-Release)";
             }
-            str += " [" + e.published_at.substr(0, 10) + "]";
 
             entry_items.emplace_back(str);
         }
 
-        App::Push<PopupList>("Select release to download for "_i18n + GetEntry().repo, entry_items, [this](auto op_index){
+        App::Push<PopupList>("Select release to download for "_i18n + entry.repo, entry_items, [entry](auto op_index){
             if (!op_index) {
                 return;
             }
 
             const auto& gh_entry = gh_entries[*op_index];
-            const auto& assets = GetEntry().assets;
+            const auto& assets = entry.assets;
             PopupList::Items asset_items;
             std::vector<const AssetEntry*> asset_ptr;
             std::vector<GhApiAsset> api_assets;
@@ -398,15 +396,14 @@ void Menu::DownloadEntries() {
                 }
 
                 if (!using_name || found) {
-                    std::string str = p.name + "   |  ";
-                    str += " [" + p.updated_at.substr(0, 10) + "]";
+                    std::string str = " [" + p.updated_at.substr(0, 10) + "]" + " " + p.name;
 
                     asset_items.emplace_back(str);
                     api_assets.emplace_back(p);
                 }
             }
 
-            App::Push<PopupList>("Select asset to download for "_i18n + GetEntry().repo, asset_items, [this, api_assets, asset_ptr](auto op_index){
+            App::Push<PopupList>("Select asset to download for "_i18n + entry.repo, asset_items, [entry, api_assets, asset_ptr](auto op_index){
                 if (!op_index) {
                     return;
                 }
@@ -414,7 +411,7 @@ void Menu::DownloadEntries() {
                 const auto index = *op_index;
                 const auto& asset_entry = api_assets[index];
                 const AssetEntry* ptr{};
-                auto pre_install_message = GetEntry().pre_install_message;
+                auto pre_install_message = entry.pre_install_message;
                 if (asset_ptr.size()) {
                     ptr = asset_ptr[index];
                     if (!ptr->pre_install_message.empty()) {
@@ -422,16 +419,16 @@ void Menu::DownloadEntries() {
                     }
                 }
 
-                const auto func = [this, &asset_entry, ptr](){
-                    App::Push<ProgressBox>(0, "Downloading "_i18n, GetEntry().repo, [this, &asset_entry, ptr](auto pbox) -> Result {
+                const auto func = [entry, &asset_entry, ptr](){
+                    App::Push<ProgressBox>(0, "Downloading "_i18n, entry.repo, [entry, &asset_entry, ptr](auto pbox) -> Result {
                         return DownloadApp(pbox, asset_entry, ptr);
-                    }, [this, ptr](Result rc){
+                    }, [entry, ptr](Result rc){
                         homebrew::SignalChange();
                         App::PushErrorBox(rc, "Failed to download app!"_i18n);
 
                         if (R_SUCCEEDED(rc)) {
-                            App::Notify("Downloaded "_i18n + GetEntry().repo);
-                            auto post_install_message = GetEntry().post_install_message;
+                            App::Notify(i18n::Reorder("Downloaded ", entry.repo));
+                            auto post_install_message = entry.post_install_message;
                             if (ptr && !ptr->post_install_message.empty()) {
                                 post_install_message = ptr->post_install_message;
                             }
@@ -446,7 +443,7 @@ void Menu::DownloadEntries() {
                 if (!pre_install_message.empty()) {
                     App::Push<OptionBox>(
                         pre_install_message,
-                        "Back"_i18n, "Download"_i18n, 1, [this, func](auto op_index){
+                        "Back"_i18n, "Download"_i18n, 1, [entry, func](auto op_index){
                             if (op_index && *op_index) {
                                 func();
                             }
@@ -458,6 +455,33 @@ void Menu::DownloadEntries() {
             });
         });
     });
+}
+
+bool Download(const std::string& url, const std::vector<AssetEntry>& assets, const std::string& tag, const std::string& pre_install_message, const std::string& post_install_message) {
+    Entry entry{};
+    entry.url = url;
+    entry.tag = tag;
+    entry.assets = assets;
+    entry.pre_install_message = pre_install_message;
+    entry.post_install_message = post_install_message;
+
+    // parse owner and author from url (if needed).
+    if (!entry.url.empty()) {
+        const auto s = entry.url.substr(std::strlen("https://github.com/"));
+        const auto it = s.find('/');
+        if (it != s.npos) {
+            entry.owner = s.substr(0, it);
+            entry.repo = s.substr(it + 1);
+        }
+    }
+
+    // check that we have a owner and repo
+    if (entry.owner.empty() || entry.repo.empty()) {
+        return false;
+    }
+
+    DownloadEntries(entry);
+    return true;
 }
 
 } // namespace sphaira::ui::menu::gh

@@ -10,6 +10,11 @@ struct Base {
     // virtual Result Read(void* buf, s64 off, s64 size, u64* bytes_read) = 0;
     virtual Result Read(void* buf, s64 off, s64 size, u64* bytes_read) = 0;
 
+    Result Read2(void* buf, s64 off, s64 size) {
+        u64 bytes_read;
+        return Read(buf, off, size, &bytes_read);
+    }
+
     virtual bool IsStream() const {
         return false;
     }

@@ -2,6 +2,7 @@
 #include <memory>
 #include "app.hpp"
 #include "log.hpp"
+#include "ui/menus/main_menu.hpp"
 
 int main(int argc, char** argv) {
     if (!argc || !argv) {
@@ -9,6 +10,7 @@ int main(int argc, char** argv) {
     }
 
     auto app = std::make_unique<sphaira::App>(argv[0]);
+    app->Push<sphaira::ui::menu::main::MainMenu>();
     app->Loop();
     return 0;
 }
@@ -54,8 +56,6 @@ void userAppInit(void) {
         diagAbortWithResult(rc);
     if (R_FAILED(rc = plInitialize(PlServiceType_User)))
         diagAbortWithResult(rc);
-    if (R_FAILED(rc = psmInitialize()))
-        diagAbortWithResult(rc);
     if (R_FAILED(rc = nifmInitialize(NifmServiceType_User)))
         diagAbortWithResult(rc);
     if (R_FAILED(rc = accountInitialize(is_application ? AccountServiceType_Application : AccountServiceType_System)))
@@ -81,7 +81,6 @@ void userAppExit(void) {
     setExit();
     accountExit();
     nifmExit();
-    psmExit();
     plExit();
     socketExit();
     // NOTE (DMC): prevents exfat corruption.

@@ -51,6 +51,19 @@ auto GetCodeMessage(Result rc) -> const char* {
         case Result_FsLoadingCancelled: return "SphairaError_FsLoadingCancelled";
         case Result_FsBrokenRoot: return "SphairaError_FsBrokenRoot";
         case Result_FsUnknownStdioError: return "SphairaError_FsUnknownStdioError";
+        case Result_FsStdioFailedToSeek: return "SphairaError_FsStdioFailedToSeek";
+        case Result_FsStdioFailedToRead: return "SphairaError_FsStdioFailedToRead";
+        case Result_FsStdioFailedToWrite: return "SphairaError_FsStdioFailedToWrite";
+        case Result_FsStdioFailedToOpenFile: return "SphairaError_FsStdioFailedToOpenFile";
+        case Result_FsStdioFailedToCreate: return "SphairaError_FsStdioFailedToCreate";
+        case Result_FsStdioFailedToTruncate: return "SphairaError_FsStdioFailedToTruncate";
+        case Result_FsStdioFailedToFlush: return "SphairaError_FsStdioFailedToFlush";
+        case Result_FsStdioFailedToCreateDirectory: return "SphairaError_FsStdioFailedToCreateDirectory";
+        case Result_FsStdioFailedToDeleteFile: return "SphairaError_FsStdioFailedToDeleteFile";
+        case Result_FsStdioFailedToDeleteDirectory: return "SphairaError_FsStdioFailedToDeleteDirectory";
+        case Result_FsStdioFailedToOpenDirectory: return "SphairaError_FsStdioFailedToOpenDirectory";
+        case Result_FsStdioFailedToRename: return "SphairaError_FsStdioFailedToRename";
+        case Result_FsStdioFailedToStat: return "SphairaError_FsStdioFailedToStat";
         case Result_FsReadOnly: return "SphairaError_FsReadOnly";
         case Result_FsNotActive: return "SphairaError_FsNotActive";
         case Result_FsFailedStdioStat: return "SphairaError_FsFailedStdioStat";
@@ -71,6 +84,8 @@ auto GetCodeMessage(Result rc) -> const char* {
         case Result_ZipOpen2_64: return "SphairaError_ZipOpen2_64";
         case Result_ZipOpenNewFileInZip: return "SphairaError_ZipOpenNewFileInZip";
         case Result_ZipWriteInFileInZip: return "SphairaError_ZipWriteInFileInZip";
+        case Result_MmzBadLocalHeaderSig: return "SphairaError_MmzBadLocalHeaderSig";
+        case Result_MmzBadLocalHeaderRead: return "SphairaError_MmzBadLocalHeaderRead";
         case Result_FileBrowserFailedUpload: return "SphairaError_FileBrowserFailedUpload";
         case Result_FileBrowserDirNotDaybreak: return "SphairaError_FileBrowserDirNotDaybreak";
         case Result_AppstoreFailedZipDownload: return "SphairaError_AppstoreFailedZipDownload";
@@ -98,6 +113,7 @@ auto GetCodeMessage(Result rc) -> const char* {
         case Result_ThemezerFailedToDownloadTheme: return "SphairaError_ThemezerFailedToDownloadTheme";
         case Result_MainFailedToDownloadUpdate: return "SphairaError_MainFailedToDownloadUpdate";
         case Result_UsbDsBadDeviceSpeed: return "SphairaError_UsbDsBadDeviceSpeed";
+        case Result_NcaBadMagic: return "SphairaError_NcaBadMagic";
         case Result_NspBadMagic: return "SphairaError_NspBadMagic";
         case Result_XciBadMagic: return "SphairaError_XciBadMagic";
         case Result_XciSecurePartitionNotFound: return "SphairaError_XciSecurePartitionNotFound";
@@ -145,6 +161,16 @@ auto GetCodeMessage(Result rc) -> const char* {
         case Result_YatiCertNotFound: return "SphairaError_YatiCertNotFound";
         case Result_YatiNcmDbCorruptHeader: return "SphairaError_YatiNcmDbCorruptHeader";
         case Result_YatiNcmDbCorruptInfos: return "SphairaError_YatiNcmDbCorruptInfos";
+
+        case Result_NszFailedCreateCctx: return "SphairaError_NszFailedCreateCctx";
+        case Result_NszFailedSetCompressionLevel: return "SphairaError_NszFailedSetCompressionLevel";
+        case Result_NszFailedSetThreadCount: return "SphairaError_NszFailedSetThreadCount";
+        case Result_NszFailedSetLongDistanceMode: return "SphairaError_NszFailedSetLongDistanceMode";
+        case Result_NszFailedResetCctx: return "SphairaError_NszFailedResetCctx";
+        case Result_NszFailedCompress2: return "SphairaError_NszFailedCompress2";
+        case Result_NszFailedCompressStream2: return "SphairaError_NszFailedCompressStream2";
+        case Result_NszTooManyBlocks: return "SphairaError_NszTooManyBlocks";
+        case Result_NszMissingBlocks: return "SphairaError_NszMissingBlocks";
     }
 
     return "";
@@ -164,7 +190,7 @@ ErrorBox::ErrorBox(const std::string& message) : m_message{message} {
         SetPop();
     }});
 
-    App::PlaySoundEffect(SoundEffect::SoundEffect_Error);
+    App::PlaySoundEffect(SoundEffect::Error);
 }
 
 ErrorBox::ErrorBox(Result code, const std::string& message) : ErrorBox{message} {

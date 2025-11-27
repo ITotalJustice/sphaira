@@ -8,6 +8,12 @@
 
 namespace sphaira::ui::menu::homebrew {
 
+enum Filter {
+    Filter_All,
+    Filter_HideHidden,
+    Filter_MAX,
+};
+
 enum SortType {
     SortType_Updated,
     SortType_Alphabetical,
@@ -28,7 +34,7 @@ auto GetNroEntries() -> std::span<const NroEntry>;
 void SignalChange();
 
 struct Menu final : grid::Menu {
-    Menu();
+    Menu(u32 flags);
     ~Menu();
 
     auto GetShortTitle() const -> const char* override { return "Apps"; };
@@ -43,6 +49,14 @@ struct Menu final : grid::Menu {
     static Result InstallHomebrew(const fs::FsPath& path, const std::vector<u8>& icon);
     static Result InstallHomebrewFromPath(const fs::FsPath& path);
 
+    auto GetEntry(s64 i) -> NroEntry& {
+        return m_entries[m_entries_current[i]];
+    }
+
+    auto GetEntry() -> NroEntry& {
+        return GetEntry(m_index);
+    }
+
 private:
     void SetIndex(s64 index);
     void InstallHomebrew();
@@ -51,15 +65,21 @@ private:
     void SortAndFindLastFile(bool scan = false);
     void FreeEntries();
     void OnLayoutChange();
+    void DisplayOptions();
 
     auto IsStarEnabled() -> bool {
         return m_sort.Get() >= SortType_UpdatedStar;
     }
 
+    Result MountNroFs();
+
 private:
     static constexpr inline const char* INI_SECTION = "homebrew";
 
     std::vector<NroEntry> m_entries{};
+    std::vector<u32> m_entries_index[Filter_MAX]{};
+    std::span<u32> m_entries_current{};
+
     s64 m_index{}; // where i am in the array
     std::unique_ptr<List> m_list{};
     bool m_dirty{};
@@ -67,7 +87,7 @@ private:
     option::OptionLong m_sort{INI_SECTION, "sort", SortType::SortType_AlphabeticalStar};
     option::OptionLong m_order{INI_SECTION, "order", OrderType::OrderType_Descending};
     option::OptionLong m_layout{INI_SECTION, "layout", LayoutType::LayoutType_GridDetail};
-    option::OptionBool m_hide_sphaira{INI_SECTION, "hide_sphaira", false};
+    option::OptionBool m_show_hidden{INI_SECTION, "show_hidden", false};
 };
 
 } // namespace sphaira::ui::menu::homebrew

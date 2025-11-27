@@ -16,8 +16,6 @@
 
 // The USB transfer code was taken from Haze (part of Atmosphere).
 
-#if ENABLE_NETWORK_INSTALL
-
 #include "usb/base.hpp"
 #include "log.hpp"
 #include "defines.hpp"
@@ -38,7 +36,7 @@ Base::Base(u64 transfer_timeout) {
     App::SetAutoSleepDisabled(true);
 
     m_transfer_timeout = transfer_timeout;
-    ueventCreate(GetCancelEvent(), true);
+    ueventCreate(GetCancelEvent(), false);
     m_aligned = std::make_unique<u8*>(new(std::align_val_t{TRANSFER_ALIGN}) u8[TRANSFER_MAX]);
 }
 
@@ -100,5 +98,3 @@ Result Base::TransferAll(bool read, void *data, u32 size, u64 timeout) {
 }
 
 } // namespace sphaira::usb
-
-#endif

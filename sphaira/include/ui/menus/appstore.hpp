@@ -86,14 +86,16 @@ struct EntryMenu final : MenuBase {
 
 private:
     struct Option {
-        Option(const std::string& dt, const std::string& ct, std::function<void(void)> f)
+        using Callback = std::function<void(void)>;
+
+        Option(const std::string& dt, const std::string& ct, const Callback& f)
         : display_text{dt}, confirm_text{ct}, func{f} {}
-        Option(const std::string& dt, std::function<void(void)> f)
+        Option(const std::string& dt, const Callback& f)
         : display_text{dt}, func{f} {}
 
-        std::string display_text{};
-        std::string confirm_text{};
-        std::function<void(void)> func{};
+        const std::string display_text;
+        const std::string confirm_text;
+        const Callback func{};
     };
 
     Entry& m_entry;

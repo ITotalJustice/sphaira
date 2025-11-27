@@ -1,5 +1,3 @@
-#if ENABLE_NETWORK_INSTALL
-
 #include "ui/menus/usb_menu.hpp"
 #include "yati/yati.hpp"
 #include "app.hpp"
@@ -7,14 +5,17 @@
 #include "log.hpp"
 #include "ui/nvg_util.hpp"
 #include "i18n.hpp"
+
+#include "utils/thread.hpp"
+
 #include <cstring>
 
 namespace sphaira::ui::menu::usb {
 namespace {
 
-constexpr u64 CONNECTION_TIMEOUT = UINT64_MAX;
-constexpr u64 TRANSFER_TIMEOUT = UINT64_MAX;
-constexpr u64 FINISHED_TIMEOUT = 1e+9 * 3; // 3 seconds.
+constexpr u64 CONNECTION_TIMEOUT = 3e+9;
+constexpr u64 TRANSFER_TIMEOUT = 3e+9;
+constexpr u64 FINISHED_TIMEOUT = 3e+9; // 3 seconds.
 
 void thread_func(void* user) {
     auto app = static_cast<Menu*>(user);
@@ -47,15 +48,18 @@ Menu::Menu(u32 flags) : MenuBase{"USB"_i18n, flags} {
     }
 
     if (m_state != State::Failed) {
-        threadCreate(&m_thread, thread_func, this, nullptr, 1024*32, PRIO_PREEMPTIVE, 1);
+        utils::CreateThread(&m_thread, thread_func, this, 1024*32);
         threadStart(&m_thread);
     }
 }
 
 Menu::~Menu() {
     // signal for thread to exit and wait.
-    m_stop_source.request_stop();
-    m_usb_source->SignalCancel();
+    if (R_FAILED(waitSingleHandle(m_thread.handle, 0))) {
+        m_usb_source->SignalCancel();
+        m_stop_source.request_stop();
+    }
+
     threadWaitForExit(&m_thread);
     threadClose(&m_thread);
 
@@ -83,7 +87,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         usbDsGetSpeed(&speed);
 
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "State: %s | Speed: %s", i18n::get(GetUsbDsStateStr(state)).c_str(), i18n::get(GetUsbDsSpeedStr(speed)).c_str());
+        std::snprintf(buf, sizeof(buf), "State: %s | Speed: %s"_i18n.c_str(), i18n::get(GetUsbDsStateStr(state)).c_str(), i18n::get(GetUsbDsSpeedStr(speed)).c_str());
         SetSubHeading(buf);
     }
 
@@ -92,20 +96,26 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         m_state = State::Progress;
         log_write("got connection\n");
         App::Push<ui::ProgressBox>(0, "Installing "_i18n, "", [this](auto pbox) -> Result {
-            ON_SCOPE_EXIT(m_usb_source->Finished(FINISHED_TIMEOUT));
-
-            // if we are doing s2s install, skip verifying the nca contents.
-            yati::ConfigOverride config_override{};
-            if (m_usb_source->IsStream()) {
-                config_override.skip_nca_hash_verify = true;
-                config_override.skip_rsa_header_fixed_key_verify = true;
-                config_override.skip_rsa_npdm_fixed_key_verify = true;
-            }
+            pbox->AddCancelEvent(m_usb_source->GetCancelEvent());
+            ON_SCOPE_EXIT(pbox->RemoveCancelEvent(m_usb_source->GetCancelEvent()));
 
             log_write("inside progress box\n");
-            for (const auto& file_name : m_names) {
+            for (u32 i = 0; i < std::size(m_names); i++) {
+                const auto& file_name = m_names[i];
+
+                s64 file_size;
+                R_TRY(m_usb_source->OpenFile(i, file_size));
+                ON_SCOPE_EXIT(m_usb_source->CloseFile());
+
+                // if we are doing s2s install, skip verifying the nca contents.
+                yati::ConfigOverride config_override{};
+                if (m_usb_source->IsStream()) {
+                    config_override.skip_nca_hash_verify = true;
+                    config_override.skip_rsa_header_fixed_key_verify = true;
+                    config_override.skip_rsa_npdm_fixed_key_verify = true;
+                }
+
                 pbox->SetTitle(file_name);
-                m_usb_source->SetFileNameForTranfser(file_name);
                 const auto rc = yati::InstallFromSource(pbox, m_usb_source.get(), file_name, config_override);
                 if (R_FAILED(rc)) {
                     m_usb_source->SignalCancel();
@@ -191,5 +201,3 @@ void Menu::ThreadFunction() {
 }
 
 } // namespace sphaira::ui::menu::usb
-
-#endif

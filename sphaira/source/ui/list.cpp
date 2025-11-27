@@ -35,7 +35,7 @@ auto List::ClampY(float y, s64 count) const -> float {
     return std::clamp(y, 0.F, y_max);
 }
 
-void List::OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback) {
+void List::OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 count, const TouchCallback& callback) {
     switch (m_layout) {
         case Layout::HOME:
             OnUpdateHome(controller, touch, index, count, callback);
@@ -46,7 +46,7 @@ void List::OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 cou
     }
 }
 
-void List::Draw(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const {
+void List::Draw(NVGcontext* vg, Theme* theme, s64 count, const Callback& callback) const {
     switch (m_layout) {
         case Layout::HOME:
             DrawHome(vg, theme, count, callback);
@@ -65,14 +65,10 @@ auto List::ScrollDown(s64& index, s64 step, s64 count) -> bool {
         return false;
     }
 
-    if (index + step < count) {
-        index += step;
-    } else {
-        index = count - 1;
-    }
+    index = std::min(index + step, count - 1);
 
     if (index != old_index) {
-        App::PlaySoundEffect(SoundEffect_Scroll);
+        App::PlaySoundEffect(SoundEffect::Scroll);
         s64 delta = index - old_index;
         s64 start = m_yoff / max * m_row;
 
@@ -103,14 +99,10 @@ auto List::ScrollUp(s64& index, s64 step, s64 count) -> bool {
         return false;
     }
 
-    if (index >= step) {
-        index -= step;
-    } else {
-        index = 0;
-    }
+    index = std::max<s64>(0, index - step);
 
     if (index != old_index) {
-        App::PlaySoundEffect(SoundEffect_Scroll);
+        App::PlaySoundEffect(SoundEffect::Scroll);
         s64 start = m_yoff / max * m_row;
 
         while (index < start) {
@@ -129,7 +121,7 @@ auto List::ScrollUp(s64& index, s64 step, s64 count) -> bool {
     return false;
 }
 
-void List::OnUpdateHome(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback) {
+void List::OnUpdateHome(Controller* controller, TouchInfo* touch, s64 index, s64 count, const TouchCallback& callback) {
     if (controller->GotDown(Button::RIGHT)) {
         if (ScrollDown(index, m_row, count)) {
             callback(false, index);
@@ -165,24 +157,28 @@ void List::OnUpdateHome(Controller* controller, TouchInfo* touch, s64 index, s64
     }
 }
 
-void List::OnUpdateGrid(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback) {
+void List::OnUpdateGrid(Controller* controller, TouchInfo* touch, s64 index, s64 count, const TouchCallback& callback) {
     const auto page_up_button = GetPageJump() ? (m_row == 1 ? Button::DPAD_LEFT : Button::L2) : (Button::NONE);
     const auto page_down_button = GetPageJump() ? (m_row == 1 ? Button::DPAD_RIGHT : Button::R2) : (Button::NONE);
 
+    const auto hotkey = m_row == 1 ? controller->GotHeld(Button::R2) : false;
+    const auto end_page = INT32_MAX;
+    const auto hot_page = m_page * 4;
+
     if (controller->GotDown(Button::DOWN)) {
-        if (ScrollDown(index, m_row, count)) {
+        if (ScrollDown(index, hotkey ? end_page : m_row, count)) {
             callback(false, index);
         }
     } else if (controller->GotDown(Button::UP)) {
-        if (ScrollUp(index, m_row, count)) {
+        if (ScrollUp(index, hotkey ? end_page : m_row, count)) {
             callback(false, index);
         }
     } else if (controller->GotDown(page_down_button)) {
-        if (ScrollDown(index, m_page, count)) {
+        if (ScrollDown(index, hotkey ? hot_page : m_page, count)) {
             callback(false, index);
         }
     } else if (controller->GotDown(page_up_button)) {
-        if (ScrollUp(index, m_page, count)) {
+        if (ScrollUp(index, hotkey ? hot_page : m_page, count)) {
             callback(false, index);
         }
     } else if (m_row > 1 && controller->GotDown(Button::RIGHT)) {
@@ -236,7 +232,7 @@ void List::OnUpdateGrid(Controller* controller, TouchInfo* touch, s64 index, s64
     }
 }
 
-void List::DrawHome(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const {
+void List::DrawHome(NVGcontext* vg, Theme* theme, s64 count, const Callback& callback) const {
     const auto yoff = ClampX(m_yoff + m_y_prog, count);
     auto v = m_v;
     v.x -= yoff;
@@ -260,7 +256,7 @@ void List::DrawHome(NVGcontext* vg, Theme* theme, s64 count, Callback callback) 
     nvgRestore(vg);
 }
 
-void List::DrawGrid(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const {
+void List::DrawGrid(NVGcontext* vg, Theme* theme, s64 count, const Callback& callback) const {
     const auto yoff = ClampY(m_yoff + m_y_prog, count);
     const s64 start = yoff / GetMaxY() * m_row;
     gfx::drawScrollbar2(vg, theme, m_scrollbar.x, m_scrollbar.y, m_scrollbar.h, start, count, m_row, m_page);

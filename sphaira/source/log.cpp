@@ -1,8 +1,10 @@
 #include "log.hpp"
+#include "defines.hpp"
 #include <cstdio>
 #include <cstdarg>
+#include <ctime>
+#include <atomic>
 #include <unistd.h>
-#include <mutex>
 #include <switch.h>
 
 #if sphaira_USE_LOG
@@ -10,18 +12,19 @@ namespace {
 
 constexpr const char* logpath = "/config/sphaira/log.txt";
 
-int nxlink_socket{};
-bool g_file_open{};
-std::mutex mutex{};
+std::atomic_int32_t nxlink_socket{};
+std::atomic_bool g_file_open{};
+Mutex g_mutex;
 
 void log_write_arg_internal(const char* s, std::va_list* v) {
     const auto t = std::time(nullptr);
     const auto tm = std::localtime(&t);
 
-    static char buf[512];
+    char buf[512];
     const auto len = std::snprintf(buf, sizeof(buf), "[%02u:%02u:%02u] -> ", tm->tm_hour, tm->tm_min, tm->tm_sec);
     std::vsnprintf(buf + len, sizeof(buf) - len, s, *v);
 
+    SCOPED_MUTEX(&g_mutex);
     if (g_file_open) {
         auto file = std::fopen(logpath, "a");
         if (file) {
@@ -39,7 +42,7 @@ void log_write_arg_internal(const char* s, std::va_list* v) {
 extern "C" {
 
 auto log_file_init() -> bool {
-    std::scoped_lock lock{mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (g_file_open) {
         return false;
     }
@@ -55,7 +58,7 @@ auto log_file_init() -> bool {
 }
 
 auto log_nxlink_init() -> bool {
-    std::scoped_lock lock{mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (nxlink_socket) {
         return false;
     }
@@ -65,14 +68,14 @@ auto log_nxlink_init() -> bool {
 }
 
 void log_file_exit() {
-    std::scoped_lock lock{mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (g_file_open) {
         g_file_open = false;
     }
 }
 
 void log_nxlink_exit() {
-    std::scoped_lock lock{mutex};
+    SCOPED_MUTEX(&g_mutex);
     if (nxlink_socket) {
         close(nxlink_socket);
         nxlink_socket = 0;
@@ -80,7 +83,6 @@ void log_nxlink_exit() {
 }
 
 bool log_is_init() {
-    std::scoped_lock lock{mutex};
     return g_file_open || nxlink_socket;
 }
 
@@ -89,7 +91,6 @@ void log_write(const char* s, ...) {
         return;
     }
 
-    std::scoped_lock lock{mutex};
     std::va_list v{};
     va_start(v, s);
     log_write_arg_internal(s, &v);
@@ -101,7 +102,6 @@ void log_write_arg(const char* s, va_list* v) {
         return;
     }
 
-    std::scoped_lock lock{mutex};
     log_write_arg_internal(s, v);
 }
 

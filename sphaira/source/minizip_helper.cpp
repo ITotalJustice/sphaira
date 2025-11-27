@@ -4,8 +4,72 @@
 #include <cstring>
 #include <cstdio>
 
+#include "log.hpp"
+
 namespace sphaira::mz {
 namespace {
+
+// mmz is part of ftpsrv code.
+#define LOCAL_HEADER_SIG 0x4034B50
+#define FILE_HEADER_SIG 0x2014B50
+#define END_RECORD_SIG 0x6054B50
+
+// 30 bytes (0x1E)
+#pragma pack(push,1)
+typedef struct mmz_LocalHeader {
+    uint32_t sig;
+    uint16_t version;
+    uint16_t flags;
+    uint16_t compression;
+    uint16_t modtime;
+    uint16_t moddate;
+    uint32_t crc32;
+    uint32_t compressed_size;
+    uint32_t uncompressed_size;
+    uint16_t filename_len;
+    uint16_t extrafield_len;
+} mmz_LocalHeader;
+#pragma pack(pop)
+
+// 46 bytes (0x2E)
+#pragma pack(push,1)
+typedef struct mmz_FileHeader {
+    uint32_t sig;
+    uint16_t version;
+    uint16_t version_needed;
+    uint16_t flags;
+    uint16_t compression;
+    uint16_t modtime;
+    uint16_t moddate;
+    uint32_t crc32;
+    uint32_t compressed_size;
+    uint32_t uncompressed_size;
+    uint16_t filename_len;
+    uint16_t extrafield_len;
+    uint16_t filecomment_len;
+    uint16_t disk_start; // wat
+    uint16_t internal_attr; // wat
+    uint32_t external_attr; // wat
+    uint32_t local_hdr_off;
+} mmz_FileHeader;
+#pragma pack(pop)
+
+#pragma pack(push,1)
+typedef struct mmz_EndRecord {
+    uint32_t sig;
+    uint16_t disk_number;
+    uint16_t disk_wcd;
+    uint16_t disk_entries;
+    uint16_t total_entries;
+    uint32_t central_directory_size;
+    uint32_t file_hdr_off;
+    uint16_t comment_len;
+} mmz_EndRecord;
+#pragma pack(pop)
+
+static_assert(sizeof(mmz_LocalHeader) == 0x1E);
+static_assert(sizeof(mmz_FileHeader) == 0x2E);
+static_assert(sizeof(mmz_EndRecord) == 0x16);
 
 voidpf minizip_open_file_func_mem(voidpf opaque, const void* filename, int mode) {
     return opaque;
@@ -131,8 +195,10 @@ voidpf minizip_open_file_func_stdio(voidpf opaque, const void* filename, int mod
     if ((mode & ZLIB_FILEFUNC_MODE_READWRITEFILTER) == ZLIB_FILEFUNC_MODE_READ) {
         mode_fopen = "rb";
     } else if (mode & ZLIB_FILEFUNC_MODE_EXISTING) {
+        log_write("[ZIP] opening r/w\n");
         mode_fopen = "r+b";
     } else if (mode & ZLIB_FILEFUNC_MODE_CREATE) {
+        log_write("[ZIP] opening r/w +\n");
         mode_fopen = "wb";
     } else {
         return NULL;
@@ -191,6 +257,99 @@ constexpr zlib_filefunc64_def zlib_filefunc_stdio = {
     .zerror_file = minizip_error_file_func_stdio,
 };
 
+
+
+
+
+
+struct Internal {
+    FsFile file;
+    s64 offset;
+    s64 size;
+    Result rc;
+};
+
+static void* zopen64_file(void* opaque, const void* filename, int mode)
+{
+    struct Internal* fs = (struct Internal*)calloc(1, sizeof(*fs));
+    if (R_FAILED(fs->rc = fsFsOpenFile(fsdevGetDeviceFileSystem("sdmc:"), (const char*)filename, FsOpenMode_Read, &fs->file))) {
+        free(fs);
+        return NULL;
+    }
+
+    if (R_FAILED(fs->rc = fsFileGetSize(&fs->file, &fs->size))) {
+        free(fs);
+        return NULL;
+    }
+
+    return fs;
+}
+
+static uLong zread_file(void* opaque, void* stream, void* buf, unsigned long size)
+{
+    struct Internal* fs = (struct Internal*)stream;
+
+    u64 bytes_read;
+    if (R_FAILED(fs->rc = fsFileRead(&fs->file, fs->offset, buf, size, 0, &bytes_read))) {
+        return 0;
+    }
+
+    fs->offset += bytes_read;
+    return bytes_read;
+}
+
+static ZPOS64_T ztell64_file(void* opaque, void* stream)
+{
+    struct Internal* fs = (struct Internal*)stream;
+    return fs->offset;
+}
+
+static long zseek64_file(void* opaque, void* stream, ZPOS64_T offset, int origin)
+{
+    struct Internal* fs = (struct Internal*)stream;
+    switch (origin) {
+        case SEEK_SET: {
+            fs->offset = offset;
+        } break;
+        case SEEK_CUR: {
+            fs->offset += offset;
+        } break;
+        case SEEK_END: {
+            fs->offset = fs->size + offset;
+        } break;
+    }
+    return 0;
+}
+
+static int zclose_file(void* opaque, void* stream)
+{
+    if (stream) {
+        struct Internal* fs = (struct Internal*)stream;
+        fsFileClose(&fs->file);
+        memset(fs, 0, sizeof(*fs));
+        free(fs);
+    }
+    return 0;
+}
+
+static int zerror_file(void* opaque, void* stream)
+{
+    struct Internal* fs = (struct Internal*)stream;
+    if (R_FAILED(fs->rc)) {
+        return -1;
+    }
+    return 0;
+}
+
+static const zlib_filefunc64_def zlib_filefunc_native = {
+    .zopen64_file = zopen64_file,
+    .zread_file = zread_file,
+    .ztell64_file = ztell64_file,
+    .zseek64_file = zseek64_file,
+    .zclose_file = zclose_file,
+    .zerror_file = zerror_file,
+};
+
 } // namespace
 
 void FileFuncMem(MzMem* mem, zlib_filefunc64_def* funcs) {
@@ -205,6 +364,28 @@ void FileFuncSpan(MzSpan* span, zlib_filefunc64_def* funcs) {
 
 void FileFuncStdio(zlib_filefunc64_def* funcs) {
     *funcs = zlib_filefunc_stdio;
+}
+
+void FileFuncNative(zlib_filefunc64_def* funcs) {
+    *funcs = zlib_filefunc_native;
+}
+
+Result PeekFirstFileName(fs::Fs* fs, const fs::FsPath& path, fs::FsPath& name) {
+    fs::File file;
+    R_TRY(fs->OpenFile(path, fs::OpenMode_ReadBuffered, &file));
+
+    mmz_LocalHeader local_hdr;
+    u64 bytes_read;
+    R_TRY(file.Read(0, &local_hdr, sizeof(local_hdr), 0, &bytes_read));
+
+    R_UNLESS(bytes_read == sizeof(local_hdr), Result_MmzBadLocalHeaderRead);
+    R_UNLESS(local_hdr.sig == LOCAL_HEADER_SIG, Result_MmzBadLocalHeaderSig);
+
+    const auto name_len = std::min<u64>(local_hdr.filename_len, sizeof(name) - 1);
+    R_TRY(file.Read(bytes_read, name, name_len, 0, &bytes_read));
+    name[name_len] = '\0';
+
+    R_SUCCEED();
 }
 
 } // namespace sphaira::mz

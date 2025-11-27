@@ -1,19 +1,8 @@
-#if ENABLE_NETWORK_INSTALL
-
 #include "usb/usbds.hpp"
 #include "log.hpp"
 #include "defines.hpp"
 #include <ranges>
 #include <cstring>
-
-Result usbDsGetSpeed(UsbDeviceSpeed *out) {
-    if (hosversionBefore(8,0,0)) {
-        return MAKERESULT(Module_Libnx, LibnxError_IncompatSysVer);
-    }
-
-    serviceAssumeDomain(usbDsGetServiceSession());
-    return serviceDispatchOut(usbDsGetServiceSession(), hosversionAtLeast(11,0,0) ? 11 : 12, *out);
-}
 
 auto GetUsbDsStateStr(UsbState state) -> const char* {
     switch (state) {
@@ -30,8 +19,7 @@ auto GetUsbDsStateStr(UsbState state) -> const char* {
 }
 
 auto GetUsbDsSpeedStr(UsbDeviceSpeed speed) -> const char* {
-    // todo: remove this cast when libnx pr is merged.
-    switch ((u32)speed) {
+    switch (speed) {
         case UsbDeviceSpeed_None: return "None";
         case UsbDeviceSpeed_Low: return "USB 1.0 Low Speed";
         case UsbDeviceSpeed_Full: return "USB 1.1 Full Speed";
@@ -204,6 +192,12 @@ Result UsbDs::Init() {
     R_TRY(usbDsInterface_EnableInterface(m_interface));
     R_TRY(usbDsEnable());
 
+    // not needed because the api sends the size of the sent data
+    // before each write, so there's not need to send a zlt.
+    #if 0
+    R_TRY(usbDsEndpoint_SetZlt(m_endpoints[UsbSessionEndpoint_In], true));
+    #endif
+
     log_write("success USB init\n");
     R_SUCCEED();
 }
@@ -321,15 +315,6 @@ Result UsbDs::WaitTransferCompletion(UsbSessionEndpoint ep, u64 timeout) {
 }
 
 Result UsbDs::TransferAsync(UsbSessionEndpoint ep, void *buffer, u32 remaining, u32 size, u32 *out_urb_id) {
-    if (ep == UsbSessionEndpoint_In) {
-        if (size && remaining == size && !(size % (u32)m_max_packet_size)) {
-            log_write("[USBDS] SetZlt(true)\n");
-            R_TRY(usbDsEndpoint_SetZlt(m_endpoints[ep], true));
-        } else {
-            R_TRY(usbDsEndpoint_SetZlt(m_endpoints[ep], false));
-        }
-    }
-
     return usbDsEndpoint_PostBufferAsync(m_endpoints[ep], buffer, size, out_urb_id);
 }
 
@@ -344,5 +329,3 @@ Result UsbDs::GetTransferResult(UsbSessionEndpoint ep, u32 urb_id, u32 *out_requ
 }
 
 } // namespace sphaira::usb
-
-#endif

@@ -9,7 +9,7 @@ class OptionBoxEntry final : public Widget {
 public:
 
 public:
-    OptionBoxEntry(const std::string& text, Vec4 pos);
+    OptionBoxEntry(const std::string& text, const Vec4& pos);
 
     auto Update(Controller* controller, TouchInfo* touch) -> void override {}
     auto Draw(NVGcontext* vg, Theme* theme) -> void override;

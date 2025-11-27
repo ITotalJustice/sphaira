@@ -48,8 +48,8 @@ struct Widget : public Object {
     }
 
     auto HasAction(Button button) const -> bool;
-    void SetAction(Button button, Action action);
-    void SetActions(std::same_as<std::pair<Button, Action>> auto ...args) {
+    void SetAction(Button button, const Action& action);
+    void SetActions(std::same_as<std::pair<Button, Action>> auto&& ...args) {
         const std::array list = {args...};
         for (const auto& [button, action] : list) {
             SetAction(button, action);

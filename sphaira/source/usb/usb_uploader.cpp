@@ -1,15 +1,10 @@
-// The USB protocol was taken from Tinfoil, by Adubbz.
-#if ENABLE_NETWORK_INSTALL
-
 #include "usb/usb_uploader.hpp"
-#include "usb/tinfoil.hpp"
+#include "usb/usb_api.hpp"
 #include "log.hpp"
 #include "defines.hpp"
 
 namespace sphaira::usb::upload {
 namespace {
-
-namespace tinfoil = usb::tinfoil;
 
 const UsbHsInterfaceFilter FILTER{
     .Flags = UsbHsInterfaceFilterFlags_idVendor |
@@ -36,6 +31,8 @@ const UsbHsInterfaceFilter FILTER{
 
 constexpr u8 INDEX = 0;
 
+using namespace usb::api;
+
 } // namespace
 
 Usb::Usb(u64 transfer_timeout) {
@@ -46,69 +43,90 @@ Usb::Usb(u64 transfer_timeout) {
 Usb::~Usb() {
 }
 
-Result Usb::WaitForConnection(u64 timeout, u8 flags, std::span<const std::string> names) {
+Result Usb::WaitForConnection(u64 timeout, std::span<const std::string> names) {
     R_TRY(m_usb->IsUsbConnected(timeout));
 
+    // build name table.
     std::string names_list;
     for (auto& name : names) {
         names_list += name + '\n';
     }
 
-    tinfoil::TUSHeader header{};
-    header.magic = tinfoil::Magic_List0;
-    header.nspListSize = names_list.length();
-    header.flags = flags;
+    // send.
+    SendPacket send_header;
+    R_TRY(m_usb->TransferAll(true, &send_header, sizeof(send_header), timeout));
+    R_TRY(send_header.Verify());
 
-    R_TRY(m_usb->TransferAll(false, &header, sizeof(header), timeout));
+    // send table info.
+    R_TRY(SendResult(RESULT_OK, names_list.length()));
+
+    // send name table.
     R_TRY(m_usb->TransferAll(false, names_list.data(), names_list.length(), timeout));
 
     R_SUCCEED();
 }
 
 Result Usb::PollCommands() {
-    tinfoil::USBCmdHeader header;
-    R_TRY(m_usb->TransferAll(true, &header, sizeof(header)));
-    R_UNLESS(header.magic == tinfoil::Magic_Command0, Result_UsbUploadBadMagic);
+    SendPacket send_header;
+    R_TRY(m_usb->TransferAll(true, &send_header, sizeof(send_header)));
+    R_TRY(send_header.Verify());
 
-    if (header.cmdId == tinfoil::USBCmdId::EXIT) {
+    if (send_header.GetCmd() == CMD_QUIT) {
+        R_TRY(SendResult(RESULT_OK));
         R_THROW(Result_UsbUploadExit);
-    } else if (header.cmdId == tinfoil::USBCmdId::FILE_RANGE) {
-        return FileRangeCmd(header.dataSize);
+    } else if (send_header.GetCmd() == CMD_OPEN) {
+        s64 file_size;
+        u16 flags;
+        R_TRY(Open(send_header.arg3, file_size, flags));
+
+        const auto size_lsb = file_size & 0xFFFFFFFF;
+        const auto size_msb = ((file_size >> 32) & 0xFFFF) | (flags << 16);
+        return SendResult(RESULT_OK, size_msb, size_lsb);
     } else {
+        R_TRY(SendResult(RESULT_ERROR));
         R_THROW(Result_UsbUploadBadCommand);
     }
 }
 
-Result Usb::FileRangeCmd(u64 data_size) {
-    tinfoil::FileRangeCmdHeader header;
-    R_TRY(m_usb->TransferAll(true, &header, sizeof(header)));
+Result Usb::file_transfer_loop() {
+    log_write("doing file transfer\n");
 
-    std::string path(header.nspNameLen, '\0');
-    R_TRY(m_usb->TransferAll(true, path.data(), header.nspNameLen));
+    // get offset + size.
+    SendDataPacket send_header;
+    R_TRY(m_usb->TransferAll(true, &send_header, sizeof(send_header)));
 
-    // send response header.
-    R_TRY(m_usb->TransferAll(false, &header, sizeof(header)));
-
-    s64 curr_off = 0x0;
-    s64 end_off = header.size;
-    s64 read_size = header.size;
-
-    m_buf.resize(header.size);
-
-    while (curr_off < end_off) {
-        if (curr_off + read_size >= end_off) {
-            read_size = end_off - curr_off;
-        }
-
-        u64 bytes_read;
-        R_TRY(Read(path, m_buf.data(), header.offset + curr_off, read_size, &bytes_read));
-        R_TRY(m_usb->TransferAll(false, m_buf.data(), bytes_read));
-        curr_off += bytes_read;
+    // check if we should finish now.
+    if (send_header.GetOffset() == 0 && send_header.GetSize() == 0) {
+        log_write("finished\n");
+        R_TRY(SendResult(RESULT_OK));
+        return Result_UsbUploadExit;
     }
+
+    // read file and calculate the hash.
+    u64 bytes_read;
+    m_buf.resize(send_header.GetSize());
+    log_write("reading buffer: %zu\n", m_buf.size());
+
+    R_TRY(Read(m_buf.data(), send_header.GetOffset(), m_buf.size(), &bytes_read));
+    const auto crc32 = crc32Calculate(m_buf.data(), m_buf.size());
+
+    log_write("read the buffer: %zu\n", bytes_read);
+    // respond back with the length of the data and the crc32.
+    R_TRY(SendResult(RESULT_OK, m_buf.size(), crc32));
+
+    log_write("sent result with crc\n");
+
+    // send the data.
+    R_TRY(m_usb->TransferAll(false, m_buf.data(), m_buf.size()));
+
+    log_write("sent the data\n");
 
     R_SUCCEED();
 }
 
-} // namespace sphaira::usb::upload
+Result Usb::SendResult(u32 result, u32 arg3, u32 arg4) {
+    auto recv_header = api::ResultPacket::Build(result, arg3, arg4);
+    return m_usb->TransferAll(false, &recv_header, sizeof(recv_header));
+}
 
-#endif
+} // namespace sphaira::usb::upload

@@ -11,4 +11,8 @@ Result File::Read(void* buf, s64 off, s64 size, u64* bytes_read) {
     return m_file.Read(off, buf, size, 0, bytes_read);
 }
 
+Result File::GetSize(s64* out) {
+    return m_file.GetSize(out);
+}
+
 } // namespace sphaira::yati::source

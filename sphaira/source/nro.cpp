@@ -13,11 +13,6 @@
 namespace sphaira {
 namespace {
 
-struct NroData {
-    NroStart start;
-    NroHeader header;
-};
-
 auto nro_parse_internal(fs::Fs* fs, const fs::FsPath& path, NroEntry& entry) -> Result {
     entry.path = path;
 
@@ -79,7 +74,7 @@ auto nro_parse_internal(fs::Fs* fs, const fs::FsPath& path, NroEntry& entry) -> 
 // this function is recursive by 1 level deep
 // if the nro is in switch/folder/folder2/app.nro it will NOT be found
 // switch/folder/app.nro for example will work fine.
-auto nro_scan_internal(fs::Fs* fs, const fs::FsPath& path, std::vector<NroEntry>& nros, bool hide_sphaira, bool nested, bool scan_all_dir, bool root) -> Result {
+auto nro_scan_internal(fs::Fs* fs, const fs::FsPath& path, std::vector<NroEntry>& nros, bool nested, bool scan_all_dir, bool root) -> Result {
     // we don't need to scan for folders if we are not root
     u32 dir_open_type = FsDirOpenMode_ReadFiles | FsDirOpenMode_NoFileSize;
     if (root) {
@@ -99,11 +94,6 @@ auto nro_scan_internal(fs::Fs* fs, const fs::FsPath& path, std::vector<NroEntry>
             continue;
         }
 
-        // skip self
-        if (hide_sphaira && !strncmp(e.name, "sphaira", strlen("sphaira"))) {
-            continue;
-        }
-
         if (e.type == FsDirEntryType_Dir) {
             // assert(!root && "dir should only be scanned on non-root!");
             fs::FsPath fullpath;
@@ -117,7 +107,7 @@ auto nro_scan_internal(fs::Fs* fs, const fs::FsPath& path, std::vector<NroEntry>
             } else {
                 // slow path...
                 std::snprintf(fullpath, sizeof(fullpath), "%s/%s", path.s, e.name);
-                nro_scan_internal(fs, fullpath, nros, hide_sphaira, nested, scan_all_dir, false);
+                nro_scan_internal(fs, fullpath, nros, nested, scan_all_dir, false);
             }
         } else if (e.type == FsDirEntryType_File && std::string_view{e.name}.ends_with(".nro")) {
             fs::FsPath fullpath;
@@ -139,9 +129,9 @@ auto nro_scan_internal(fs::Fs* fs, const fs::FsPath& path, std::vector<NroEntry>
     R_SUCCEED();
 }
 
-auto nro_scan_internal(const fs::FsPath& path, std::vector<NroEntry>& nros, bool hide_sphaira, bool nested, bool scan_all_dir, bool root) -> Result {
+auto nro_scan_internal(const fs::FsPath& path, std::vector<NroEntry>& nros, bool nested, bool scan_all_dir, bool root) -> Result {
     fs::FsNativeSd fs;
-    return nro_scan_internal(&fs, path, nros, hide_sphaira, nested, scan_all_dir, root);
+    return nro_scan_internal(&fs, path, nros, nested, scan_all_dir, root);
 }
 
 auto nro_get_icon_internal(fs::File* f, u64 size, u64 offset) -> std::vector<u8> {
@@ -198,8 +188,8 @@ auto nro_parse(const fs::FsPath& path, NroEntry& entry) -> Result {
     return nro_parse_internal(&fs, path, entry);
 }
 
-auto nro_scan(const fs::FsPath& path, std::vector<NroEntry>& nros, bool hide_sphaira, bool nested, bool scan_all_dir) -> Result {
-    return nro_scan_internal(path, nros, hide_sphaira, nested, scan_all_dir, true);
+auto nro_scan(const fs::FsPath& path, std::vector<NroEntry>& nros, bool nested, bool scan_all_dir) -> Result {
+    return nro_scan_internal(path, nros, nested, scan_all_dir, true);
 }
 
 auto nro_get_icon(const fs::FsPath& path, u64 size, u64 offset) -> std::vector<u8> {

@@ -4,7 +4,7 @@
 
 namespace sphaira::ui {
 
-OptionBoxEntry::OptionBoxEntry(const std::string& text, Vec4 pos)
+OptionBoxEntry::OptionBoxEntry(const std::string& text, const Vec4& pos)
 : m_text{text} {
     m_pos = pos;
     m_text_pos = Vec2{m_pos.x + (m_pos.w / 2.f), m_pos.y + (m_pos.h / 2.f)};

@@ -3,23 +3,13 @@
 #include <string>
 #include <vector>
 #include <switch.h>
+// to import FsEntryFlags.
+// todo: this should be part of a smaller header, such as filesystem_types.hpp
+#include "ui/menus/filebrowser.hpp"
 
 namespace sphaira::location {
 
-struct Entry {
-    std::string name{};
-    std::string url{};
-    std::string user{};
-    std::string pass{};
-    std::string bearer{};
-    std::string pub_key{};
-    std::string priv_key{};
-    u16 port{};
-};
-using Entries = std::vector<Entry>;
-
-auto Load() -> Entries;
-void Add(const Entry& e);
+using FsEntryFlag = ui::menu::filebrowser::FsEntryFlag;
 
 // helper for hdd devices.
 // this doesn't really belong in this header, however
@@ -29,8 +19,14 @@ struct StdioEntry {
     std::string mount{};
     // ums0: (USB Flash Disk)
     std::string name{};
-    // set if read-only.
-    bool write_protect;
+    // FsEntryFlag
+    u32 flags{};
+    // optional dump path inside the mount point.
+    std::string dump_path{};
+    // set to hide for filebrowser.
+    bool fs_hidden{};
+    // set to hide in dump list.
+    bool dump_hidden{};
 };
 
 using StdioEntries = std::vector<StdioEntry>;

@@ -10,14 +10,14 @@ struct List final : Object {
         GRID,
     };
 
-    using Callback = std::function<void(NVGcontext* vg, Theme* theme, Vec4 v, s64 index)>;
+    using Callback = std::function<void(NVGcontext* vg, Theme* theme, const Vec4& v, s64 index)>;
     using TouchCallback = std::function<void(bool touch, s64 index)>;
 
     List(s64 row, s64 page, const Vec4& pos, const Vec4& v, const Vec2& pad = {});
 
-    void OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback);
+    void OnUpdate(Controller* controller, TouchInfo* touch, s64 index, s64 count, const TouchCallback& callback);
 
-    void Draw(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const;
+    void Draw(NVGcontext* vg, Theme* theme, s64 count, const Callback& callback) const;
 
     auto SetScrollBarPos(float x, float y, float h) {
         m_scrollbar.x = x;
@@ -73,10 +73,10 @@ private:
     auto ClampX(float x, s64 count) const -> float;
     auto ClampY(float y, s64 count) const -> float;
 
-    void OnUpdateHome(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback);
-    void OnUpdateGrid(Controller* controller, TouchInfo* touch, s64 index, s64 count, TouchCallback callback);
-    void DrawHome(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const;
-    void DrawGrid(NVGcontext* vg, Theme* theme, s64 count, Callback callback) const;
+    void OnUpdateHome(Controller* controller, TouchInfo* touch, s64 index, s64 count, const TouchCallback& callback);
+    void OnUpdateGrid(Controller* controller, TouchInfo* touch, s64 index, s64 count, const TouchCallback& callback);
+    void DrawHome(NVGcontext* vg, Theme* theme, s64 count, const Callback& callback) const;
+    void DrawGrid(NVGcontext* vg, Theme* theme, s64 count, const Callback& callback) const;
 
 private:
     const s64 m_row;

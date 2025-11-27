@@ -1,4 +1,6 @@
+#if 0
 #include "ui/menus/themezer.hpp"
+#include "ui/menus/ghdl.hpp"
 #include "ui/progress_box.hpp"
 #include "ui/option_box.hpp"
 #include "ui/sidebar.hpp"
@@ -14,6 +16,7 @@
 #include "threaded_file_transfer.hpp"
 #include "image.hpp"
 #include "title_info.hpp"
+#include "nro.hpp"
 
 #include <minIni.h>
 #include <stb_image.h>
@@ -28,6 +31,13 @@ namespace {
 constexpr fs::FsPath THEME_FOLDER{"/themes/sphaira/"};
 constexpr auto CACHE_PATH = "/switch/sphaira/cache/themezer";
 constexpr auto URL_BASE = "https://switch.cdn.fortheusers.org";
+
+constexpr const char* NRO_URL = "https://github.com/exelix11/SwitchThemeInjector";
+
+constexpr const char* NRO_PATHS[]{
+    "/switch/NXThemesInstaller.nro",
+    "/switch/Switch_themes_Installer/NXThemesInstaller.nro",
+};
 
 constexpr const char* REQUEST_TARGET[]{
     "ResidentMenu",
@@ -53,6 +63,21 @@ constexpr const char* REQUEST_ORDER[]{
 
 // https://api.themezer.net/?query=query($nsfw:Boolean,$target:String,$page:Int,$limit:Int,$sort:String,$order:String,$query:String,$creators:[String!]){themeList(nsfw:$nsfw,target:$target,page:$page,limit:$limit,sort:$sort,order:$order,query:$query,creators:$creators){id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}}&variables={"nsfw":false,"target":null,"page":1,"limit":10,"sort":"updated","order":"desc","query":null,"creators":["695065006068334622"]}
 // https://api.themezer.net/?query=query($nsfw:Boolean,$page:Int,$limit:Int,$sort:String,$order:String,$query:String,$creators:[String!]){packList(nsfw:$nsfw,page:$page,limit:$limit,sort:$sort,order:$order,query:$query,creators:$creators){id,creator{id,display_name},details{name,description},last_updated,dl_count,like_count,themes{id,creator{display_name},details{name,description},last_updated,dl_count,like_count,target,preview{original,thumb}}}}&variables={"nsfw":false,"page":1,"limit":10,"sort":"updated","order":"desc","query":null,"creators":["695065006068334622"]}
+
+auto GetNroPath() -> const char* {
+    fs::FsNativeSd fs;
+    for (auto& path : NRO_PATHS) {
+        if (fs.FileExists(path)) {
+            return path;
+        }
+    }
+
+    return nullptr;
+}
+
+auto HasNro() -> bool {
+    return GetNroPath() != nullptr;
+}
 
 // i know, this is cursed
 // todo: send actual POST request rather than GET.
@@ -227,7 +252,7 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.details.name);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", entry.details.name));
         log_write("starting download\n");
 
         const auto url = apiBuildUrlDownloadPack(entry);
@@ -247,7 +272,7 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
 
     // 2. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.details.name);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", entry.details.name));
         log_write("starting download: %s\n", download_pack.url.c_str());
 
         const auto result = curl::Api().ToFile(
@@ -275,8 +300,51 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
     fs.CreateDirectoryRecursively(dir_path);
 
     // 3. extract the zip
+    std::vector<std::string> nxtheme_paths;
     if (!pbox->ShouldExit()) {
-        R_TRY(thread::TransferUnzipAll(pbox, zip_out, &fs, dir_path));
+        R_TRY(thread::TransferUnzipAll(pbox, zip_out, &fs, dir_path, [&nxtheme_paths](const fs::FsPath& name, fs::FsPath& path){
+            // just in case theme packs start adding invalid entries.
+            if (!path.ends_with(".nxtheme")) {
+                return false;
+            }
+
+            // store path for later.
+            nxtheme_paths.emplace_back(path);
+            return true;
+        }));
+    }
+
+    // ensure that we actually downloaded the theme.
+    // todo: add new error for this.
+    R_UNLESS(!nxtheme_paths.empty(), Result_ThemezerFailedToDownloadTheme);
+
+    // if we have nxtheme installed, prompt the user to install the theme now.
+    if (HasNro()) {
+        App::Push<OptionBox>(
+            "Theme downloaded, install now?"_i18n,
+            "Back"_i18n, "Install"_i18n, 1, [nxtheme_paths](auto op_index){
+                if (op_index && *op_index) {
+                    std::string args;
+
+                    for (const auto& paths : nxtheme_paths) {
+                        // add space between each arg.
+                        if (!args.empty()) {
+                            args += ' ';
+                        }
+
+                        // converts path to sdmc:/path.
+                        args += nro_add_arg_file(paths);
+                    }
+
+                    log_write("themezer nro: %s\n", GetNroPath());
+                    log_write("themezer args: %s\n", args.c_str());
+
+                    // launch nro with args to the nxthemes.
+                    const auto rc = nro_launch(GetNroPath(), args);
+                    App::PushErrorBox(rc, "Failed to launch NXthemes_Installer.nro"_i18n);
+                }
+            }
+        );
     }
 
     log_write("finished install :)\n");
@@ -315,13 +383,13 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
                             const auto& entry = page.m_packList[m_index];
                             const auto url = apiBuildUrlDownloadPack(entry);
 
-                            App::Push<ProgressBox>(entry.themes[0].preview.lazy_image.image, "Downloading "_i18n, entry.details.name, [this, &entry](auto pbox) -> Result {
+                            App::Push<ProgressBox>(entry.themes[0].preview.lazy_image.image, i18n::Reorder("Downloading ", entry.details.name), [this, &entry](auto pbox) -> Result {
                                 return InstallTheme(pbox, entry);
                             }, [this, &entry](Result rc){
                                 App::PushErrorBox(rc, "Failed to download theme"_i18n);
 
                                 if (R_SUCCEEDED(rc)) {
-                                    App::Notify("Downloaded "_i18n + entry.details.name);
+                                    App::Notify(i18n::Reorder("Downloaded ", entry.details.name));
                                 }
                             });
                         }
@@ -330,59 +398,7 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
             );
         }}),
         std::make_pair(Button::X, Action{"Options"_i18n, [this](){
-            auto options = std::make_unique<Sidebar>("Themezer Options"_i18n, Sidebar::Side::RIGHT);
-            ON_SCOPE_EXIT(App::Push(std::move(options)));
-
-            SidebarEntryArray::Items sort_items;
-            sort_items.push_back("Downloads"_i18n);
-            sort_items.push_back("Updated"_i18n);
-            sort_items.push_back("Likes"_i18n);
-            sort_items.push_back("ID"_i18n);
-
-            SidebarEntryArray::Items order_items;
-            order_items.push_back("Descending (down)"_i18n);
-            order_items.push_back("Ascending (Up)"_i18n);
-
-            options->Add<SidebarEntryBool>("Nsfw"_i18n, m_nsfw.Get(), [this](bool& v_out){
-                m_nsfw.Set(v_out);
-                InvalidateAllPages();
-            });
-
-            options->Add<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
-                if (m_sort.Get() != index_out) {
-                    m_sort.Set(index_out);
-                    InvalidateAllPages();
-                }
-            }, m_sort.Get());
-
-            options->Add<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
-                if (m_order.Get() != index_out) {
-                    m_order.Set(index_out);
-                    InvalidateAllPages();
-                }
-            }, m_order.Get());
-
-            options->Add<SidebarEntryCallback>("Page"_i18n, [this](){
-                s64 out;
-                if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number"_i18n.c_str(), nullptr, -1, 3))) {
-                    if (out < m_page_index_max) {
-                        m_page_index = out;
-                        PackListDownload();
-                    } else {
-                        log_write("invalid page number\n");
-                        App::Notify("Bad Page"_i18n);
-                    }
-                }
-            });
-
-            options->Add<SidebarEntryCallback>("Search"_i18n, [this](){
-                std::string out;
-                if (R_SUCCEEDED(swkbd::ShowText(out)) && !out.empty()) {
-                    m_search = out;
-                    // PackListDownload();
-                    InvalidateAllPages();
-                }
-            });
+            DisplayOptions();
         }}),
         std::make_pair(Button::R2, Action{"Next"_i18n, [this](){
             m_page_index++;
@@ -429,7 +445,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
-            App::PlaySoundEffect(SoundEffect_Focus);
+            App::PlaySoundEffect(SoundEffect::Focus);
             SetIndex(i);
         }
     });
@@ -549,6 +565,28 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
 void Menu::OnFocusGained() {
     MenuBase::OnFocusGained();
+
+    if (!m_checked_for_nro) {
+        m_checked_for_nro = true;
+
+        // check if we have the nro, if not, then prompt the user to download from the appstore.
+        if (!HasNro()) {
+            App::Push<OptionBox>(
+                "NXthemes_Installer.nro not found, download now?"_i18n,
+                "Back"_i18n, "Download"_i18n, 1, [this](auto op_index){
+                    if (op_index && *op_index) {
+                        const gh::AssetEntry asset{
+                            .name = "NXThemesInstaller.nro",
+                            // same path as appstore
+                            .path = "/switch/Switch_themes_Installer/NXThemesInstaller.nro",
+                        };
+
+                        gh::Download(NRO_URL, asset, "latest");
+                    }
+                }
+            );
+        }
+    }
 }
 
 void Menu::InvalidateAllPages() {
@@ -622,4 +660,68 @@ void Menu::PackListDownload() {
     });
 }
 
+void Menu::DisplayOptions() {
+    auto options = std::make_unique<Sidebar>("Themezer Options"_i18n, Sidebar::Side::RIGHT);
+    ON_SCOPE_EXIT(App::Push(std::move(options)));
+
+    SidebarEntryArray::Items sort_items;
+    sort_items.push_back("Downloads"_i18n);
+    sort_items.push_back("Updated"_i18n);
+    sort_items.push_back("Likes"_i18n);
+    sort_items.push_back("ID"_i18n);
+
+    SidebarEntryArray::Items order_items;
+    order_items.push_back("Descending (down)"_i18n);
+    order_items.push_back("Ascending (Up)"_i18n);
+
+    options->Add<SidebarEntryBool>("Nsfw"_i18n, m_nsfw.Get(), [this](bool& v_out){
+        m_nsfw.Set(v_out);
+        InvalidateAllPages();
+    });
+
+    options->Add<SidebarEntryArray>("Sort"_i18n, sort_items, [this, sort_items](s64& index_out){
+        if (m_sort.Get() != index_out) {
+            m_sort.Set(index_out);
+            InvalidateAllPages();
+        }
+    }, m_sort.Get());
+
+    options->Add<SidebarEntryArray>("Order"_i18n, order_items, [this, order_items](s64& index_out){
+        if (m_order.Get() != index_out) {
+            m_order.Set(index_out);
+            InvalidateAllPages();
+        }
+    }, m_order.Get());
+
+    options->Add<SidebarEntryCallback>("Page"_i18n, [this](){
+        s64 out;
+        if (R_SUCCEEDED(swkbd::ShowNumPad(out, "Enter Page Number"_i18n.c_str(), nullptr, -1, 3))) {
+            if (out < m_page_index_max) {
+                m_page_index = out;
+                PackListDownload();
+            } else {
+                log_write("invalid page number\n");
+                App::Notify("Bad Page"_i18n);
+            }
+        }
+    });
+
+    options->Add<SidebarEntryCallback>("Search"_i18n, [this](){
+        std::string out;
+        if (R_SUCCEEDED(swkbd::ShowText(out)) && !out.empty()) {
+            m_search = out;
+            // PackListDownload();
+            InvalidateAllPages();
+        }
+    });
+
+    if (HasNro()) {
+        options->Add<SidebarEntryCallback>("Launch NXthemes_Installer.nro"_i18n, [](){
+            const auto rc = nro_launch(GetNroPath());
+            App::PushErrorBox(rc, "Failed to launch NXthemes_Installer.nro"_i18n);
+        });
+    }
+}
+
 } // namespace sphaira::ui::menu::themezer
+#endif

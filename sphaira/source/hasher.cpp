@@ -18,10 +18,12 @@ struct FileSource final : BaseSource {
     }
 
     Result Size(s64* out) override {
+        R_TRY(m_open_result);
         return m_file.GetSize(out);
     }
 
     Result Read(void* buf, s64 off, s64 size, u64* bytes_read) override {
+        R_TRY(m_open_result);
         const auto rc = m_file.Read(off, buf, size, 0, bytes_read);
         if (m_fs->IsNative() && m_is_file_based_emummc) {
             svcSleepThread(2e+6); // 2ms
@@ -57,12 +59,27 @@ private:
 
 struct HashSource {
     virtual ~HashSource() = default;
-    virtual void Update(const void* buf, s64 size) = 0;
+    virtual void Update(const void* buf, s64 size, s64 file_size) = 0;
     virtual void Get(std::string& out) = 0;
 };
 
+struct HashNull final : HashSource {
+    void Update(const void* buf, s64 size, s64 file_size) override {
+        m_in_size += size;
+    }
+
+    void Get(std::string& out) override {
+        char str[64];
+        std::snprintf(str, sizeof(str), "%zu bytes", m_in_size);
+        out = str;
+    }
+
+private:
+    size_t m_in_size{};
+};
+
 struct HashCrc32 final : HashSource {
-    void Update(const void* buf, s64 size) override {
+    void Update(const void* buf, s64 size, s64 file_size) override {
         m_seed = crc32CalculateWithSeed(m_seed, buf, size);
     }
 
@@ -86,7 +103,7 @@ struct HashMd5 final : HashSource {
         mbedtls_md5_free(&m_ctx);
     }
 
-    void Update(const void* buf, s64 size) override {
+    void Update(const void* buf, s64 size, s64 file_size) override {
         mbedtls_md5_update_ret(&m_ctx, (const u8*)buf, size);
     }
 
@@ -111,7 +128,7 @@ struct HashSha1 final : HashSource {
         sha1ContextCreate(&m_ctx);
     }
 
-    void Update(const void* buf, s64 size) override {
+    void Update(const void* buf, s64 size, s64 file_size) override {
         sha1ContextUpdate(&m_ctx, buf, size);
     }
 
@@ -136,7 +153,7 @@ struct HashSha256 final : HashSource {
         sha256ContextCreate(&m_ctx);
     }
 
-    void Update(const void* buf, s64 size) override {
+    void Update(const void* buf, s64 size, s64 file_size) override {
         sha256ContextUpdate(&m_ctx, buf, size);
     }
 
@@ -165,7 +182,7 @@ Result Hash(ui::ProgressBox* pbox, std::unique_ptr<HashSource> hash, BaseSource*
             return source->Read(data, off, size, bytes_read);
         },
         [&](const void* data, s64 off, s64 size) -> Result {
-            hash->Update(data, size);
+            hash->Update(data, size, file_size);
             R_SUCCEED();
         }
     ));
@@ -182,6 +199,7 @@ auto GetTypeStr(Type type) -> const char* {
         case Type::Md5: return "MD5";
         case Type::Sha1: return "SHA1";
         case Type::Sha256: return "SHA256";
+        case Type::Null: return "/dev/null (Speed Test)";
     }
     return "";
 }
@@ -192,6 +210,7 @@ Result Hash(ui::ProgressBox* pbox, Type type, BaseSource* source, std::string& o
         case Type::Md5: return Hash(pbox, std::make_unique<HashMd5>(), source, out);
         case Type::Sha1: return Hash(pbox, std::make_unique<HashSha1>(), source, out);
         case Type::Sha256: return Hash(pbox, std::make_unique<HashSha256>(), source, out);
+        case Type::Null: return Hash(pbox, std::make_unique<HashNull>(), source, out);
     }
     std::unreachable();
 }

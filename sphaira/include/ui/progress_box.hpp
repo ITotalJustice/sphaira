@@ -11,14 +11,14 @@ namespace sphaira::ui {
 struct ProgressBox;
 using ProgressBoxCallback = std::function<Result(ProgressBox*)>;
 using ProgressBoxDoneCallback = std::function<void(Result rc)>;
+// using CancelCallback = std::function<void()>;
 
 struct ProgressBox final : Widget {
     ProgressBox(
         int image,
         const std::string& action,
         const std::string& title,
-        ProgressBoxCallback callback, ProgressBoxDoneCallback done = [](Result rc){},
-        int cpuid = 1, int prio = PRIO_PREEMPTIVE, int stack_size = 1024*128
+        const ProgressBoxCallback& callback, const ProgressBoxDoneCallback& done = nullptr
     );
     ~ProgressBox();
 
@@ -28,6 +28,8 @@ struct ProgressBox final : Widget {
     auto SetActionName(const std::string& action) -> ProgressBox&;
     auto SetTitle(const std::string& title) -> ProgressBox&;
     auto NewTransfer(const std::string& transfer) -> ProgressBox&;
+    // zeros the saved offset.
+    auto ResetTranfser() -> ProgressBox&;
     auto UpdateTransfer(s64 offset, s64 size) -> ProgressBox&;
     // not const in order to avoid copy by using std::swap
     auto SetImage(int image) -> ProgressBox&;
@@ -38,15 +40,14 @@ struct ProgressBox final : Widget {
     auto ShouldExit() -> bool;
     auto ShouldExitResult() -> Result;
 
+    void AddCancelEvent(UEvent* event);
+    void RemoveCancelEvent(const UEvent* event);
+
     // helper functions
     auto CopyFile(fs::Fs* fs_src, fs::Fs* fs_dst, const fs::FsPath& src, const fs::FsPath& dst, bool single_threaded = false) -> Result;
     auto CopyFile(fs::Fs* fs, const fs::FsPath& src, const fs::FsPath& dst, bool single_threaded = false) -> Result;
     auto CopyFile(const fs::FsPath& src, const fs::FsPath& dst, bool single_threaded = false) -> Result;
     void Yield();
-
-    auto GetCpuId() const {
-        return m_cpuid;
-    }
 
     auto OnDownloadProgressCallback() {
         return [this](s64 dltotal, s64 dlnow, s64 ultotal, s64 ulnow){
@@ -85,6 +86,7 @@ private:
     Thread m_thread{};
     ThreadData m_thread_data{};
     ProgressBoxDoneCallback m_done{};
+    std::vector<UEvent*> m_cancel_events{};
 
     // shared data start.
     std::string m_action{};
@@ -103,7 +105,6 @@ private:
     ScrollingText m_scroll_title{};
     ScrollingText m_scroll_transfer{};
 
-    int m_cpuid{};
     int m_image{};
     bool m_own_image{};
 };

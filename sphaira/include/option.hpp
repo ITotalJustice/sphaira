@@ -36,6 +36,7 @@ private:
 
 using OptionBool = OptionBase<bool>;
 using OptionLong = OptionBase<long>;
+using OptionFloat = OptionBase<float>;
 using OptionString = OptionBase<std::string>;
 
 } // namespace sphaira::option

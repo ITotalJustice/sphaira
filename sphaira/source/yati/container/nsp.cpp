@@ -58,8 +58,11 @@ struct BufHelper {
 } // namespace
 
 Result Nsp::GetCollections(Collections& out) {
+    return GetCollections(out, 0);
+}
+
+Result Nsp::GetCollections(Collections& out, s64 off) {
     u64 bytes_read;
-    s64 off = 0;
 
     // get header
     Pfs0Header header{};
@@ -89,7 +92,7 @@ Result Nsp::GetCollections(Collections& out) {
     R_SUCCEED();
 }
 
-auto Nsp::Build(std::span<CollectionEntry> entries, s64& size) -> std::vector<u8> {
+auto Nsp::Build(std::span<const CollectionEntry> entries, s64& size) -> std::vector<u8> {
     BufHelper buf;
 
     Pfs0Header header{};

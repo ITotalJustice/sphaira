@@ -98,7 +98,7 @@ The output will be found in `build/MinSizeRel/sphaira.nro`
 - [hb-appstore](https://github.com/fortheusers/hb-appstore)
 - [haze](https://github.com/Atmosphere-NX/Atmosphere/tree/master/troposphere/haze)
 - [nxdumptool](https://github.com/DarkMatterCore/nxdumptool) (for gamecard bin dumping and rsa verify code)
-- [Liam0](switch-010editor-templates) (for ticket / cert structs)
+- [Liam0](https://github.com/ThatNerdyPikachu/switch-010editor-templates) (for ticket / cert structs)
 - [libusbhsfs](https://github.com/DarkMatterCore/libusbhsfs)
 - [libnxtc](https://github.com/DarkMatterCore/libnxtc)
 - [oss-nvjpg](https://github.com/averne/oss-nvjpg)

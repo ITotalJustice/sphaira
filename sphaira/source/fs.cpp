@@ -19,6 +19,16 @@
 namespace fs {
 namespace {
 
+static_assert(FsPath::Test("abc"));
+static_assert(FsPath::Test(std::string_view{"abc"}));
+static_assert(FsPath::Test(std::string{"abc"}));
+static_assert(FsPath::Test(FsPath{"abc"}));
+
+static_assert(FsPath::TestFrom("abc"));
+static_assert(FsPath::TestFrom(std::string_view{"abc"}));
+static_assert(FsPath::TestFrom(std::string{"abc"}));
+static_assert(FsPath::TestFrom(FsPath{"abc"}));
+
 // these folders and internals cannot be modified
 constexpr std::string_view READONLY_ROOT_FOLDERS[]{
     "/atmosphere/automatic_backups",
@@ -109,19 +119,58 @@ FsPath AppendPath(const FsPath& root_path, const FsPath& _file_path) {
     return path;
 }
 
-Result CreateFile(FsFileSystem* fs, const FsPath& path, u64 size, u32 option, bool ignore_read_only) {
+Result read_entire_file(Fs* fs, const FsPath& path, std::vector<u8>& out) {
+    File f;
+    R_TRY(fs->OpenFile(path, FsOpenMode_Read, &f));
+
+    s64 size;
+    R_TRY(f.GetSize(&size));
+    out.resize(size);
+
+    u64 bytes_read;
+    R_TRY(f.Read(0, out.data(), out.size(), FsReadOption_None, &bytes_read));
+    R_UNLESS(bytes_read == out.size(), 1);
+
+    R_SUCCEED();
+}
+
+Result write_entire_file(Fs* fs, const FsPath& path, std::span<const u8> in, bool ignore_read_only) {
+    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
+
+    if (auto rc = fs->CreateFile(path, in.size(), 0); R_FAILED(rc) && rc != FsError_PathAlreadyExists) {
+        return rc;
+    }
+
+    File f;
+    R_TRY(fs->OpenFile(path, FsOpenMode_Write, &f));
+    R_TRY(f.SetSize(in.size()));
+    R_TRY(f.Write(0, in.data(), in.size(), FsWriteOption_None));
+
+    R_SUCCEED();
+}
+
+Result copy_entire_file(Fs* fs, const FsPath& dst, const FsPath& src, bool ignore_read_only) {
+    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
+
+    std::vector<u8> data;
+    R_TRY(read_entire_file(fs, src, data));
+    return write_entire_file(fs, dst, data, ignore_read_only);
+}
+
+Result CreateFile(FsFileSystem* fs, const FsPathReal& path, u64 size, u32 option, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
 
     if (size >= 1024ULL*1024ULL*1024ULL*4ULL) {
         option |= FsCreateOption_BigFile;
     }
 
+    log_write("trying to create path: %s\n", path.s);
     R_TRY(fsFsCreateFile(fs, path, size, option));
     fsFsCommit(fs);
     R_SUCCEED();
 }
 
-Result CreateDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
+Result CreateDirectory(FsFileSystem* fs, const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
 
     R_TRY(fsFsCreateDirectory(fs, path));
@@ -166,14 +215,18 @@ Result CreateDirectoryRecursively(FsFileSystem* fs, const FsPath& _path, bool ig
             rc = CreateDirectory(path, ignore_read_only);
         }
 
-        if (R_FAILED(rc) && rc != FsError_PathAlreadyExists) {
-            log_write("failed to create folder: %s\n", path.s);
-            return rc;
-        }
-
-        // log_write("created_directory: %s\n", path);
         std::strcat(path, "/");
     }
+
+    // only check if the last folder creation failed.
+    // reason being is that it may try to create "/" root folder, which some network
+    // fs will return a EPERM/EACCES error.
+    // however if the last directory failed, then it is a real error.
+    if (R_FAILED(rc) && rc != FsError_PathAlreadyExists) {
+        log_write("failed to create folder: %s\n", path.s);
+        return rc;
+    }
+
     R_SUCCEED();
 }
 
@@ -182,7 +235,7 @@ Result CreateDirectoryRecursivelyWithPath(FsFileSystem* fs, const FsPath& _path,
 
     // strip file name form path.
     const auto last_slash = std::strrchr(_path, '/');
-    if (!last_slash) {
+    if (!last_slash || last_slash == _path.s) {
         R_SUCCEED();
     }
 
@@ -192,14 +245,14 @@ Result CreateDirectoryRecursivelyWithPath(FsFileSystem* fs, const FsPath& _path,
     R_SUCCEED();
 }
 
-Result DeleteFile(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
+Result DeleteFile(FsFileSystem* fs, const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
     R_TRY(fsFsDeleteFile(fs, path));
     fsFsCommit(fs);
     R_SUCCEED();
 }
 
-Result DeleteDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
+Result DeleteDirectory(FsFileSystem* fs, const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
 
     R_TRY(fsFsDeleteDirectory(fs, path));
@@ -207,7 +260,7 @@ Result DeleteDirectory(FsFileSystem* fs, const FsPath& path, bool ignore_read_on
     R_SUCCEED();
 }
 
-Result DeleteDirectoryRecursively(FsFileSystem* fs, const FsPath& path, bool ignore_read_only) {
+Result DeleteDirectoryRecursively(FsFileSystem* fs, const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
 
     R_TRY(fsFsDeleteDirectoryRecursively(fs, path));
@@ -215,7 +268,7 @@ Result DeleteDirectoryRecursively(FsFileSystem* fs, const FsPath& path, bool ign
     R_SUCCEED();
 }
 
-Result RenameFile(FsFileSystem* fs, const FsPath& src, const FsPath& dst, bool ignore_read_only) {
+Result RenameFile(FsFileSystem* fs, const FsPathReal& src, const FsPathReal& dst, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
     R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
 
@@ -224,7 +277,7 @@ Result RenameFile(FsFileSystem* fs, const FsPath& src, const FsPath& dst, bool i
     R_SUCCEED();
 }
 
-Result RenameDirectory(FsFileSystem* fs, const FsPath& src, const FsPath& dst, bool ignore_read_only) {
+Result RenameDirectory(FsFileSystem* fs, const FsPathReal& src, const FsPathReal& dst, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
     R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
 
@@ -233,15 +286,15 @@ Result RenameDirectory(FsFileSystem* fs, const FsPath& src, const FsPath& dst, b
     R_SUCCEED();
 }
 
-Result GetEntryType(FsFileSystem* fs, const FsPath& path, FsDirEntryType* out) {
+Result GetEntryType(FsFileSystem* fs, const FsPathReal& path, FsDirEntryType* out) {
     return fsFsGetEntryType(fs, path, out);
 }
 
-Result GetFileTimeStampRaw(FsFileSystem* fs, const FsPath& path, FsTimeStampRaw *out) {
+Result GetFileTimeStampRaw(FsFileSystem* fs, const FsPathReal& path, FsTimeStampRaw *out) {
     return fsFsGetFileTimeStampRaw(fs, path, out);
 }
 
-Result SetTimestamp(FsFileSystem* fs, const FsPath& path, const FsTimeStampRaw* ts) {
+Result SetTimestamp(FsFileSystem* fs, const FsPathReal& path, const FsTimeStampRaw* ts) {
     // unsuported.
     R_SUCCEED();
 }
@@ -258,51 +311,7 @@ bool DirExists(FsFileSystem* fs, const FsPath& path) {
     return type == FsDirEntryType_Dir;
 }
 
-Result read_entire_file(FsFileSystem* _fs, const FsPath& path, std::vector<u8>& out) {
-    FsNative fs{_fs, false};
-    R_TRY(fs.GetFsOpenResult());
-
-    File f;
-    R_TRY(fs.OpenFile(path, FsOpenMode_Read, &f));
-
-    s64 size;
-    R_TRY(f.GetSize(&size));
-    out.resize(size);
-
-    u64 bytes_read;
-    R_TRY(f.Read(0, out.data(), out.size(), FsReadOption_None, &bytes_read));
-    R_UNLESS(bytes_read == out.size(), 1);
-
-    R_SUCCEED();
-}
-
-Result write_entire_file(FsFileSystem* _fs, const FsPath& path, const std::vector<u8>& in, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
-
-    FsNative fs{_fs, false, ignore_read_only};
-    R_TRY(fs.GetFsOpenResult());
-
-    if (auto rc = fs.CreateFile(path, in.size(), 0); R_FAILED(rc) && rc != FsError_PathAlreadyExists) {
-        return rc;
-    }
-
-    File f;
-    R_TRY(fs.OpenFile(path, FsOpenMode_Write, &f));
-    R_TRY(f.SetSize(in.size()));
-    R_TRY(f.Write(0, in.data(), in.size(), FsWriteOption_None));
-
-    R_SUCCEED();
-}
-
-Result copy_entire_file(FsFileSystem* fs, const FsPath& dst, const FsPath& src, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
-
-    std::vector<u8> data;
-    R_TRY(read_entire_file(fs, src, data));
-    return write_entire_file(fs, dst, data, ignore_read_only);
-}
-
-Result CreateFile(const FsPath& path, u64 size, u32 option, bool ignore_read_only) {
+Result CreateFile(const FsPathReal& path, u64 size, u32 option, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
 
     auto fd = open(path, O_WRONLY | O_CREAT, DEFFILEMODE);
@@ -312,18 +321,18 @@ Result CreateFile(const FsPath& path, u64 size, u32 option, bool ignore_read_onl
         }
 
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToCreate;
     }
     ON_SCOPE_EXIT(close(fd));
 
     if (size) {
-        R_UNLESS(!ftruncate(fd, size), Result_FsUnknownStdioError);
+        R_UNLESS(!ftruncate(fd, size), Result_FsStdioFailedToTruncate);
     }
 
     R_SUCCEED();
 }
 
-Result CreateDirectory(const FsPath& path, bool ignore_read_only) {
+Result CreateDirectory(const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only_root(path), Result_FsReadOnly);
 
     if (mkdir(path, ACCESSPERMS)) {
@@ -332,7 +341,7 @@ Result CreateDirectory(const FsPath& path, bool ignore_read_only) {
         }
 
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToCreateDirectory;
     }
     R_SUCCEED();
 }
@@ -349,22 +358,22 @@ Result CreateDirectoryRecursivelyWithPath(const FsPath& path, bool ignore_read_o
     return CreateDirectoryRecursivelyWithPath(nullptr, path, ignore_read_only);
 }
 
-Result DeleteFile(const FsPath& path, bool ignore_read_only) {
+Result DeleteFile(const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
 
     if (unlink(path)) {
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToDeleteFile;
     }
     R_SUCCEED();
 }
 
-Result DeleteDirectory(const FsPath& path, bool ignore_read_only) {
+Result DeleteDirectory(const FsPathReal& path, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
 
     if (rmdir(path)) {
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToDeleteDirectory;
     }
     R_SUCCEED();
 }
@@ -390,39 +399,39 @@ Result DeleteDirectoryRecursively(const FsPath& path, bool ignore_read_only) {
     #endif
 }
 
-Result RenameFile(const FsPath& src, const FsPath& dst, bool ignore_read_only) {
+Result RenameFile(const FsPathReal& src, const FsPathReal& dst, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
     R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
 
     if (rename(src, dst)) {
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToRename;
     }
     R_SUCCEED();
 }
 
-Result RenameDirectory(const FsPath& src, const FsPath& dst, bool ignore_read_only) {
+Result RenameDirectory(const FsPathReal& src, const FsPathReal& dst, bool ignore_read_only) {
     R_UNLESS(ignore_read_only || !is_read_only(src), Result_FsReadOnly);
     R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
 
     return RenameFile(src, dst, ignore_read_only);
 }
 
-Result GetEntryType(const FsPath& path, FsDirEntryType* out) {
+Result GetEntryType(const FsPathReal& path, FsDirEntryType* out) {
     struct stat st;
     if (stat(path, &st)) {
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToStat;
     }
     *out = S_ISREG(st.st_mode) ? FsDirEntryType_File : FsDirEntryType_Dir;
     R_SUCCEED();
 }
 
-Result GetFileTimeStampRaw(const FsPath& path, FsTimeStampRaw *out) {
+Result GetFileTimeStampRaw(const FsPathReal& path, FsTimeStampRaw *out) {
     struct stat st;
     if (stat(path, &st)) {
         R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
+        return Result_FsStdioFailedToStat;
     }
 
     out->is_valid = true;
@@ -432,7 +441,7 @@ Result GetFileTimeStampRaw(const FsPath& path, FsTimeStampRaw *out) {
     R_SUCCEED();
 }
 
-Result SetTimestamp(const FsPath& path, const FsTimeStampRaw* ts) {
+Result SetTimestamp(const FsPathReal& path, const FsTimeStampRaw* ts) {
     if (ts->is_valid) {
         timeval val[2]{};
         val[0].tv_sec = ts->accessed;
@@ -458,47 +467,11 @@ bool DirExists(const FsPath& path) {
     return type == FsDirEntryType_Dir;
 }
 
-Result read_entire_file(const FsPath& path, std::vector<u8>& out) {
-    auto f = std::fopen(path, "rb");
-    if (!f) {
-        R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
-    }
-    ON_SCOPE_EXIT(std::fclose(f));
+Result OpenFile(fs::Fs* fs, const FsPathReal& path, u32 mode, File* f) {
+    const auto should_buffer = (mode & OpenMode_EnableBuffer);
+    // remove the invalid flag so that native fs doesn't error.
+    mode &= ~OpenMode_EnableBuffer;
 
-    std::fseek(f, 0, SEEK_END);
-    const auto size = std::ftell(f);
-    std::rewind(f);
-
-    out.resize(size);
-
-    std::fread(out.data(), 1, out.size(), f);
-    R_SUCCEED();
-}
-
-Result write_entire_file(const FsPath& path, const std::vector<u8>& in, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(path), Result_FsReadOnly);
-
-    auto f = std::fopen(path, "wb");
-    if (!f) {
-        R_TRY(fsdevGetLastResult());
-        return Result_FsUnknownStdioError;
-    }
-    ON_SCOPE_EXIT(std::fclose(f));
-
-    std::fwrite(in.data(), 1, in.size(), f);
-    R_SUCCEED();
-}
-
-Result copy_entire_file(const FsPath& dst, const FsPath& src, bool ignore_read_only) {
-    R_UNLESS(ignore_read_only || !is_read_only(dst), Result_FsReadOnly);
-
-    std::vector<u8> data;
-    R_TRY(read_entire_file(src, data));
-    return write_entire_file(dst, data, ignore_read_only);
-}
-
-Result OpenFile(fs::Fs* fs, const fs::FsPath& path, u32 mode, File* f) {
     f->m_fs = fs;
     f->m_mode = mode;
 
@@ -516,7 +489,14 @@ Result OpenFile(fs::Fs* fs, const fs::FsPath& path, u32 mode, File* f) {
             f->m_stdio = std::fopen(path, "rb+");
         }
 
-        R_UNLESS(f->m_stdio, Result_FsUnknownStdioError);
+        R_UNLESS(f->m_stdio, Result_FsStdioFailedToOpenFile);
+
+        // disable buffering to match native fs behavior.
+        // this also causes problems with network io as it will do double reads.
+        // which kills performance (see sftp).
+        if (!should_buffer) {
+            std::setvbuf(f->m_stdio, nullptr, _IONBF, 0);
+        }
     }
 
     R_SUCCEED();
@@ -533,9 +513,13 @@ Result File::Read( s64 off, void* buf, u64 read_size, u32 option, u64* bytes_rea
     if (m_fs->IsNative()) {
         R_TRY(fsFileRead(&m_native, off, buf, read_size, option, bytes_read));
     } else {
-        if (m_stdio_off != off) {
-            m_stdio_off = off;
-            std::fseek(m_stdio, off, SEEK_SET);
+        R_UNLESS(m_stdio, Result_FsUnknownStdioError);
+
+        if (off != std::ftell(m_stdio)) {
+            const auto ret = std::fseek(m_stdio, off, SEEK_SET);
+            log_write("[FS] fseek to %ld ret: %d new_off: %zd\n", off, ret, std::ftell(m_stdio));
+            R_UNLESS(ret == 0, Result_FsStdioFailedToSeek);
+            R_UNLESS(off == std::ftell(m_stdio), Result_FsStdioFailedToSeek);
         }
 
         *bytes_read = std::fread(buf, 1, read_size, m_stdio);
@@ -543,11 +527,10 @@ Result File::Read( s64 off, void* buf, u64 read_size, u32 option, u64* bytes_rea
         // if we read less bytes than expected, check if there was an error (ignoring eof).
         if (*bytes_read < read_size) {
             if (!std::feof(m_stdio) && std::ferror(m_stdio)) {
-                R_THROW(Result_FsUnknownStdioError);
+                log_write("[FS] fread error: %d\n", std::ferror(m_stdio));
+                R_THROW(Result_FsStdioFailedToRead);
             }
         }
-
-        m_stdio_off += *bytes_read;
     }
 
     R_SUCCEED();
@@ -559,17 +542,17 @@ Result File::Write(s64 off, const void* buf, u64 write_size, u32 option) {
     if (m_fs->IsNative()) {
         R_TRY(fsFileWrite(&m_native, off, buf, write_size, option));
     } else {
-        if (m_stdio_off != off) {
-            log_write("[FS] diff seek\n");
-            m_stdio_off = off;
-            std::fseek(m_stdio, off, SEEK_SET);
+        R_UNLESS(m_stdio, Result_FsUnknownStdioError);
+
+        if (off != std::ftell(m_stdio)) {
+            const auto ret = std::fseek(m_stdio, off, SEEK_SET);
+            R_UNLESS(ret == 0, Result_FsStdioFailedToSeek);
+            R_UNLESS(off == std::ftell(m_stdio), Result_FsStdioFailedToSeek);
         }
 
         const auto result = std::fwrite(buf, 1, write_size, m_stdio);
         // log_write("[FS] fwrite res: %zu vs %zu\n", result, write_size);
-        R_UNLESS(result == write_size, Result_FsUnknownStdioError);
-
-        m_stdio_off += write_size;
+        R_UNLESS(result == write_size, Result_FsStdioFailedToWrite);
     }
 
     R_SUCCEED();
@@ -581,9 +564,10 @@ Result File::SetSize(s64 sz) {
     if (m_fs->IsNative()) {
         R_TRY(fsFileSetSize(&m_native, sz));
     } else {
+        R_UNLESS(m_stdio, Result_FsUnknownStdioError);
         const auto fd = fileno(m_stdio);
-        R_UNLESS(fd > 0, Result_FsUnknownStdioError);
-        R_UNLESS(!ftruncate(fd, sz), Result_FsUnknownStdioError);
+        R_UNLESS(fd > 0, Result_FsStdioFailedToTruncate);
+        R_UNLESS(!ftruncate(fd, sz), Result_FsStdioFailedToTruncate);
     }
 
     R_SUCCEED();
@@ -595,8 +579,10 @@ Result File::GetSize(s64* out) {
     if (m_fs->IsNative()) {
         R_TRY(fsFileGetSize(&m_native, out));
     } else {
+        R_UNLESS(m_stdio, Result_FsUnknownStdioError);
+
         struct stat st;
-        R_UNLESS(!fstat(fileno(m_stdio), &st), Result_FsUnknownStdioError);
+        R_UNLESS(!fstat(fileno(m_stdio), &st), Result_FsStdioFailedToStat);
         *out = st.st_size;
     }
 
@@ -618,13 +604,14 @@ void File::Close() {
         }
     } else {
         if (m_stdio) {
+            log_write("[FS] closing stdio file\n");
             std::fclose(m_stdio);
             m_stdio = {};
         }
     }
 }
 
-Result OpenDirectory(fs::Fs* fs, const fs::FsPath& path, u32 mode, Dir* d) {
+Result OpenDirectory(fs::Fs* fs, const FsPathReal& path, u32 mode, Dir* d) {
     d->m_fs = fs;
     d->m_mode = mode;
 
@@ -633,7 +620,7 @@ Result OpenDirectory(fs::Fs* fs, const fs::FsPath& path, u32 mode, Dir* d) {
         R_TRY(fsFsOpenDirectory(&fs->m_fs, path, mode, &d->m_native));
     } else {
         d->m_stdio = opendir(path);
-        R_UNLESS(d->m_stdio, Result_FsUnknownStdioError);
+        R_UNLESS(d->m_stdio, Result_FsStdioFailedToOpenDirectory);
     }
 
     R_SUCCEED();
@@ -701,6 +688,20 @@ Result Dir::GetEntryCount(s64* out) {
             if (!std::strcmp(d->d_name, ".") || !std::strcmp(d->d_name, "..")) {
                 continue;
             }
+
+            if (d->d_type == DT_DIR) {
+                if (!(m_mode & FsDirOpenMode_ReadDirs)) {
+                    continue;
+                }
+            } else if (d->d_type == DT_REG) {
+                if (!(m_mode & FsDirOpenMode_ReadFiles)) {
+                    continue;
+                }
+            } else {
+                log_write("[FS] WARNING: unknown type when counting dir: %u\n", d->d_type);
+                continue;
+            }
+
             (*out)++;
         }
 
