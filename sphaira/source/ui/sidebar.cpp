@@ -10,7 +10,7 @@
 namespace sphaira::ui {
 namespace {
 
-auto DistanceBetweenY(Vec4 va, Vec4 vb) -> Vec4 {
+auto DistanceBetweenY(const Vec4& va, const Vec4& vb) -> Vec4 {
     return Vec4{
         va.x, va.y,
         va.w, vb.y - va.y
@@ -104,7 +104,7 @@ void SidebarEntryBase::DrawEntry(NVGcontext* vg, Theme* theme, const std::string
     m_scolling_value.Draw(vg, HasFocus(), xpos, ypos, max_off, 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(value_id), right);
 }
 
-SidebarEntryBool::SidebarEntryBool(const std::string& title, bool option, Callback cb, const std::string& info, const std::string& true_str, const std::string& false_str)
+SidebarEntryBool::SidebarEntryBool(const std::string& title, bool option, const Callback& cb, const std::string& info, const std::string& true_str, const std::string& false_str)
 : SidebarEntryBase{title, info}
 , m_option{option}
 , m_callback{cb}
@@ -124,24 +124,27 @@ SidebarEntryBool::SidebarEntryBool(const std::string& title, bool option, Callba
         } else {
             m_option ^= 1;
             m_callback(m_option);
+            SetDirty();
         } }
     });
 }
 
 SidebarEntryBool::SidebarEntryBool(const std::string& title, bool& option, const std::string& info, const std::string& true_str, const std::string& false_str)
 : SidebarEntryBool{title, option, Callback{}, info, true_str, false_str} {
-    m_callback = [&option](bool&){
+    m_callback = [this, &option](bool&){
         option ^= 1;
+        SetDirty();
     };
 }
 
 SidebarEntryBool::SidebarEntryBool(const std::string& title, option::OptionBool& option, const Callback& cb, const std::string& info, const std::string& true_str, const std::string& false_str)
 : SidebarEntryBool{title, option.Get(), Callback{}, info, true_str, false_str} {
-    m_callback = [&option, cb](bool& v_out){
+    m_callback = [this, &option, cb](bool& v_out){
         if (cb) {
             cb(v_out);
         }
         option.Set(v_out);
+        SetDirty();
     };
 }
 
@@ -154,7 +157,55 @@ void SidebarEntryBool::Draw(NVGcontext* vg, Theme* theme, const Vec4& root_pos, 
     SidebarEntryBase::DrawEntry(vg, theme, m_title, m_option ? m_true_str : m_false_str, m_option);
 }
 
-SidebarEntryCallback::SidebarEntryCallback(const std::string& title, Callback cb, bool pop_on_click, const std::string& info)
+SidebarEntrySlider::SidebarEntrySlider(const std::string& title, float value, float min, float max, int steps, const Callback& cb, const std::string& info)
+: SidebarEntryBase{title, info}
+, m_value{value}
+, m_min{min}
+, m_max{max}
+, m_steps{steps}
+, m_callback{cb} {
+    SetAction(Button::LEFT, Action{[this](){
+        if (!IsEnabled()) {
+            DependsClick();
+        } else {
+            m_value = std::clamp(m_value - m_inc, m_min, m_max);
+            SetDirty();
+            // m_callback(m_option);
+        } }
+    });
+    SetAction(Button::RIGHT, Action{[this](){
+        if (!IsEnabled()) {
+            DependsClick();
+        } else {
+            m_value = std::clamp(m_value + m_inc, m_min, m_max);
+            SetDirty();
+            // m_callback(m_option);
+        } }
+    });
+
+    m_duration = m_max - m_min;
+    m_inc = m_duration / (float)(m_steps);
+}
+
+void SidebarEntrySlider::Draw(NVGcontext* vg, Theme* theme, const Vec4& root_pos, bool left) {
+    SidebarEntryBase::Draw(vg, theme, root_pos, left);
+
+    const float barh = 7;
+    const Vec4 bar{m_pos.x + 15.f, m_pos.y + (m_pos.h / 2.f) - barh / 2, m_pos.w - 15.f * 2, barh};
+
+    gfx::drawRect(vg, bar, theme->GetColour(ThemeEntryID_PROGRESSBAR_BACKGROUND), 3);
+    auto inner = bar;
+    inner.w *= m_value / m_duration;
+    gfx::drawRect(vg, inner, theme->GetColour(ThemeEntryID_PROGRESSBAR), 3);
+
+    for (int i = 0; i <= m_steps; i++) {
+        const auto loop = m_inc * (float)i;
+        const auto marker = Vec4{bar.x + (bar.w * loop / m_duration), bar.y - 4.f, 3.f, bar.h + 8.f};
+        gfx::drawRect(vg, marker, theme->GetColour(ThemeEntryID_TEXT_INFO));
+    }
+}
+
+SidebarEntryCallback::SidebarEntryCallback(const std::string& title, const Callback& cb, bool pop_on_click, const std::string& info)
 : SidebarEntryBase{title, info}
 , m_callback{cb}
 , m_pop_on_click{pop_on_click} {
@@ -170,7 +221,7 @@ SidebarEntryCallback::SidebarEntryCallback(const std::string& title, Callback cb
     });
 }
 
-SidebarEntryCallback::SidebarEntryCallback(const std::string& title, Callback cb, const std::string& info)
+SidebarEntryCallback::SidebarEntryCallback(const std::string& title, const Callback& cb, const std::string& info)
 : SidebarEntryCallback{title, cb, false, info} {
 
 }
@@ -194,10 +245,12 @@ SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& item
         App::Push<PopupList>(
             m_title, m_items, index, m_index
         );
+
+        SetDirty();
     };
 }
 
-SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& items, Callback cb, const std::string& index, const std::string& info)
+SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& items, const Callback& cb, const std::string& index, const std::string& info)
 : SidebarEntryArray{title, items, cb, 0, info} {
 
     const auto it = std::find(m_items.cbegin(), m_items.cend(), index);
@@ -206,7 +259,7 @@ SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& item
     }
 }
 
-SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& items, Callback cb, s64 index, const std::string& info)
+SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& items, const Callback& cb, s64 index, const std::string& info)
 : SidebarEntryBase{title, info}
 , m_items{items}
 , m_callback{cb}
@@ -229,6 +282,7 @@ SidebarEntryArray::SidebarEntryArray(const std::string& title, const Items& item
         } else {
             // m_callback(m_index);
             m_list_callback();
+            SetDirty();
         }}
     });
 }
@@ -245,6 +299,7 @@ SidebarEntryTextBase::SidebarEntryTextBase(const std::string& title, const std::
     SetAction(Button::A, Action{"OK"_i18n, [this](){
         if (m_callback) {
             m_callback();
+            SetDirty();
         }
     }});
 }
@@ -254,16 +309,36 @@ void SidebarEntryTextBase::Draw(NVGcontext* vg, Theme* theme, const Vec4& root_p
     SidebarEntryBase::DrawEntry(vg, theme, m_title, m_value, true);
 }
 
-SidebarEntryTextInput::SidebarEntryTextInput(const std::string& title, const std::string& value, const std::string& guide, s64 len_min, s64 len_max, const std::string& info)
+SidebarEntryTextInput::SidebarEntryTextInput(const std::string& title, const std::string& value, const std::string& header, const std::string& guide, s64 len_min, s64 len_max, const std::string& info, const Callback& callback)
 : SidebarEntryTextBase{title, value, {}, info}
-, m_guide{guide}
+, m_header{header.empty() ? title : header}
+, m_guide{guide.empty() ? title : guide}
 , m_len_min{len_min}
-, m_len_max{len_max} {
+, m_len_max{len_max}
+, m_callback{callback} {
 
     SetCallback([this](){
         std::string out;
-        if (R_SUCCEEDED(swkbd::ShowText(out, m_guide.c_str(), GetValue().c_str(), m_len_min, m_len_max))) {
+        if (R_SUCCEEDED(swkbd::ShowText(out, m_header.c_str(), m_guide.c_str(), GetValue().c_str(), m_len_min, m_len_max))) {
             SetValue(out);
+
+            if (m_callback) {
+                m_callback(this);
+            }
+        }
+    });
+}
+
+SidebarEntryTextInput::SidebarEntryTextInput(const std::string& title, s64 value, const std::string& header, const std::string& guide, s64 len_min, s64 len_max, const std::string& info, const Callback& callback)
+: SidebarEntryTextInput{title, std::to_string(value), header, guide, len_min, len_max, info, callback} {
+    SetCallback([this](){
+        s64 out = std::stoul(GetValue());
+        if (R_SUCCEEDED(swkbd::ShowNumPad(out, m_header.c_str(), m_guide.c_str(), GetValue().c_str(), m_len_min, m_len_max))) {
+            SetValue(std::to_string(out));
+
+            if (m_callback) {
+                m_callback(this);
+            }
         }
     });
 }
@@ -272,9 +347,10 @@ SidebarEntryFilePicker::SidebarEntryFilePicker(const std::string& title, const s
 : SidebarEntryTextBase{title, value, {}, info}, m_filter{filter} {
 
     SetCallback([this](){
-        App::Push<menu::filepicker::Menu>(
+        App::Push<menu::filebrowser::picker::Menu>(
             [this](const fs::FsPath& path) {
                 SetValue(path);
+                SetDirty();
                 return true;
             },
             m_filter
@@ -282,26 +358,21 @@ SidebarEntryFilePicker::SidebarEntryFilePicker(const std::string& title, const s
     });
 }
 
-Sidebar::Sidebar(const std::string& title, Side side, Items&& items)
-: Sidebar{title, "", side, std::forward<decltype(items)>(items)} {
+Sidebar::Sidebar(const std::string& title, Side side, float width)
+: Sidebar{title, "", side, width} {
 }
 
-Sidebar::Sidebar(const std::string& title, Side side)
-: Sidebar{title, "", side, {}} {
-}
-
-Sidebar::Sidebar(const std::string& title, const std::string& sub, Side side, Items&& items)
+Sidebar::Sidebar(const std::string& title, const std::string& sub, Side side, float width)
 : m_title{title}
 , m_sub{sub}
-, m_side{side}
-, m_items{std::forward<decltype(items)>(items)} {
+, m_side{side} {
     switch (m_side) {
         case Side::LEFT:
-            SetPos(Vec4{0.f, 0.f, 450.f, SCREEN_HEIGHT});
+            SetPos(Vec4{0.f, 0.f, width, SCREEN_HEIGHT});
             break;
 
         case Side::RIGHT:
-            SetPos(Vec4{SCREEN_WIDTH - 450.f, 0.f, 450.f, SCREEN_HEIGHT});
+            SetPos(Vec4{SCREEN_WIDTH - width, 0.f, width, SCREEN_HEIGHT});
             break;
     }
 
@@ -319,13 +390,26 @@ Sidebar::Sidebar(const std::string& title, const std::string& sub, Side side, It
     m_list->SetScrollBarPos(GetX() + GetW() - 20, m_base_pos.y - 10, pos.h - m_base_pos.y + 48);
 }
 
-Sidebar::Sidebar(const std::string& title, const std::string& sub, Side side)
-: Sidebar{title, sub, side, {}} {
+Sidebar::~Sidebar() {
+    if (m_on_exit_when_changed) {
+        for (const auto& item : m_items) {
+            if (item->IsDirty()) {
+                m_on_exit_when_changed();
+                break;
+            }
+        }
+    }
 }
-
 
 auto Sidebar::Update(Controller* controller, TouchInfo* touch) -> void {
     Widget::Update(controller, touch);
+
+    // pop if we have no more entries.
+    if (m_items.empty()) {
+        App::Notify("Closing empty sidebar"_i18n);
+        SetPop();
+        return;
+    }
 
     // if touched out of bounds, pop the sidebar and all widgets below it.
     if (touch->is_clicked && !touch->in_range(GetPos())) {
@@ -352,10 +436,11 @@ auto Sidebar::Draw(NVGcontext* vg, Theme* theme) -> void {
     }
     gfx::drawRect(vg, m_top_bar, theme->GetColour(ThemeEntryID_LINE));
     gfx::drawRect(vg, m_bottom_bar, theme->GetColour(ThemeEntryID_LINE));
+    gfx::drawTextArgs(vg, m_pos.x + 30, 675, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%zu / %zu", m_index + 1, m_items.size());
 
     Widget::Draw(vg, theme);
 
-    m_list->Draw(vg, theme, m_items.size(), [this](auto* vg, auto* theme, auto v, auto i) {
+    m_list->Draw(vg, theme, m_items.size(), [this](auto* vg, auto* theme, auto& v, auto i) {
         const auto& [x, y, w, h] = v;
 
         if (i != m_items.size() - 1) {
@@ -415,6 +500,13 @@ void Sidebar::SetupButtons() {
             SetPop();
         }})
     );
+
+    // disable jump page if the item is using left/right buttons.
+    if (HasAction(Button::LEFT) || HasAction(Button::RIGHT)) {
+        m_list->SetPageJump(false);
+    } else {
+        m_list->SetPageJump(true);
+    }
 }
 
 } // namespace sphaira::ui

@@ -27,7 +27,7 @@ ScrollableText::ScrollableText(const std::string& text, float x, float y, float 
             }
             m_y_off -= m_step;
             m_index++;
-            App::PlaySoundEffect(SoundEffect_Scroll);
+            App::PlaySoundEffect(SoundEffect::Scroll);
         }}),
         std::make_pair(Button::LS_UP, Action{[this](){
             if (m_y_off == m_y_off_base) {
@@ -35,7 +35,7 @@ ScrollableText::ScrollableText(const std::string& text, float x, float y, float 
             }
             m_y_off += m_step;
             m_index--;
-            App::PlaySoundEffect(SoundEffect_Scroll);
+            App::PlaySoundEffect(SoundEffect::Scroll);
         }})
     );
 

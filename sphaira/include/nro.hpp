@@ -9,6 +9,11 @@
 
 namespace sphaira {
 
+struct NroData {
+    NroStart start;
+    NroHeader header;
+};
+
 struct Hbini {
     u64 timestamp{}; // timestamp of last launch
     bool hidden{};

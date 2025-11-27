@@ -7,13 +7,21 @@
 #include <span>
 #include <memory>
 
-namespace sphaira::ui::menu::gc {
+// todo: pr to libnx
+extern "C" {
 
 typedef enum {
     FsGameCardPartitionRaw_None   = -1,
     FsGameCardPartitionRaw_Normal = 0,
     FsGameCardPartitionRaw_Secure = 1,
 } FsGameCardPartitionRaw;
+
+Result fsOpenGameCardStorage(FsStorage* out, const FsGameCardHandle* handle, FsGameCardPartitionRaw partition);
+Result fsOpenGameCardDetectionEventNotifier(FsEventNotifier* out);
+
+}
+
+namespace sphaira::ui::menu::gc {
 
 ////////////////////////////////////////////////
 // The below structs are taken from nxdumptool./
@@ -87,6 +95,33 @@ typedef struct {
 } GameCardInitialData;
 
 static_assert(sizeof(GameCardInitialData) == 0x200);
+
+/// Encrypted using AES-128-CTR with the key and IV/counter from the `GameCardTitleKeyAreaEncryption` section. Assumed to be all zeroes in retail gamecards.
+typedef struct {
+    u8 titlekey[0x10];  ///< Decrypted titlekey from the `GameCardInitialData` section.
+    u8 reserved[0xCF0];
+} GameCardTitleKeyArea;
+
+static_assert(sizeof(GameCardTitleKeyArea) == 0xD00);
+
+/// Encrypted using RSA-2048-OAEP and a private OAEP key from AuthoringTool. Assumed to be all zeroes in retail gamecards.
+typedef struct {
+    u8 titlekey_encryption_key[0x10];   ///< Used as the AES-128-CTR key for the `GameCardTitleKeyArea` section. Randomly generated during XCI creation by AuthoringTool.
+    u8 titlekey_encryption_iv[0x10];    ///< Used as the AES-128-CTR IV/counter for the `GameCardTitleKeyArea` section. Randomly generated during XCI creation by AuthoringTool.
+    u8 reserved[0xE0];
+} GameCardTitleKeyAreaEncryption;
+
+static_assert(sizeof(GameCardTitleKeyAreaEncryption) == 0x100);
+
+/// Used to secure communications between the Lotus and the inserted gamecard.
+/// Supposedly precedes the gamecard header.
+typedef struct {
+    GameCardInitialData initial_data;
+    GameCardTitleKeyArea titlekey_area;
+    GameCardTitleKeyAreaEncryption titlekey_area_encryption;
+} GameCardKeyArea;
+
+static_assert(sizeof(GameCardKeyArea) == 0x1000);
 
 typedef struct {
     u8 maker_code;              ///< GameCardUidMakerCode.
@@ -198,6 +233,9 @@ private:
     void FreeImage();
     void OnChangeIndex(s64 new_index);
     Result DumpGames(u32 flags);
+    Result DumpXcz(u32 flags);
+
+    Result MountGcFs();
 
 private:
     FsDeviceOperator m_dev_op{};
@@ -220,12 +258,12 @@ private:
 
     FsStorage m_storage{};
     // size of normal partition.
-    s64 m_parition_normal_size{};
+    s64 m_partition_normal_size{};
     // size of secure partition.
-    s64 m_parition_secure_size{};
+    s64 m_partition_secure_size{};
     // used size reported in the xci header.
     s64 m_storage_trimmed_size{};
-    // total size of m_parition_normal_size + m_parition_secure_size.
+    // total size of m_partition_normal_size + m_partition_secure_size.
     s64 m_storage_total_size{};
     // reported size via rom_size in the xci header.
     s64 m_storage_full_size{};

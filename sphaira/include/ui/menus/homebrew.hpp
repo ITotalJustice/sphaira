@@ -34,7 +34,7 @@ auto GetNroEntries() -> std::span<const NroEntry>;
 void SignalChange();
 
 struct Menu final : grid::Menu {
-    Menu();
+    Menu(u32 flags);
     ~Menu();
 
     auto GetShortTitle() const -> const char* override { return "Apps"; };
@@ -70,6 +70,8 @@ private:
     auto IsStarEnabled() -> bool {
         return m_sort.Get() >= SortType_UpdatedStar;
     }
+
+    Result MountNroFs();
 
 private:
     static constexpr inline const char* INI_SECTION = "homebrew";

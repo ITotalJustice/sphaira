@@ -1,3 +1,4 @@
+#if 0
 #pragma once
 
 #include "ui/menus/menu_base.hpp"
@@ -104,7 +105,7 @@ struct Config {
     u32 limit{18};
     bool nsfw{false};
 
-    void SetQuery(std::string new_query) {
+    void SetQuery(const std::string& new_query) {
         query = new_query;
     }
 
@@ -112,7 +113,7 @@ struct Config {
         query.clear();
     }
 
-    void SetCreator(Creator new_creator) {
+    void SetCreator(const Creator& new_creator) {
         creator = new_creator.id;
     }
 
@@ -175,3 +176,4 @@ private:
 };
 
 } // namespace sphaira::ui::menu::themezer
+#endif

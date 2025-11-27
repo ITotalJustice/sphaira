@@ -59,6 +59,7 @@ void Clear();
 
 // adds new entry to queue.
 void PushAsync(u64 app_id);
+void PushAsync(const std::span<const NsApplicationRecord> app_ids);
 // gets entry without removing it from the queue.
 auto GetAsync(u64 app_id) -> ThreadResultData*;
 // single threaded title info fetch.

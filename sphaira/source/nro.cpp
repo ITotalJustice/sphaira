@@ -13,11 +13,6 @@
 namespace sphaira {
 namespace {
 
-struct NroData {
-    NroStart start;
-    NroHeader header;
-};
-
 auto nro_parse_internal(fs::Fs* fs, const fs::FsPath& path, NroEntry& entry) -> Result {
     entry.path = path;
 

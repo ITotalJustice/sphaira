@@ -42,6 +42,8 @@ void drawScrollbar2(NVGcontext*, const Theme*, s64 index_off, s64 count, s64 row
 
 void drawAppLable(NVGcontext* vg, const Theme*, ScrollingText& st, float x, float y, float w, const char* name);
 
+void drawSpinner(NVGcontext* vg, const Theme*, float cx, float cy, float r, float t);
+
 void updateHighlightAnimation();
 void getHighlightAnimation(float* gradientX, float* gradientY, float* color);
 

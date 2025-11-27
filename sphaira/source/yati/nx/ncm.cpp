@@ -28,6 +28,31 @@ auto GetMetaTypeStr(u8 meta_type) -> const char* {
     return "Unknown";
 }
 
+auto GetContentTypeStr(u8 content_type) -> const char* {
+    switch (content_type) {
+        case NcmContentType_Meta: return "Meta";
+        case NcmContentType_Program: return "Program";
+        case NcmContentType_Data: return "Data";
+        case NcmContentType_Control: return "Control";
+        case NcmContentType_HtmlDocument: return "Html";
+        case NcmContentType_LegalInformation: return "Legal";
+        case NcmContentType_DeltaFragment: return "Delta";
+    }
+
+    return "Unknown";
+}
+
+auto GetReadableMetaTypeStr(u8 meta_type) -> const char* {
+    switch (meta_type) {
+        default:                              return "Unknown";
+        case NcmContentMetaType_Application:  return "Application";
+        case NcmContentMetaType_Patch:        return "Update";
+        case NcmContentMetaType_AddOnContent: return "DLC";
+        case NcmContentMetaType_Delta:        return "Delta";
+        case NcmContentMetaType_DataPatch:    return "DLC Update";
+    }
+}
+
 // taken from nxdumptool
 auto GetMetaTypeShortStr(u8 meta_type) -> const char* {
     switch (meta_type) {
@@ -59,6 +84,16 @@ auto GetStorageIdStr(u8 storage_id) -> const char* {
     }
 
     return "Unknown";
+}
+
+auto GetReadableStorageIdStr(u8 storage_id) -> const char* {
+    switch (storage_id) {
+        default:                       return "Unknown";
+        case NcmStorageId_None:        return "None";
+        case NcmStorageId_GameCard:    return "Game Card";
+        case NcmStorageId_BuiltInUser: return "System memory";
+        case NcmStorageId_SdCard:      return "microSD card";
+    }
 }
 
 auto GetAppId(u8 meta_type, u64 id) -> u64 {
@@ -103,6 +138,106 @@ Result Delete(NcmContentStorage* cs, const NcmContentId *content_id) {
 Result Register(NcmContentStorage* cs, const NcmContentId *content_id, const NcmPlaceHolderId *placeholder_id) {
     R_TRY(Delete(cs, content_id));
     return ncmContentStorageRegister(cs, content_id, placeholder_id);
+}
+
+Result GetContentMeta(NcmContentMetaDatabase *db, const NcmContentMetaKey *key, ContentMeta& out) {
+    u64 size;
+    return ncmContentMetaDatabaseGet(db, key, &size, &out, sizeof(out));
+}
+
+Result GetContentInfos(NcmContentMetaDatabase *db, const NcmContentMetaKey *key, std::vector<NcmContentInfo>& out) {
+    ContentMeta content_meta;
+    R_TRY(GetContentMeta(db, key, content_meta));
+
+    return GetContentInfos(db, key, content_meta.header, out);
+}
+
+Result GetContentInfos(NcmContentMetaDatabase *db, const NcmContentMetaKey *key, const NcmContentMetaHeader& header, std::vector<NcmContentInfo>& out) {
+    s32 entries_written;
+    out.resize(header.content_count);
+    R_TRY(ncmContentMetaDatabaseListContentInfo(db, &entries_written, out.data(), out.size(), key, 0));
+    out.resize(entries_written);
+
+    R_SUCCEED();
+}
+
+Result DeleteKey(NcmContentStorage* cs, NcmContentMetaDatabase *db, const NcmContentMetaKey *key) {
+    // get list of infos.
+    std::vector<NcmContentInfo> infos;
+    R_TRY(GetContentInfos(db, key, infos));
+
+    // delete ncas
+    for (const auto& info : infos) {
+        R_TRY(ncmContentStorageDelete(cs, &info.content_id));
+    }
+
+    // remove from ncm db.
+    R_TRY(ncmContentMetaDatabaseRemove(db, key));
+    R_TRY(ncmContentMetaDatabaseCommit(db));
+
+    R_SUCCEED();
+}
+
+Result SetRequiredSystemVersion(NcmContentMetaDatabase *db, const NcmContentMetaKey *key, u32 version) {
+    // ensure that we can even reset the sys version.
+    if (!HasRequiredSystemVersion(key)) {
+        R_SUCCEED();
+    }
+
+    // get the old data size.
+    u64 size;
+    R_TRY(ncmContentMetaDatabaseGetSize(db, &size, key));
+
+    // fetch the old data.
+    u64 out_size;
+    std::vector<u8> data;
+    R_TRY(ncmContentMetaDatabaseGet(db, key, &out_size, data.data(), data.size()));
+
+    // ensure that we have enough data.
+    R_UNLESS(data.size() == out_size, 0x1);
+    R_UNLESS(data.size() >= offsetof(ContentMeta, extened.application.required_application_version), 0x1);
+
+    // patch the version.
+    auto content_meta = (ContentMeta*)data.data();
+    content_meta->extened.application.required_system_version = version;
+
+    // write the new data back.
+    return ncmContentMetaDatabaseSet(db, key, data.data(), data.size());
+}
+
+Result GetFsPathFromContentId(NcmContentStorage* cs, const NcmContentMetaKey& key, const NcmContentId& id, u64* out_program_id, fs::FsPath* out_path) {
+    if (out_program_id) {
+        *out_program_id = key.id; // todo: verify.
+        if (hosversionAtLeast(17,0,0)) {
+            R_TRY(ncmContentStorageGetProgramId(cs, out_program_id, &id, FsContentAttributes_All));
+        }
+    }
+
+    return ncmContentStorageGetPath(cs, out_path->s, sizeof(*out_path), &id);
+}
+
+NcmSource::NcmSource(NcmContentStorage* cs, const NcmContentId* id) : m_cs{*cs}, m_id{*id} {
+
+}
+
+Result NcmSource::Read(void* buf, s64 off, s64 size, u64* bytes_read) {
+    s64 max_size;
+    R_TRY(GetSize(&max_size));
+
+    size = std::min<s64>(size, max_size - off);
+    R_TRY(ncmContentStorageReadContentIdFile(&m_cs, buf, size, &m_id, off));
+
+    *bytes_read = size;
+    R_SUCCEED();
+}
+
+Result NcmSource::GetSize(s64* size) {
+    if (!m_size) {
+        R_TRY(ncmContentStorageGetSizeFromContentId(&m_cs, &m_size, &m_id));
+    }
+
+    *size = m_size;
+    R_SUCCEED();
 }
 
 } // namespace sphaira::ncm

@@ -42,7 +42,7 @@ struct MiscMenuEntry {
     }
 };
 
-auto GetMiscMenuEntries() -> std::span<const MiscMenuEntry>;
+auto GetMenuMenuEntries() -> std::span<const MiscMenuEntry>;
 
 // this holds 2 menus and allows for switching between them
 struct MainMenu final : Widget {

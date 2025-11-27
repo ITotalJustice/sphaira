@@ -1,7 +1,10 @@
 #pragma once
 
-#include <switch.h>
 #include "ncm.hpp"
+
+#include <switch.h>
+#include <span>
+#include <vector>
 
 namespace sphaira::ns {
 
@@ -16,9 +19,26 @@ enum ApplicationRecordType {
     ApplicationRecordType_Archived        = 0xB,
 };
 
-Result PushApplicationRecord(Service* srv, u64 tid, const ncm::ContentStorageRecord* records, u32 count);
-Result ListApplicationRecordContentMeta(Service* srv, u64 offset, u64 tid, ncm::ContentStorageRecord* out_records, u32 count, s32* entries_read);
-Result DeleteApplicationRecord(Service* srv, u64 tid);
-Result InvalidateApplicationControlCache(Service* srv, u64 tid);
+Result Initialize();
+void Exit();
+
+Result PushApplicationRecord(u64 tid, const ncm::ContentStorageRecord* records, u32 count);
+Result ListApplicationRecordContentMeta(u64 offset, u64 tid, ncm::ContentStorageRecord* out_records, u32 count, s32* entries_read);
+Result DeleteApplicationRecord(u64 tid);
+Result InvalidateApplicationControlCache(u64 tid);
+
+// helpers
+
+// fills out with the number or records available
+Result GetApplicationRecords(u64 id, std::vector<ncm::ContentStorageRecord>& out);
+
+// sets the lowest launch version based on the current record list.
+Result SetLowestLaunchVersion(u64 id);
+// same as above, but uses the provided record list.
+Result SetLowestLaunchVersion(u64 id, std::span<const ncm::ContentStorageRecord> records);
+
+static inline bool IsNsControlFetchSlow() {
+    return hosversionAtLeast(20,0,0);
+}
 
 } // namespace sphaira::ns

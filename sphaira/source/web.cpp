@@ -11,8 +11,6 @@ auto WebShow(const std::string& url) -> Result {
     WebCommonReply reply{};
     WebExitReason reason{};
     AccountUid account_uid{};
-    char last_url[FS_MAX_PATH]{};
-    size_t last_url_len{};
 
     // WebBackgroundKind_Unknown1 = shows background
     // WebBackgroundKind_Unknown2 = shows background faded
@@ -54,8 +52,6 @@ auto WebShow(const std::string& url) -> Result {
 
     if (R_FAILED(webConfigShow(&config, &reply))) { log_write("failed: webConfigShow\n"); }
     if (R_FAILED(webReplyGetExitReason(&reply, &reason))) { log_write("failed: webReplyGetExitReason\n"); }
-    if (R_FAILED(webReplyGetLastUrl(&reply, last_url, sizeof(last_url), &last_url_len))) { log_write("failed: webReplyGetLastUrl\n"); }
-    log_write("last url: %s\n", last_url);
     R_SUCCEED();
 }
 

@@ -1,5 +1,3 @@
-#if ENABLE_NETWORK_INSTALL
-
 #include "ui/menus/install_stream_menu_base.hpp"
 #include "yati/yati.hpp"
 #include "app.hpp"
@@ -18,19 +16,8 @@ enum class InstallState {
     Finished,
 };
 
-constexpr u64 MAX_BUFFER_SIZE = 1024ULL*1024ULL*8ULL;
-constexpr u64 MAX_BUFFER_RESERVE_SIZE = 1024ULL*1024ULL*32ULL;
+constexpr u64 MAX_BUFFER_SIZE = 1024ULL*1024ULL*1ULL;
 std::atomic<InstallState> INSTALL_STATE{InstallState::None};
-
-// don't use condivar here as windows mtp is very broken.
-// stalling for too longer (3s+) and having too varied transfer speeds
-// results in windows stalling the transfer for 1m until it kills it via timeout.
-// the workaround is to always accept new data, but stall for 1s.
-// UPDATE: it seems possible to trigger this bug during normal file transfer
-// including using stock haze.
-// it seems random, and ive been unable to trigger it personally.
-// for this reason, use condivar rather than trying to work around the issue.
-#define USE_CONDI_VAR 1
 
 } // namespace
 
@@ -38,14 +25,17 @@ Stream::Stream(const fs::FsPath& path, std::stop_token token) {
     m_path = path;
     m_token = token;
     m_active = true;
-    m_buffer.reserve(MAX_BUFFER_RESERVE_SIZE);
+    m_buffer.reserve(MAX_BUFFER_SIZE);
 
     mutexInit(&m_mutex);
     condvarInit(&m_can_read);
     condvarInit(&m_can_write);
 }
 
-Result Stream::ReadChunk(void* buf, s64 size, u64* bytes_read) {
+Result Stream::ReadChunk(void* _buf, s64 size, u64* bytes_read) {
+    auto buf = static_cast<u8*>(_buf);
+    *bytes_read = 0;
+
     log_write("[Stream::ReadChunk] inside\n");
     ON_SCOPE_EXIT(
         log_write("[Stream::ReadChunk] exiting\n");
@@ -61,18 +51,30 @@ Result Stream::ReadChunk(void* buf, s64 size, u64* bytes_read) {
             break;
         }
 
-        size = std::min<s64>(size, m_buffer.size());
-        std::memcpy(buf, m_buffer.data(), size);
-        m_buffer.erase(m_buffer.begin(), m_buffer.begin() + size);
-        *bytes_read = size;
-        return condvarWakeOne(&m_can_write);
+        const auto rsize = std::min<s64>(size, m_buffer.size());
+        std::memcpy(buf, m_buffer.data(), rsize);
+        m_buffer.erase(m_buffer.begin(), m_buffer.begin() + rsize);
+        condvarWakeOne(&m_can_write);
+
+        size -= rsize;
+        buf += rsize;
+        *bytes_read += rsize;
+
+        if (!size) {
+            R_SUCCEED();
+        }
     }
 
     log_write("[Stream::ReadChunk] failed to read\n");
     R_THROW(Result_TransferCancelled);
 }
 
-bool Stream::Push(const void* buf, s64 size) {
+bool Stream::Push(const void* _buf, s64 size) {
+    auto buf = static_cast<const u8*>(_buf);
+    if (!size) {
+        return true;
+    }
+
     log_write("[Stream::Push] inside\n");
     ON_SCOPE_EXIT(
         log_write("[Stream::Push] exiting\n");
@@ -85,31 +87,27 @@ bool Stream::Push(const void* buf, s64 size) {
         }
 
         SCOPED_MUTEX(&m_mutex);
-        #if USE_CONDI_VAR
         if (m_active && m_buffer.size() >= MAX_BUFFER_SIZE) {
             R_TRY(condvarWait(std::addressof(m_can_write), std::addressof(m_mutex)));
         }
-        #else
-        if (m_active && m_buffer.size() >= MAX_BUFFER_SIZE) {
-            // unlock the mutex and wait for 1s to bring transfer speed down to 1MiB/s.
-            log_write("[Stream::Push] buffer is full, delaying\n");
-            mutexUnlock(&m_mutex);
-            ON_SCOPE_EXIT(mutexLock(&m_mutex));
-
-            svcSleepThread(1e+9);
-        }
-        #endif
 
         if (!m_active) {
             log_write("[Stream::Push] file not active\n");
             break;
         }
 
+        const auto wsize = std::min<s64>(size, MAX_BUFFER_SIZE - m_buffer.size());
         const auto offset = m_buffer.size();
-        m_buffer.resize(offset + size);
-        std::memcpy(m_buffer.data() + offset, buf, size);
+        m_buffer.resize(offset + wsize);
+
+        std::memcpy(m_buffer.data() + offset, buf, wsize);
         condvarWakeOne(&m_can_read);
-        return true;
+
+        size -= wsize;
+        buf += wsize;
+        if (!size) {
+            return true;
+        }
     }
 
     log_write("[Stream::Push] failed to push\n");
@@ -275,5 +273,3 @@ void Menu::OnInstallClose() {
 }
 
 } // namespace sphaira::ui::menu::stream
-
-#endif

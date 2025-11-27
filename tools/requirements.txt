@@ -1,0 +1,6 @@
+# any version is fine.
+pyusb
+# 4.0 needed for part_only to handle split archives.
+rarfile >= 4.0
+# used to verify packets are valid.
+crc32c

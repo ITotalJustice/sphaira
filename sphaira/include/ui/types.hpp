@@ -1,7 +1,6 @@
 #pragma once
 
 #include "nanovg.h"
-#include "pulsar.h"
 #include "fs.hpp"
 
 #include <switch.h>
@@ -56,8 +55,8 @@ struct Vec2 {
 struct Vec4 {
     constexpr Vec4() = default;
     constexpr Vec4(float _x, float _y, float _w, float _h) : x{_x}, y{_y}, w{_w}, h{_h} {}
-    constexpr Vec4(Vec2 vec0, Vec2 vec1) : x{vec0.x}, y{vec0.y}, w{vec1.x}, h{vec1.y} {}
-    constexpr Vec4(Vec4 vec0, Vec4 vec1) : x{vec0.x}, y{vec0.y}, w{vec1.w}, h{vec1.h} {}
+    constexpr Vec4(const Vec2& vec0, const Vec2& vec1) : x{vec0.x}, y{vec0.y}, w{vec1.x}, h{vec1.y} {}
+    constexpr Vec4(const Vec4& vec0, const Vec4& vec1) : x{vec0.x}, y{vec0.y}, w{vec1.w}, h{vec1.h} {}
 
     float& operator[](std::size_t idx) {
         switch (idx) {
@@ -229,6 +228,7 @@ struct ThemeMeta {
 struct Theme {
     ThemeMeta meta;
     ElementEntry elements[ThemeEntryID_MAX];
+    fs::FsPath music_path;
 
     auto GetColour(ThemeEntryID id) const {
         return elements[id].colour;
@@ -291,11 +291,13 @@ enum class Button : u64 {
     LS_RIGHT = static_cast<u64>(HidNpadButton_StickLRight),
     LS_UP = static_cast<u64>(HidNpadButton_StickLUp),
     LS_DOWN = static_cast<u64>(HidNpadButton_StickLDown),
+    LS_ANY = LS_LEFT | LS_RIGHT | LS_UP | LS_DOWN,
 
     RS_LEFT = static_cast<u64>(HidNpadButton_StickRLeft),
     RS_RIGHT = static_cast<u64>(HidNpadButton_StickRRight),
     RS_UP = static_cast<u64>(HidNpadButton_StickRUp),
     RS_DOWN = static_cast<u64>(HidNpadButton_StickRDown),
+    RS_ANY = RS_LEFT | RS_RIGHT | RS_UP | RS_DOWN,
 
     ANY_LEFT = static_cast<u64>(HidNpadButton_AnyLeft),
     ANY_RIGHT = static_cast<u64>(HidNpadButton_AnyRight),
@@ -339,10 +341,10 @@ struct Action final {
         CallbackWithBool
     >;
 
-    Action(Callback cb) : Action{ActionType::DOWN, "", cb} {}
-    Action(std::string hint, Callback cb) : Action{ActionType::DOWN, hint, cb} {}
-    Action(u8 type, Callback cb) : Action{type, "", cb} {}
-    Action(u8 type, std::string hint, Callback cb) : m_type{type}, m_callback{cb}, m_hint{hint} {}
+    explicit Action(const Callback& cb) : Action{ActionType::DOWN, "", cb} {}
+    explicit Action(const std::string& hint, const Callback& cb) : Action{ActionType::DOWN, hint, cb} {}
+    explicit Action(u8 type, const Callback& cb) : Action{type, "", cb} {}
+    explicit Action(u8 type, const std::string& hint, const Callback& cb) : m_type{type}, m_callback{cb}, m_hint{hint} {}
 
     auto IsHidden() const noexcept { return m_hint.empty(); }
 
@@ -362,6 +364,81 @@ struct Action final {
     u8 m_type{};
     Callback m_callback{};
     std::string m_hint{};
+};
+
+struct GenericHidState {
+    GenericHidState() {
+        Reset();
+    }
+
+    void Reset() {
+        buttons_cur = 0;
+        buttons_old = 0;
+    }
+
+    u64 GetButtons() const {
+        return buttons_cur;
+    }
+
+    u64 GetButtonsDown() const {
+        return buttons_cur & ~buttons_old;
+    }
+
+    u64 GetButtonsUp() const {
+        return ~buttons_cur & buttons_old;
+    }
+
+    virtual void Update() = 0;
+
+protected:
+    u64 buttons_cur;
+    u64 buttons_old;
+};
+
+struct KeyboardState final : GenericHidState {
+    struct MapEntry {
+        HidKeyboardKey key;
+        u64 button;
+    };
+    using Map = std::span<const MapEntry>;
+
+    void Init(Map map) {
+        m_map = map;
+        Reset();
+    }
+
+    void Update() override {
+        buttons_old = buttons_cur;
+        buttons_cur = 0;
+
+        if (!hidGetKeyboardStates(&m_state, 1)) {
+            return;
+        }
+
+        const auto ctrl = m_state.modifiers & HidKeyboardModifier_Control;
+        const auto shift = m_state.modifiers & HidKeyboardModifier_Shift;
+
+        for (const auto& map : m_map) {
+            if (hidKeyboardStateGetKey(&m_state, map.key)) {
+                if (shift && map.button == static_cast<u64>(Button::L)) {
+                    buttons_cur |= static_cast<u64>(Button::L2);
+                } else if (shift && map.button == static_cast<u64>(Button::R)) {
+                    buttons_cur |= static_cast<u64>(Button::R2);
+                } else if (ctrl && map.button == static_cast<u64>(Button::L)) {
+                    buttons_cur |= static_cast<u64>(Button::L3);
+                } else if (ctrl && map.button == static_cast<u64>(Button::R)) {
+                    buttons_cur |= static_cast<u64>(Button::R3);
+                } else {
+                    buttons_cur |= map.button;
+                }
+
+            }
+        }
+    }
+
+private:
+    Map m_map{};
+    HidKeyboardState m_state{};
 };
 
 struct Controller {
@@ -397,15 +474,29 @@ struct Controller {
 
     void UpdateButtonHeld(u64 buttons, double delta) {
         if (m_kdown & buttons) {
-            m_step = 50;
+            m_step_max = m_MAX_STEP;
+            m_step = m_INC_STEP;
             m_counter = 0;
+            m_step_max_counter = 0;
         } else if (m_kheld & buttons) {
             m_counter += m_step * delta;
+
+            // if we are at the max, ignore the delta and go as fast as the frame rate.
+            if (m_step_max == m_MAX) {
+                m_counter = m_MAX;
+            }
 
             if (m_counter >= m_MAX) {
                 m_kdown |= m_kheld & buttons;
                 m_counter = 0;
-                m_step = std::min(m_step + 50, m_MAX_STEP);
+                m_step = std::min(m_step + m_INC_STEP, m_step_max);
+
+                // slowly speed up until we reach 1 button down per frame.
+                m_step_max_counter++;
+                if (m_step_max_counter >= 5) {
+                    m_step_max_counter = 0;
+                    m_step_max = std::min(m_step_max + m_INC_STEP, m_MAX);
+                }
             }
         }
     }
@@ -413,8 +504,12 @@ struct Controller {
 private:
     static constexpr double m_MAX = 1000;
     static constexpr double m_MAX_STEP = 250;
-    double m_step = 50;
+    static constexpr double m_INC_STEP = 50;
+
+    double m_step_max = m_MAX_STEP;
+    double m_step = m_INC_STEP;
     double m_counter = 0;
+    int m_step_max_counter = 0;
 };
 
 } // namespace sphaira

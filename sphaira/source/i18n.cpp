@@ -8,48 +8,97 @@
 namespace sphaira::i18n {
 namespace {
 
-std::vector<u8> g_i18n_data;
-yyjson_doc* json;
-yyjson_val* root;
-std::unordered_map<std::string, std::string> g_tr_cache;
+std::vector<u8> g_i18n_data{};
+yyjson_doc* json{};
+yyjson_val* root{};
+std::unordered_map<std::string, std::string> g_tr_cache{};
+Mutex g_mutex{};
 
-std::string get_internal(std::string_view str) {
-    const std::string kkey = {str.data(), str.length()};
+static WordOrder g_word_order = WordOrder::PhraseName;
+
+static WordOrder DetectWordOrder(const std::string& lang) {
+    // SOV Language.
+    if (lang == "ja" || lang == "ko")
+        return WordOrder::NamePhrase;
+    
+    // Default: SVO Language.
+    return WordOrder::PhraseName;
+}
+
+static std::string get_internal(std::string_view str, std::string_view fallback) {
+    SCOPED_MUTEX(&g_mutex);
+
+    const std::string kkey{str.data(), str.length()};
 
     if (auto it = g_tr_cache.find(kkey); it != g_tr_cache.end()) {
         return it->second;
     }
 
     // add default entry
-    const auto it = g_tr_cache.emplace(kkey, kkey).first;
+    const auto it = g_tr_cache.emplace(kkey, std::string{fallback}).first;
 
     if (!json || !root) {
         log_write("no json or root\n");
-        return kkey;
+        return std::string{fallback};
     }
 
-    auto key = yyjson_obj_getn(root, str.data(), str.length());
-    if (!key) {
+    yyjson_val* node = yyjson_obj_getn(root, str.data(), str.length());
+    if (!node && str != fallback) {
+        node = yyjson_obj_getn(root, fallback.data(), fallback.length());
+        if (node) {
+            log_write("\tfallback-key matched: [%s]\n", std::string(fallback).c_str());
+        }
+    }
+
+    if (!node) {
         log_write("\tfailed to find key: [%s]\n", kkey.c_str());
-        return kkey;
+        return std::string{fallback};
     }
 
-    auto val = yyjson_get_str(key);
-    auto val_len = yyjson_get_len(key);
-    if (!val || !val_len) {
+    std::string ret;
+
+    // key > string
+    if (const char* val = yyjson_get_str(node)) {
+        size_t len = yyjson_get_len(node);
+        if (len) {
+            ret.assign(val, len);
+        }
+    }
+
+    // key > array of strings (multi-line)
+    if (ret.empty() && yyjson_is_arr(node)) {
+        size_t idx, max;
+        yyjson_val* elem;
+        yyjson_arr_foreach(node, idx, max, elem) {
+            if (idx) ret.push_back('\n');
+
+            if (yyjson_is_str(elem)) {
+                const char* s = yyjson_get_str(elem);
+                size_t len = yyjson_get_len(elem);
+                if (s && len) ret.append(s, len);
+            }
+        }
+    }
+
+    if (ret.empty()) {
         log_write("\tfailed to get value: [%s]\n", kkey.c_str());
-        return kkey;
+        ret = std::string{fallback};
     }
 
     // update entry in cache
-    const std::string ret = {val, val_len};
     g_tr_cache.insert_or_assign(it, kkey, ret);
     return ret;
+}
+
+static std::string get_internal(std::string_view str) {
+    return get_internal(str, str);
 }
 
 } // namespace
 
 bool init(long index) {
+    SCOPED_MUTEX(&g_mutex);
+
     g_tr_cache.clear();
     R_TRY_RESULT(romfsInit(), false);
     ON_SCOPE_EXIT( romfsExit() );
@@ -71,14 +120,15 @@ bool init(long index) {
         case 4: setLanguage = SetLanguage_DE; break; // "German"
         case 5: setLanguage = SetLanguage_IT; break; // "Italian"
         case 6: setLanguage = SetLanguage_ES; break; // "Spanish"
-        case 7: setLanguage = SetLanguage_ZHCN; break; // "Chinese"
+        case 7: setLanguage = SetLanguage_ZHCN; break; // "Chinese (Simplified)"
         case 8: setLanguage = SetLanguage_KO; break; // "Korean"
         case 9: setLanguage = SetLanguage_NL; break; // "Dutch"
         case 10: setLanguage = SetLanguage_PT; break; // "Portuguese"
         case 11: setLanguage = SetLanguage_RU; break; // "Russian"
-        case 12: lang_name = "se"; break; // "Swedish"
-        case 13: lang_name = "vi"; break; // "Vietnamese"
-        case 14: lang_name = "uk"; break; // "Ukrainian"
+        case 12: setLanguage = SetLanguage_ZHTW; break; // "Chinese (Traditional)"
+        case 13: lang_name = "se"; break; // "Swedish"
+        case 14: lang_name = "vi"; break; // "Vietnamese"
+        case 15: lang_name = "uk"; break; // "Ukrainian"
     }
 
     switch (setLanguage) {
@@ -87,14 +137,16 @@ bool init(long index) {
         case SetLanguage_DE: lang_name = "de"; break;
         case SetLanguage_IT: lang_name = "it"; break;
         case SetLanguage_ES: lang_name = "es"; break;
-        case SetLanguage_ZHCN: lang_name = "zh"; break; 
+        case SetLanguage_ZHCN: lang_name = "zh-CN"; break;
         case SetLanguage_KO: lang_name = "ko"; break;
         case SetLanguage_NL: lang_name = "nl"; break;
         case SetLanguage_PT: lang_name = "pt"; break;
         case SetLanguage_RU: lang_name = "ru"; break;
-        case SetLanguage_ZHTW: lang_name = "zh"; break;
+        case SetLanguage_ZHTW: lang_name = "zh-TW"; break;
         default: break;
     }
+
+    g_word_order = DetectWordOrder(lang_name);
 
     const fs::FsPath sdmc_path = "/config/sphaira/i18n/" + lang_name + ".json";
     const fs::FsPath romfs_path = "romfs:/i18n/" + lang_name + ".json";
@@ -128,9 +180,12 @@ bool init(long index) {
 }
 
 void exit() {
+    SCOPED_MUTEX(&g_mutex);
+
     if (json) {
         yyjson_doc_free(json);
         json = nullptr;
+        root = nullptr;
     }
     g_i18n_data.clear();
 }
@@ -139,12 +194,40 @@ std::string get(std::string_view str) {
     return get_internal(str);
 }
 
+std::string get(std::string_view str, std::string_view fallback) {
+    return get_internal(str, fallback);
+}
+
+// Reorders sentence structure based on locale.
+WordOrder GetWordOrder() {
+    return g_word_order;
+}
+
+bool WordOrderLocale() {
+    return g_word_order == WordOrder::NamePhrase;
+}
+
+std::string Reorder(std::string_view phrase, std::string_view name) {
+    std::string p = i18n::get(phrase);
+    std::string out;
+    out.reserve(phrase.length() + name.length());
+
+    if (g_word_order == WordOrder::NamePhrase) {
+        out.append(name);
+        out.append(p);
+    } else {
+        out.append(p);
+        out.append(name);
+    }
+    return out;
+}
+
 } // namespace sphaira::i18n
 
 namespace literals {
 
 std::string operator""_i18n(const char* str, size_t len) {
-    return sphaira::i18n::get_internal({str, len});
+    return sphaira::i18n::get({str, len});
 }
 
 } // namespace literals

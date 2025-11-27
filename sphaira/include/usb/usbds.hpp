@@ -2,11 +2,6 @@
 
 #include "base.hpp"
 
-// TODO: remove these when libnx pr is merged.
-enum { UsbDeviceSpeed_None = 0x0 };
-enum { UsbDeviceSpeed_Low = 0x1 };
-Result usbDsGetSpeed(UsbDeviceSpeed *out);
-
 auto GetUsbDsStateStr(UsbState state) -> const char*;
 auto GetUsbDsSpeedStr(UsbDeviceSpeed speed) -> const char*;
 

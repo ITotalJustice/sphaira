@@ -7,7 +7,7 @@
 namespace sphaira::ui::menu::fileview {
 
 struct Menu final : MenuBase {
-    Menu(const fs::FsPath& path);
+    Menu(fs::Fs* fs, const fs::FsPath& path);
 
     auto GetShortTitle() const -> const char* override { return "File"; };
     void Update(Controller* controller, TouchInfo* touch) override;
@@ -15,8 +15,8 @@ struct Menu final : MenuBase {
     void OnFocusGained() override;
 
 private:
+    fs::Fs* const m_fs;
     const fs::FsPath m_path;
-    fs::FsNativeSd m_fs{};
     fs::File m_file{};
     s64 m_file_size{};
     s64 m_file_offset{};

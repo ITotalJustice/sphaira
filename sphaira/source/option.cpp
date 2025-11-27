@@ -17,8 +17,10 @@ auto OptionBase<T>::GetInternal(const char* name) -> T {
                 m_value = ini_getbool(m_section.c_str(), name, m_default_value, App::CONFIG_PATH);
             } else if constexpr(std::is_same_v<T, long>) {
                 m_value = ini_getl(m_section.c_str(), name, m_default_value, App::CONFIG_PATH);
+            } else if constexpr(std::is_same_v<T, float>) {
+                m_value = ini_getf(m_section.c_str(), name, m_default_value, App::CONFIG_PATH);
             } else if constexpr(std::is_same_v<T, std::string>) {
-                char buf[FS_MAX_PATH];
+                char buf[PATH_MAX]{};
                 ini_gets(m_section.c_str(), name, m_default_value.c_str(), buf, sizeof(buf), App::CONFIG_PATH);
                 m_value = buf;
             }
@@ -52,6 +54,8 @@ void OptionBase<T>::Set(T value) {
             ini_putl(m_section.c_str(), m_name.c_str(), value, App::CONFIG_PATH);
         } else if constexpr(std::is_same_v<T, long>) {
             ini_putl(m_section.c_str(), m_name.c_str(), value, App::CONFIG_PATH);
+        } else if constexpr(std::is_same_v<T, float>) {
+            ini_putf(m_section.c_str(), m_name.c_str(), value, App::CONFIG_PATH);
         } else if constexpr(std::is_same_v<T, std::string>) {
             ini_puts(m_section.c_str(), m_name.c_str(), value.c_str(), App::CONFIG_PATH);
         }
@@ -71,6 +75,8 @@ auto OptionBase<T>::LoadFrom(const char* name, const char* value) -> bool {
                 m_value = ini_parse_getbool(value, m_default_value);
             } else if constexpr(std::is_same_v<T, long>) {
                 m_value = ini_parse_getl(value, m_default_value);
+            } else if constexpr(std::is_same_v<T, float>) {
+                m_value = ini_atof(value);
             } else if constexpr(std::is_same_v<T, std::string>) {
                 m_value = value;
             }
@@ -84,6 +90,7 @@ auto OptionBase<T>::LoadFrom(const char* name, const char* value) -> bool {
 
 template struct OptionBase<bool>;
 template struct OptionBase<long>;
+template struct OptionBase<float>;
 template struct OptionBase<std::string>;
 
 } //  namespace sphaira::option

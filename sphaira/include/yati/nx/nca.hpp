@@ -3,8 +3,11 @@
 #include "fs.hpp"
 #include "keys.hpp"
 #include "ncm.hpp"
+#include "yati/source/base.hpp"
+
 #include <switch.h>
 #include <vector>
+#include <memory>
 
 namespace sphaira::nca {
 
@@ -15,7 +18,7 @@ namespace sphaira::nca {
 #define NCA_SECTOR_SIZE             0x200
 #define NCA_XTS_SECTION_SIZE        0xC00
 #define NCA_SECTION_TOTAL           0x4
-#define NCA_MEDIA_REAL(x)((x * 0x200))
+#define NCA_MEDIA_REAL(x)((u64(x) * 0x200))
 
 #define NCA_PROGRAM_LOGO_OFFSET     0x8000
 #define NCA_META_CNMT_OFFSET        0xC20
@@ -94,6 +97,22 @@ struct SectionTableEntry {
     u32 media_end_offset;   // divided by 0x200.
     u8 _0x8[0x4];           // unknown.
     u8 _0xC[0x4];           // unknown.
+
+    auto IsValid() const -> bool {
+        return media_start_offset && media_end_offset;
+    }
+
+    auto GetOffset() const -> u64 {
+        return NCA_MEDIA_REAL(media_start_offset);
+    }
+
+    auto GetOffsetEnd() const -> u64 {
+        return NCA_MEDIA_REAL(media_end_offset);
+    }
+
+    auto GetSize() const -> u64 {
+        return GetOffsetEnd() - GetOffset();
+    }
 };
 
 struct LayerRegion {
@@ -139,6 +158,55 @@ static_assert(sizeof(HierarchicalSha256Data) == 0xF8);
 static_assert(sizeof(IntegrityMetaInfo) == 0xF8);
 static_assert(sizeof(HierarchicalSha256Data) == sizeof(IntegrityMetaInfo));
 
+struct BucketTreeHeader {
+    u32 magic; // BKTR
+    u32 version;
+    u32 count;
+    u8 _0xC[0x4];
+};
+
+struct PatchInfo {
+    u64 indirect_offset;
+    u64 indirect_size;
+    BucketTreeHeader indirect_header;
+    u64 aes_ctr_offset;
+    u64 aes_ctr_size;
+    BucketTreeHeader aes_ctr_header;
+};
+static_assert(sizeof(PatchInfo) == 0x40);
+
+struct CompressionInfo {
+    u64 table_offset;
+    u64 table_size;
+    BucketTreeHeader table_header;
+    u8 _0x20[0x8];
+};
+static_assert(sizeof(CompressionInfo) == 0x28);
+
+struct BktrEntry {
+    u8 _0x0[0x4];
+    u32 count;
+    u64 size;
+    u64 offsets[0x3FF0 / sizeof(u64)];
+};
+static_assert(sizeof(BktrEntry) == 0x4000);
+
+struct NX_PACKED BktrRelocationEntry {
+    u64 patched_addr;
+    u64 source_addr;
+    u32 flag;
+};
+static_assert(sizeof(BktrRelocationEntry) == 0x14);
+
+struct BktrRelocationBucket {
+    u8 _0x0[0x4];
+    u32 count;
+    u64 end_offset;
+    BktrRelocationEntry entries[0x3FF0 / sizeof(BktrRelocationEntry)];
+    u8 _[0x3FF0 % sizeof(BktrRelocationEntry)];
+};
+static_assert(sizeof(BktrRelocationBucket) == 0x4000);
+
 struct FsHeader {
     u16 version;           // always 2.
     u8 fs_type;            // see FileSystemType.
@@ -152,12 +220,16 @@ struct FsHeader {
         IntegrityMetaInfo integrity_meta_info; // used for romfs
     } hash_data;
 
-    u8 patch_info[0x40];
+    PatchInfo patch_info;
     u64 section_ctr;
     u8 spares_info[0x30];
-    u8 compression_info[0x28];
+    CompressionInfo compression_info;
     u8 meta_data_hash_data_info[0x30];
     u8 reserved[0x30];
+
+    auto IsValid() const -> bool {
+        return version == 2;
+    }
 };
 static_assert(sizeof(FsHeader) == 0x200);
 static_assert(sizeof(FsHeader::hash_data) == 0xF8);
@@ -181,7 +253,15 @@ struct Header {
     u64 size;
     u64 program_id;
     u32 context_id;
-    u32 sdk_version;
+    union {
+        u32 sdk_version;
+        struct {
+            u8 sdk_revision;
+            u8 sdk_micro;
+            u8 sdk_minor;
+            u8 sdk_major;
+        };
+    };
     u8 key_gen;                // see KeyGeneration.
     u8 sig_key_gen;
     u8 _0x222[0xE];            // empty.
@@ -194,6 +274,10 @@ struct Header {
     u8 _0x340[0xC0];           // empty.
 
     FsHeader fs_header[NCA_SECTION_TOTAL];
+
+    auto IsValid() const -> bool {
+        return magic == NCA3_MAGIC;
+    }
 
     auto GetKeyGeneration() const -> u8 {
         if (old_key_gen < key_gen) {
@@ -212,8 +296,24 @@ struct Header {
             key_gen = key_generation;
         }
     }
+
+    auto GetSectionCount() const -> u8 {
+        u8 count = 0;
+        for (u32 i = 0; i < NCA_SECTION_TOTAL; i++) {
+            if (!fs_header[i].IsValid() || !fs_table[i].IsValid()) {
+                break;
+            }
+            count++;
+        }
+        return count;
+    }
 };
 static_assert(sizeof(Header) == 0xC00);
+
+auto GetContentTypeStr(u8 content_type) -> const char*;
+auto GetDistributionTypeStr(u8 distribution_type) -> const char*;
+
+Result DecryptHeader(const void* in, const keys::Keys& keys, Header& out);
 
 Result DecryptKeak(const keys::Keys& keys, Header& header);
 Result EncryptKeak(const keys::Keys& keys, Header& header, u8 key_generation);
@@ -224,5 +324,53 @@ Result ParseCnmt(const fs::FsPath& path, u64 program_id, ncm::PackagedContentMet
 Result ParseControl(const fs::FsPath& path, u64 program_id, void* nacp_out = nullptr, s64 nacp_size = 0, std::vector<u8>* icon_out = nullptr, s64 nacp_off = 0);
 
 auto GetKeyGenStr(u8 key_gen) -> const char*;
+
+// finds and decrypts the title key, also decrypts header key area if needed.
+Result GetDecryptedTitleKey(Header& header, const keys::Keys& keys, keys::KeyEntry& out);
+// same as above but also checks the path for ticket.
+Result GetDecryptedTitleKey(fs::Fs* fs, const fs::FsPath& path, Header& header, const keys::Keys& keys, keys::KeyEntry& out);
+
+// helpers.
+struct DecyptedData : yati::source::Base {
+    DecyptedData(u64 align, const std::shared_ptr<yati::source::Base>& source);
+    Result Read(void *_buf, s64 _off, s64 _size, u64* _bytes_read) override;
+    virtual Result SetCtr(u64 ctr) = 0;
+
+private:
+    virtual Result Decrypt(void* buf, s64 off, s64 size) = 0;
+
+private:
+    std::shared_ptr<yati::source::Base> m_source;
+    const u64 m_align;
+};
+
+// todo: add support for xts sections.
+struct DecyptedDataCtr final : DecyptedData {
+    DecyptedDataCtr(const void* key, u64 ctr, const std::shared_ptr<yati::source::Base>& source);
+    Result SetCtr(u64 ctr) override;
+
+private:
+    Result Decrypt(void* buf, s64 off, s64 size) override;
+
+private:
+    Aes128CtrContext m_ctx{};
+    u8 m_ctr[AES_BLOCK_SIZE]{};
+};
+
+struct NcaReader final : yati::source::Base {
+    NcaReader(const nca::Header& decrypted_header, const void* key, u64 size, const std::shared_ptr<yati::source::Base>& source);
+    Result Read(void *_buf, s64 off, s64 size, u64* bytes_read) override;
+    Result ReadEncrypted(void *_buf, s64 off, s64 size, u64* bytes_read);
+
+private:
+    Result ReadInternal(void *_buf, s64 off, s64 size, u64* bytes_read, bool decrypt);
+
+private:
+    const nca::Header m_header;
+    const u64 m_capacity;
+    std::shared_ptr<yati::source::Base> m_source;
+    std::unique_ptr<DecyptedData> m_decryptor{};
+    u8 m_key[0x10]{};
+};
 
 } // namespace sphaira::nca

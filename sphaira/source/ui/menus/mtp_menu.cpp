@@ -1,5 +1,3 @@
-#if ENABLE_NETWORK_INSTALL
-
 #include "ui/menus/mtp_menu.hpp"
 #include "usb/usbds.hpp"
 #include "app.hpp"
@@ -12,13 +10,13 @@
 namespace sphaira::ui::menu::mtp {
 
 Menu::Menu(u32 flags) : stream::Menu{"MTP Install"_i18n, flags} {
-    m_was_mtp_enabled = App::GetMtpEnable();
+    m_was_mtp_enabled = libhaze::IsInit();
     if (!m_was_mtp_enabled) {
         log_write("[MTP] wasn't enabled, forcefully enabling\n");
-        App::SetMtpEnable(true);
+        libhaze::Init();
     }
 
-    haze::InitInstallMode(
+    libhaze::InitInstallMode(
         [this](const char* path){ return OnInstallStart(path); },
         [this](const void *buf, size_t size){ return OnInstallWrite(buf, size); },
         [this](){ return OnInstallClose(); }
@@ -27,11 +25,11 @@ Menu::Menu(u32 flags) : stream::Menu{"MTP Install"_i18n, flags} {
 
 Menu::~Menu() {
     // signal for thread to exit and wait.
-    haze::DisableInstallMode();
+    libhaze::DisableInstallMode();
 
     if (!m_was_mtp_enabled) {
         log_write("[MTP] disabling on exit\n");
-        App::SetMtpEnable(false);
+        libhaze::Exit();
     }
 }
 
@@ -49,15 +47,13 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         usbDsGetSpeed(&speed);
 
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "State: %s | Speed: %s", i18n::get(GetUsbDsStateStr(state)).c_str(), i18n::get(GetUsbDsSpeedStr(speed)).c_str());
+        std::snprintf(buf, sizeof(buf), "State: %s | Speed: %s"_i18n.c_str(), i18n::get(GetUsbDsStateStr(state)).c_str(), i18n::get(GetUsbDsSpeedStr(speed)).c_str());
         SetSubHeading(buf);
     }
 }
 
 void Menu::OnDisableInstallMode() {
-    haze::DisableInstallMode();
+    libhaze::DisableInstallMode();
 }
 
 } // namespace sphaira::ui::menu::mtp
-
-#endif

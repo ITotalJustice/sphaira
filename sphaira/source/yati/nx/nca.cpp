@@ -1,6 +1,8 @@
 #include "yati/nx/nca.hpp"
 #include "yati/nx/crypto.hpp"
+#include "yati/nx/es.hpp"
 #include "yati/nx/nxdumptool_rsa.h"
+#include "utils/utils.hpp"
 #include "log.hpp"
 
 namespace sphaira::nca {
@@ -95,6 +97,34 @@ const unsigned char acid_fixed_key_moduli_retail[0x2][0x100] = { /* Fixed RSA ke
 };
 
 } // namespace
+
+auto GetContentTypeStr(u8 content_type) -> const char* {
+    switch (content_type) {
+        case ContentType_Program: return "Program";
+        case ContentType_Meta: return "Meta";
+        case ContentType_Control: return "Control";
+        case ContentType_Manual: return "Manual";
+        case ContentType_Data: return "Data";
+        case ContentType_PublicData: return "PublicData";
+    }
+
+    return "Unknown";
+}
+
+auto GetDistributionTypeStr(u8 distribution_type) -> const char* {
+    switch (distribution_type) {
+        case DistributionType_System: return "System";
+        case DistributionType_GameCard: return "GameCard";
+    }
+
+    return "Unknown";
+}
+
+Result DecryptHeader(const void* in, const keys::Keys& keys, Header& out) {
+    crypto::cryptoAes128Xts(in, &out, keys.header_key, 0, 0x200, sizeof(out), false);
+    R_UNLESS(out.IsValid(), Result_NcaBadMagic);
+    R_SUCCEED();
+}
 
 Result DecryptKeak(const keys::Keys& keys, Header& header) {
     const auto key_generation = header.GetKeyGeneration();
@@ -209,46 +239,34 @@ Result ParseControl(const fs::FsPath& path, u64 program_id, void* nacp_out, s64 
             }
         }
 
-        static const char* icon_names[] = {
+        static const char* icon_names[SetLanguage_Total] = {
             [SetLanguage_JA] = "icon_Japanese.dat",
             [SetLanguage_ENUS] = "icon_AmericanEnglish.dat",
             [SetLanguage_FR] = "icon_French.dat",
             [SetLanguage_DE] = "icon_German.dat",
             [SetLanguage_IT] = "icon_Italian.dat",
             [SetLanguage_ES] = "icon_Spanish.dat",
-            [SetLanguage_ZHCN] = "icon_Chinese.dat",
+            [SetLanguage_ZHCN] = "icon_SimplifiedChinese.dat",
             [SetLanguage_KO] = "icon_Korean.dat",
             [SetLanguage_NL] = "icon_Dutch.dat",
             [SetLanguage_PT] = "icon_Portuguese.dat",
             [SetLanguage_RU] = "icon_Russian.dat",
-            [SetLanguage_ZHTW] = "icon_Taiwanese.dat",
+            [SetLanguage_ZHTW] = "icon_TraditionalChinese.dat",
             [SetLanguage_ENGB] = "icon_BritishEnglish.dat",
             [SetLanguage_FRCA] = "icon_CanadianFrench.dat",
             [SetLanguage_ES419] = "icon_LatinAmericanSpanish.dat",
+            [SetLanguage_ZHHANS] = "icon_SimplifiedChinese.dat",
+            [SetLanguage_ZHHANT] = "icon_TraditionalChinese.dat",
+            [SetLanguage_PTBR] = "icon_BrazilianPortuguese.dat",
         };
 
-        // load all icon entries and try and find the one that we want.
-        fs::Dir dir;
-        R_TRY(fs.OpenDirectory("/", FsDirOpenMode_ReadFiles, &dir));
-
-        std::vector<FsDirectoryEntry> entries;
-        R_TRY(dir.ReadAll(entries));
-
-        for (const auto& e : entries) {
-            if (!std::strcmp(e.name, icon_names[setLanguage])) {
-                fs::File file;
-                R_TRY(fs.OpenFile(fs::AppendPath("/", e.name), FsOpenMode_Read, &file));
-                icon_out->resize(e.file_size);
-
-                u64 bytes_read;
-                R_TRY(file.Read(0, icon_out->data(), icon_out->size(), 0, &bytes_read));
-                R_SUCCEED();
-            }
-        }
-
-        // otherwise, fallback to US icon.
+        // try and open the icon for the specific langauge.
         fs::File file;
-        R_TRY(fs.OpenFile(fs::AppendPath("/", icon_names[SetLanguage_ENUS]), FsOpenMode_Read, &file));
+        const auto file_name = icon_names[setLanguage];
+        if (!std::strlen(file_name) || R_FAILED(fs.OpenFile(fs::AppendPath("/", file_name), FsOpenMode_Read, &file))) {
+            // otherwise, fallback to US icon.
+            R_TRY(fs.OpenFile(fs::AppendPath("/", icon_names[SetLanguage_ENUS]), FsOpenMode_Read, &file));
+        }
 
         s64 size;
         R_TRY(file.GetSize(&size));
@@ -286,6 +304,167 @@ auto GetKeyGenStr(u8 key_gen) -> const char* {
     }
 
     return "Unknown";
+}
+
+Result GetDecryptedTitleKey(Header& header, const keys::Keys& keys, keys::KeyEntry& out) {
+    return GetDecryptedTitleKey(nullptr, "", header, keys, out);
+}
+
+Result GetDecryptedTitleKey(fs::Fs* fs, const fs::FsPath& path, Header& header, const keys::Keys& keys, keys::KeyEntry& out) {
+    if (es::IsRightsIdValid(header.rights_id)) {
+        R_TRY(es::Initialize());
+        ON_SCOPE_EXIT(es::Exit());
+
+        bool got_key = false;
+        if (fs) {
+            // try and get ticket from path as it may not be installed yet.
+            fs::FsPath tik_path = path;
+            if (auto dilem = std::strrchr(tik_path, '/')) {
+                std::sprintf(dilem, "/%s.tik", utils::hexIdToStr(header.rights_id).str);
+                log_write("[NCA] trying to read local ticket file: %s\n", tik_path.s);
+                std::vector<u8> tik_data;
+                if (R_SUCCEEDED(fs->read_entire_file(tik_path, tik_data))) {
+                    log_write("[NCA] read local ticket file: %s\n", tik_path.s);
+                    if (R_SUCCEEDED(es::GetTitleKeyDecrypted(tik_data, header.rights_id, header.GetKeyGeneration(), keys, out))) {
+                        log_write("[NCA] decrypted local ticket file: %s\n", tik_path.s);
+                        got_key = true;
+                    }
+                }
+            }
+        }
+
+        if (!got_key) {
+            R_TRY(es::GetTitleKeyDecrypted(header.rights_id, header.GetKeyGeneration(), keys, out));
+        }
+    } else {
+        // todo: ignore empty key areas (sphaira forwarders)
+        R_TRY(nca::DecryptKeak(keys, header));
+        std::memcpy(out.key, &header.key_area[0x2], sizeof(out));
+    }
+
+    R_SUCCEED();
+}
+
+DecyptedData::DecyptedData(u64 align, const std::shared_ptr<yati::source::Base>& source)
+: m_source{source}
+, m_align{align} {
+}
+
+Result DecyptedData::Read(void *_buf, s64 _off, s64 _size, u64* _bytes_read) {
+    const auto aligned_off = utils::AlignDown<s64>(_off, m_align);
+    auto aligned_size = utils::AlignUp<s64>(_size, m_align);
+    if (aligned_off != _off) {
+        aligned_size += m_align;
+    }
+
+    u8* buf = (u8*)_buf;
+    std::unique_ptr<u8[]> aligned_buf{};
+    const auto use_align = _off != aligned_off || _size != aligned_size;
+
+    if (use_align) {
+        aligned_buf = std::make_unique_for_overwrite<u8[]>(aligned_size);
+        buf = aligned_buf.get();
+    }
+
+    u64 bytes_read;
+    R_TRY(m_source->Read(buf, aligned_off, aligned_size, &bytes_read));
+    R_UNLESS(bytes_read == aligned_size, 18);
+
+    R_TRY(Decrypt(buf, aligned_off, aligned_size));
+
+    if (use_align) {
+        std::memcpy(_buf, buf + (_off - aligned_off), _size);
+    }
+
+    *_bytes_read = _size;
+    R_SUCCEED();
+}
+
+DecyptedDataCtr::DecyptedDataCtr(const void* key, u64 ctr, const std::shared_ptr<yati::source::Base>& source)
+: DecyptedData{AES_BLOCK_SIZE, source} {
+    SetCtr(ctr);
+    aes128CtrContextCreate(&m_ctx, key, m_ctr);
+}
+
+Result DecyptedDataCtr::SetCtr(u64 ctr) {
+    crypto::SetCtr(m_ctr, ctr);
+    R_SUCCEED();
+}
+
+Result DecyptedDataCtr::Decrypt(void* buf, s64 off, s64 size) {
+    crypto::UpdateCtr(m_ctr, off);
+    aes128CtrContextResetCtr(&m_ctx, m_ctr);
+    aes128CtrCrypt(&m_ctx, buf, buf, size);
+    R_SUCCEED();
+}
+
+NcaReader::NcaReader(const nca::Header& decrypted_header, const void* key, u64 size, const std::shared_ptr<yati::source::Base>& source)
+: m_header{decrypted_header}
+, m_capacity{size}
+, m_source{source} {
+    m_decryptor = std::make_unique<DecyptedDataCtr>(key, 0, source);
+    std::memcpy(m_key, key, sizeof(m_key));
+}
+
+Result NcaReader::Read(void *_buf, s64 off, s64 size, u64* bytes_read) {
+    return ReadInternal(_buf, off, size, bytes_read, true);
+}
+
+Result NcaReader::ReadEncrypted(void *_buf, s64 off, s64 size, u64* bytes_read) {
+    return ReadInternal(_buf, off, size, bytes_read, false);
+}
+
+Result NcaReader::ReadInternal(void *_buf, s64 off, s64 size, u64* bytes_read_out, bool decrypt) {
+    *bytes_read_out = 0;
+
+    R_UNLESS(m_header.IsValid(), Result_YatiInvalidNcaMagic);
+    R_UNLESS(off < m_capacity, FsError_UnsupportedOperateRangeForFileStorage);
+    size = std::min<s64>(size, m_capacity - off);
+    u8* buf = (u8*)_buf;
+
+    while (size) {
+        u64 ctr = 0;
+        bool encrypted = false;
+        auto rsize = size;
+
+        if (decrypt) {
+            // try and find a section.
+            for (u32 i = 0; i < m_header.GetSectionCount(); i++) {
+                const auto& fs_header = m_header.fs_header[i];
+                const auto& fs_table = m_header.fs_table[i];
+
+                // check if this is the section we want.
+                if (off >= fs_table.GetOffset() && off < fs_table.GetOffsetEnd()) {
+                    rsize = std::min<s64>(rsize, fs_table.GetOffsetEnd() - off);
+
+                    // check if this is compressed.
+                    if (fs_header.encryption_type >= nca::EncryptionType::EncryptionType_AesCtr) {
+                        ctr = fs_header.section_ctr;
+                        encrypted = true;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        u64 bytes_read;
+        if (encrypted) {
+            R_TRY(m_decryptor->SetCtr(ctr));
+            R_TRY(m_decryptor->Read(buf, off, rsize, &bytes_read));
+        } else {
+            R_TRY(m_source->Read(buf, off, rsize, &bytes_read));
+        }
+
+        R_UNLESS(bytes_read == rsize, 16);
+
+        size -= rsize;
+        off += rsize;
+        buf += rsize;
+        *bytes_read_out += rsize;
+    }
+
+    R_SUCCEED();
 }
 
 } // namespace sphaira::nca

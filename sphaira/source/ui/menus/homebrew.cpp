@@ -1,12 +1,19 @@
 #include "app.hpp"
 #include "log.hpp"
 #include "fs.hpp"
+
 #include "ui/menus/homebrew.hpp"
+#include "ui/menus/filebrowser.hpp"
+
 #include "ui/sidebar.hpp"
 #include "ui/error_box.hpp"
 #include "ui/option_box.hpp"
 #include "ui/progress_box.hpp"
 #include "ui/nvg_util.hpp"
+
+#include "utils/devoptab.hpp"
+#include "utils/profile.hpp"
+
 #include "owo.hpp"
 #include "defines.hpp"
 #include "i18n.hpp"
@@ -20,7 +27,7 @@ namespace sphaira::ui::menu::homebrew {
 namespace {
 
 Menu* g_menu{};
-constinit UEvent g_change_uevent;
+std::atomic_bool g_change_signalled{};
 
 auto GenerateStarPath(const fs::FsPath& nro_path) -> fs::FsPath {
     fs::FsPath out{};
@@ -37,7 +44,7 @@ void FreeEntry(NVGcontext* vg, NroEntry& e) {
 } // namespace
 
 void SignalChange() {
-    ueventSignal(&g_change_uevent);
+    g_change_signalled = true;
 }
 
 auto GetNroEntries() -> std::span<const NroEntry> {
@@ -48,7 +55,7 @@ auto GetNroEntries() -> std::span<const NroEntry> {
     return g_menu->GetHomebrewList();
 }
 
-Menu::Menu() : grid::Menu{"Homebrew"_i18n, MenuFlag_Tab} {
+Menu::Menu(u32 flags) : grid::Menu{"Homebrew"_i18n, flags} {
     g_menu = this;
 
     this->SetActions(
@@ -60,8 +67,14 @@ Menu::Menu() : grid::Menu{"Homebrew"_i18n, MenuFlag_Tab} {
         }})
     );
 
+    // Add Back button only when entered via Menus (Not center, righit, left tab).
+    if (!(flags & MenuFlag_Tab)) {
+        this->SetAction(Button::B, Action{"Back"_i18n, [this](){
+            this->SetPop();
+        }});
+    }
+
     OnLayoutChange();
-    ueventCreate(&g_change_uevent, true);
 }
 
 Menu::~Menu() {
@@ -70,7 +83,7 @@ Menu::~Menu() {
 }
 
 void Menu::Update(Controller* controller, TouchInfo* touch) {
-    if (R_SUCCEEDED(waitSingle(waiterForUEvent(&g_change_uevent), 0))) {
+    if (g_change_signalled.exchange(false)) {
         m_dirty = true;
     }
 
@@ -79,11 +92,11 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
     }
 
     MenuBase::Update(controller, touch);
-    m_list->OnUpdate(controller, touch, m_index, m_entries.size(), [this](bool touch, auto i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
         if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
-            App::PlaySoundEffect(SoundEffect_Focus);
+            App::PlaySoundEffect(SoundEffect::Focus);
             SetIndex(i);
         }
     });
@@ -162,13 +175,13 @@ void Menu::SetIndex(s64 index) {
         if (fs::FsNativeSd().FileExists(star_path)) {
             SetAction(Button::R3, Action{"Unstar"_i18n, [this](){
                 fs::FsNativeSd().DeleteFile(GenerateStarPath(GetEntry().path));
-                App::Notify("Unstarred "_i18n + GetEntry().GetName());
+                App::Notify(i18n::Reorder("Unstarred ", GetEntry().GetName()));
                 SortAndFindLastFile();
             }});
         } else {
             SetAction(Button::R3, Action{"Star"_i18n, [this](){
                 fs::FsNativeSd().CreateFile(GenerateStarPath(GetEntry().path));
-                App::Notify("Starred "_i18n + GetEntry().GetName());
+                App::Notify(i18n::Reorder("Starred ", GetEntry().GetName()));
                 SortAndFindLastFile();
             }});
         }
@@ -191,10 +204,13 @@ void Menu::InstallHomebrew() {
 }
 
 void Menu::ScanHomebrew() {
-    TimeStamp ts;
+    g_change_signalled = false;
     FreeEntries();
-    nro_scan("/switch", m_entries);
-    log_write("nros found: %zu time_taken: %.2f\n", m_entries.size(), ts.GetSecondsD());
+
+    {
+        SCOPED_TIMESTAMP("nro scan");
+        nro_scan("/switch", m_entries);
+    }
 
     struct IniUser {
         std::vector<NroEntry>& entires;
@@ -347,7 +363,7 @@ void Menu::Sort() {
         m_entries_current = m_entries_index[Filter_HideHidden];
     }
 
-    std::sort(m_entries_current.begin(), m_entries_current.end(), sorter);
+    std::ranges::sort(m_entries_current, sorter);
 }
 
 void Menu::SortAndFindLastFile(bool scan) {
@@ -389,6 +405,7 @@ void Menu::FreeEntries() {
     }
 
     m_entries.clear();
+    m_entries_current = {};
     for (auto& e : m_entries_index) {
         e.clear();
     }
@@ -457,6 +474,13 @@ void Menu::DisplayOptions() {
         }, "Shows all hidden homebrew."_i18n);
     });
 
+    // for testing stuff.
+    #if 0
+    options->Add<SidebarEntrySlider>("Test"_i18n, 1, 0, 2, 10, [](auto& v_out){
+
+    });
+    #endif
+
     if (!m_entries_current.empty()) {
         #if 0
         options->Add<SidebarEntryCallback>("Info"_i18n, [this](){
@@ -469,10 +493,15 @@ void Menu::DisplayOptions() {
             ScanHomebrew();
             App::PopToMenu();
         },  "Hides the selected homebrew.\n\n"
-            "To Unhide homebrew, enable \"Show hidden\" in the sort options."_i18n);
+            "To unhide homebrew, enable \"Show hidden\" in the sort options."_i18n);
+
+        options->Add<SidebarEntryCallback>("Mount NRO Fs"_i18n, [this](){
+            const auto rc = MountNroFs();
+            App::PushErrorBox(rc, "Failed to mount NRO FileSystem"_i18n);
+        },  "Mounts the NRO FileSystem (icon, nacp and RomFS)."_i18n);
 
         options->Add<SidebarEntryCallback>("Delete"_i18n, [this](){
-            const auto buf = "Are you sure you want to delete "_i18n + GetEntry().path.toString() + "?";
+            const auto buf = i18n::Reorder("Are you sure you want to delete ", GetEntry().path.toString()) + "?";
             App::Push<OptionBox>(
                 buf,
                 "Back"_i18n, "Delete"_i18n, 1, [this](auto op_index){
@@ -488,9 +517,10 @@ void Menu::DisplayOptions() {
                     }
                 }, GetEntry().image
             );
-        },  "Perminately delete the selected homebrew.\n\n"
-            "Files and folders created by the homebrew will still remain. "
-            "Use the FileBrowser to delete them."_i18n);
+        },  i18n::get("hb_remove_info",
+                "Perminately delete the selected homebrew.\n\n"
+                "Files and folders created by the homebrew will still remain. "
+                "Use the FileBrowser to delete them."));
 
         auto forwarder_entry = options->Add<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){
             InstallHomebrew();
@@ -498,6 +528,20 @@ void Menu::DisplayOptions() {
 
         forwarder_entry->Depends(App::GetInstallEnable, i18n::get(App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
     }
+}
+
+Result Menu::MountNroFs() {
+    const auto& e = GetEntry();
+
+    fs::FsPath root;
+    R_TRY(devoptab::MountNro(App::GetApp()->m_fs.get(), e.path, root));
+
+    auto fs = std::make_shared<filebrowser::FsStdioWrapper>(root, [root](){
+        devoptab::UmountNeworkDevice(root);
+    });
+
+    filebrowser::MountFsHelper(fs, root);
+    R_SUCCEED();
 }
 
 } // namespace sphaira::ui::menu::homebrew

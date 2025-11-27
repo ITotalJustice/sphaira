@@ -13,11 +13,11 @@ public:
     using Callback = std::function<void(std::optional<s64>)>;
 
 public:
-    explicit PopupList(std::string title, Items items, Callback cb, s64 index = 0);
-    PopupList(std::string title, Items items, Callback cb, std::string index);
-    PopupList(std::string title, Items items, std::string& index_str_ref, s64& index);
-    PopupList(std::string title, Items items, std::string& index_ref);
-    PopupList(std::string title, Items items, s64& index_ref);
+    explicit PopupList(const std::string& title, const Items& items, const Callback& cb, s64 index = 0);
+    PopupList(const std::string& title, const Items& items, const Callback& cb, const std::string& index);
+    PopupList(const std::string& title, const Items& items, std::string& index_str_ref, s64& index);
+    PopupList(const std::string& title, const Items& items, std::string& index_ref);
+    PopupList(const std::string& title, const Items& items, s64& index_ref);
 
     auto Update(Controller* controller, TouchInfo* touch) -> void override;
     auto Draw(NVGcontext* vg, Theme* theme) -> void override;
@@ -33,8 +33,8 @@ private:
     static constexpr float m_text_xoffset{15.f};
     static constexpr float m_line_width{1220.f};
 
-    std::string m_title{};
-    Items m_items{};
+    const std::string m_title;
+    const Items m_items;
     Callback m_callback{};
     s64 m_index{}; // index in list array
     s64 m_starting_index{};

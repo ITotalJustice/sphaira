@@ -3,12 +3,120 @@
 #include "yati/nx/nxdumptool_rsa.h"
 #include "yati/nx/service_guard.h"
 #include "defines.hpp"
+#include "ui/types.hpp"
 #include "log.hpp"
+
+#include "yati/nx/nxdumptool/defines.h"
+#include "yati/nx/nxdumptool/core/save.h"
+
 #include <memory>
 #include <cstring>
+#include <string_view>
+#include <algorithm>
+#include <ranges>
 
 namespace sphaira::es {
 namespace {
+
+class CachedSave {
+public:
+    struct File {
+        u64 size{};
+        allocation_table_storage_ctx_t storage{};
+        bool has{};
+    };
+
+    constexpr CachedSave(const char* _path) : path{_path} {}
+
+    virtual void Close() {
+        if (ctx) {
+            save_close_savefile(&ctx);
+            ctx = nullptr;
+        }
+    }
+
+protected:
+    auto Open() {
+        if (ctx) {
+            return ctx;
+        }
+        return ctx = save_open_savefile(path, 0);
+    }
+
+    static bool GetBin(const std::string& path, save_ctx_t* ctx, File& file, allocation_table_storage_ctx_t& out_storage, u64& out_size) {
+        if (!ctx) {
+            return false;
+        }
+
+        if (!file.has) {
+            if (!save_get_fat_storage_from_file_entry_by_path(ctx, path.c_str(), &file.storage, &file.size)) {
+                return false;
+            }
+        }
+
+        out_storage = file.storage;
+        out_size = file.size;
+        return file.has = true;
+    }
+
+private:
+    const char* path;
+    save_ctx_t* ctx{};
+};
+
+class CachedCommonSave final : public CachedSave {
+public:
+    using CachedSave::CachedSave;
+
+    bool GetTicketBin(allocation_table_storage_ctx_t& storage, u64& size) {
+        return GetBin("/ticket.bin", Open(), m_ticket_bin, storage, size);
+    }
+
+    bool GetTicketListBin(allocation_table_storage_ctx_t& storage, u64& size) {
+        return GetBin("/ticket_list.bin", Open(), m_ticket_list_bin, storage, size);
+    }
+
+private:
+    File m_ticket_bin{};
+    File m_ticket_list_bin{};
+};
+
+class CachedCertSave final : public CachedSave {
+public:
+    using CachedSave::CachedSave;
+
+    struct NamedFile final : File {
+        NamedFile(const std::string& _name) : name{_name} { }
+        const std::string name;
+    };
+
+    virtual void Close() {
+        m_certs.clear();
+        CachedSave::Close();
+    }
+
+    bool GetCertBin(const std::string& name, allocation_table_storage_ctx_t& storage, u64& size) {
+        for (auto& cert: m_certs) {
+            if (cert.name == name) {
+                return GetBin("/certificate/" + name, Open(), cert, storage, size);
+            }
+        }
+
+        auto& cert = m_certs.emplace_back(name);
+        return GetBin("/certificate/" + name, Open(), cert, storage, size);
+    }
+
+private:
+    std::vector<NamedFile> m_certs;
+};
+
+// kept alive whilst es is init, closed after,
+// so only the first time opening is slow (40ms).
+// todo: set global dirty flag when a ticket has been installed.
+// todo: check if its needed to cache now that ive added lru cache to fatfs
+CachedCertSave g_certificate{"SYSTEM:/save/80000000000000e0"};
+CachedCommonSave g_common_save{"SYSTEM:/save/80000000000000e1"};
+CachedCommonSave g_personalised_save{"SYSTEM:/save/80000000000000e2"};
 
 Service g_esSrv;
 
@@ -19,6 +127,10 @@ Result _esInitialize() {
 }
 
 void _esCleanup() {
+    // todo: add cert here when added.
+    g_certificate.Close();
+    g_common_save.Close();
+    g_personalised_save.Close();
     serviceClose(&g_esSrv);
 }
 
@@ -41,6 +153,80 @@ Result EncyrptDecryptTitleKey(keys::KeyEntry& out, u8 key_gen, const keys::Keys&
     R_TRY(keys.GetTitleKek(std::addressof(title_kek), key_gen));
     crypto::cryptoAes128(std::addressof(out), std::addressof(out), std::addressof(title_kek), is_encryptor);
     R_SUCCEED();
+}
+
+Result GetCertChainFromIssuer(std::string_view issuer, std::vector<u8>& out) {
+    out.clear();
+
+    for (const auto split : std::views::split(issuer, '-')) {
+        // get cert name and skip root.
+        const std::string name{split.data(), split.size()};
+        if (name == "Root") {
+            continue;
+        }
+
+        u64 cert_size;
+        allocation_table_storage_ctx_t cert_storage;
+        if (!g_certificate.GetCertBin(name, cert_storage, cert_size)) {
+            log_write("[ES] failed to find cert: %s\n", name.c_str());
+            R_THROW(0x1);
+        }
+
+        const auto cert_off = out.size();
+        out.resize(out.size() + cert_size);
+
+        const auto size = save_allocation_table_storage_read(&cert_storage, out.data() + cert_off, 0, cert_size);
+        if (!size || size != cert_size) {
+            log_write("[ES] failed to read cert: %s\n", name.c_str());
+            R_THROW(0x1);
+        }
+    }
+
+    R_SUCCEED();
+}
+
+Result GetPersonalisedTicketAndCertificate(const FsRightsId& rights_id, std::vector<u8>& tik_out, std::vector<u8>* cert_out = nullptr) {
+    u64 ticket_bin_size;
+    allocation_table_storage_ctx_t ticket_bin_storage;
+    if (!g_personalised_save.GetTicketBin(ticket_bin_storage, ticket_bin_size)) {
+        log_write("[ES] failed to get personalised ticket.bin\n");
+        R_THROW(0x1);
+    }
+
+    #define GetTicket(type) do { \
+        const auto ticket = (const type*)(tik_buf.data() + i); \
+        if (!std::memcmp(&rights_id, &ticket->data.rights_id, sizeof(rights_id))) { \
+            tik_out.resize(sizeof(*ticket)); \
+            std::memcpy(tik_out.data(), ticket, sizeof(*ticket)); \
+            log_write("\t[ES] %s, found at: %zu\n", #type, off + i); \
+            if (cert_out) { \
+                R_TRY(GetCertChainFromIssuer(ticket->data.issuer, *cert_out)); \
+            } \
+            R_SUCCEED(); \
+        } \
+    } while (0)
+
+    std::vector<u8> tik_buf(std::min<u64>(ticket_bin_size, 1024 * 256));
+    for (u64 off = 0; off < ticket_bin_size; off += tik_buf.size()) {
+        const auto size = save_allocation_table_storage_read(&ticket_bin_storage, tik_buf.data(), off, tik_buf.size());
+        if (!size) {
+            log_write("[ES] failed to read personalised ticket.bin at: %zu\n", off);
+            R_THROW(0x1);
+        }
+
+        for (u32 i = 0; i < size - 0x400; i += 0x400) {
+            SigType type;
+            std::memcpy(&type, tik_buf.data() + i, sizeof(type));
+
+            if (type == SigType_Rsa4096Sha256) {
+                GetTicket(TicketRsa4096);
+            } else if (type == SigType_Rsa2048Sha256) {
+                GetTicket(TicketRsa2048);
+            }
+        }
+    }
+
+    return 66;
 }
 
 } // namespace
@@ -186,10 +372,11 @@ Result GetTitleKey(keys::KeyEntry& out, const TicketData& data, const keys::Keys
     } else if (data.title_key_type == es::TitleKeyType_Personalized) {
         auto rsa_key = (const es::EticketRsaDeviceKey*)keys.eticket_device_key.key;
         log_write("personalised ticket\n");
-        log_write("master_key_revision: %u\n", data.master_key_revision);
-        log_write("license_type: %u\n", data.license_type);
-        log_write("properties_bitfield: 0x%X\n", data.properties_bitfield);
-        log_write("device_id: 0x%lX vs 0x%lX\n", data.device_id, std::byteswap(rsa_key->device_id));
+        log_write("\tissuer: %s\n", data.issuer);
+        log_write("\tmaster_key_revision: %u\n", data.master_key_revision);
+        log_write("\tlicense_type: %u\n", data.license_type);
+        log_write("\tproperties_bitfield: 0x%X\n", data.properties_bitfield);
+        log_write("\tdevice_id: 0x%lX vs 0x%lX\n", data.device_id, std::byteswap(rsa_key->device_id));
 
         R_UNLESS(data.device_id == std::byteswap(rsa_key->device_id), Result_EsPersonalisedTicketDeviceIdMissmatch);
         log_write("device id is same\n");
@@ -225,6 +412,8 @@ Result ShouldPatchTicket(const TicketData& data, std::span<const u8> ticket, std
         if (tik_sig_type != SigType_Rsa2048Sha256) {
             R_SUCCEED();
         }
+
+        log_write("type: %u 0x%X issuer: %s\n", tik_sig_type, tik_sig_type, data.issuer);
 
         const auto cert_name = std::strrchr(data.issuer, '-') + 1;
         R_UNLESS(cert_name, Result_EsBadTitleKeyType);
@@ -294,7 +483,7 @@ Result ShouldPatchTicket(std::span<const u8> ticket, std::span<const u8> cert_ch
     return ShouldPatchTicket(data, ticket, cert_chain, patch_personalised, should_patch);
 }
 
-Result PatchTicket(std::vector<u8>& ticket, std::span<const u8> cert_chain, u8 key_gen, const keys::Keys& keys, bool patch_personalised) {
+Result PatchTicket(std::vector<u8>& ticket, std::vector<u8>& cert_chain, u8 key_gen, const keys::Keys& keys, bool patch_personalised) {
     TicketData data;
     R_TRY(GetTicketData(ticket, &data));
 
@@ -322,9 +511,114 @@ Result PatchTicket(std::vector<u8>& ticket, std::span<const u8> cert_chain, u8 k
     out.data.rights_id = rights_id;
     out.data.sect_hdr_offset = ticket.size();
 
+    // get new cert chain if it changed.
+    if (std::strcmp(data.issuer, out.data.issuer)) {
+        R_TRY(GetCertChainFromIssuer(out.data.issuer, cert_chain));
+    }
+
     // overwrite old ticket with new fake ticket data.
     ticket.resize(sizeof(out));
     std::memcpy(ticket.data(), &out, sizeof(out));
+
+    R_SUCCEED();
+}
+
+Result GetCommonTickets(std::vector<FsRightsId>& out) {
+    s32 count;
+    R_TRY(es::CountCommonTicket(&count));
+
+    s32 written;
+    out.resize(count);
+    R_TRY(es::ListCommonTicket(&written, out.data(), out.size()));
+    out.resize(written);
+
+    R_SUCCEED();
+}
+
+Result GetPersonalisedTickets(std::vector<FsRightsId>& out) {
+    s32 count;
+    R_TRY(es::CountPersonalizedTicket(&count));
+
+    s32 written;
+    out.resize(count);
+    R_TRY(es::ListPersonalizedTicket(&written, out.data(), out.size()));
+    out.resize(written);
+
+    R_SUCCEED();
+}
+
+Result IsRightsIdCommon(const FsRightsId& id, bool* out) {
+    std::vector<FsRightsId> ids;
+    R_TRY(GetCommonTickets(ids));
+
+    *out = IsRightsIdFound(id, ids);
+    R_SUCCEED();
+}
+
+Result IsRightsIdPersonalised(const FsRightsId& id, bool* out) {
+    std::vector<FsRightsId> ids;
+    R_TRY(GetPersonalisedTickets(ids));
+
+    *out = IsRightsIdFound(id, ids);
+    R_SUCCEED();
+}
+
+bool IsRightsIdValid(const FsRightsId& id) {
+    const FsRightsId empty_id{};
+    return 0 != std::memcmp(std::addressof(id), std::addressof(empty_id), sizeof(id));
+}
+
+bool IsRightsIdFound(const FsRightsId& id, std::span<const FsRightsId> ids) {
+    const auto it = std::ranges::find_if(ids, [&id](auto& e){
+        return !std::memcmp(&id, &e, sizeof(e));
+    });
+    return it != ids.end();
+}
+
+Result GetCommonTicketAndCertificate(const FsRightsId& rights_id, std::vector<u8>& tik_out, std::vector<u8>& cert_out) {
+    u64 tik_size, cert_size;
+    R_TRY(es::GetCommonTicketAndCertificateSize(&tik_size, &cert_size, &rights_id));
+
+    tik_out.resize(tik_size);
+    cert_out.resize(cert_size);
+
+    return GetCommonTicketAndCertificateData(&tik_size, &cert_size, tik_out.data(), tik_out.size(), cert_out.data(), cert_out.size(), &rights_id);
+}
+
+// todo: use ticket_list bin to quickly find the ticket offset.
+Result GetPersonalisedTicketData(u64 *size_out, void *tik_data, u64 tik_size, const FsRightsId* rights_id) {
+    std::vector<u8> tik_buf;
+    R_TRY(GetPersonalisedTicketAndCertificate(*rights_id, tik_buf));
+
+    *size_out = std::min(tik_size, tik_buf.size());
+    std::memcpy(tik_data, tik_buf.data(), *size_out);
+
+    R_SUCCEED();
+}
+
+Result GetPersonalisedTicketAndCertificate(const FsRightsId& rights_id, std::vector<u8>& tik_out, std::vector<u8>& cert_out) {
+    return GetPersonalisedTicketAndCertificate(rights_id, tik_out, &cert_out);
+}
+
+Result GetTitleKeyDecrypted(const FsRightsId& rights_id, u8 key_gen, const keys::Keys& keys, keys::KeyEntry& out) {
+    u64 out_size;
+    std::array<u8, 0x400> ticket;
+    if (R_FAILED(es::GetCommonTicketData(&out_size, ticket.data(), ticket.size(), &rights_id))) {
+        R_TRY(es::GetPersonalisedTicketData(&out_size, ticket.data(), ticket.size(), &rights_id));
+    }
+
+    return GetTitleKeyDecrypted(ticket, rights_id, key_gen, keys, out);
+}
+
+Result GetTitleKeyDecrypted(std::span<const u8> ticket, const FsRightsId& rights_id, u8 key_gen, const keys::Keys& keys, keys::KeyEntry& out) {
+    es::TicketData ticket_data;
+    R_TRY(es::GetTicketData(ticket, &ticket_data));
+
+    // validate that this indeed the correct ticket.
+    R_UNLESS(!std::memcmp(std::addressof(rights_id), std::addressof(ticket_data.rights_id), sizeof(rights_id)), Result_YatiInvalidTicketBadRightsId);
+
+    R_TRY(es::GetTitleKey(out, ticket_data, keys));
+    R_TRY(es::DecryptTitleKey(out, key_gen, keys));
 
     R_SUCCEED();
 }

@@ -1,11 +1,17 @@
 #include "ui/menus/filebrowser.hpp"
 #include "ui/menus/homebrew.hpp"
+#include "ui/menus/file_viewer.hpp"
+#include "ui/menus/image_viewer.hpp"
+
 #include "ui/sidebar.hpp"
 #include "ui/option_box.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/progress_box.hpp"
 #include "ui/error_box.hpp"
-#include "ui/menus/file_viewer.hpp"
+#include "ui/music_player.hpp"
+
+#include "utils/utils.hpp"
+#include "utils/devoptab.hpp"
 
 #include "log.hpp"
 #include "app.hpp"
@@ -38,14 +44,17 @@
 #include <span>
 #include <utility>
 #include <ranges>
-#include <expected>
+
+#ifdef ENABLE_LIBUSBDVD
+#include <usbdvd.h>
+#endif // ENABLE_LIBUSBDVD
 
 namespace sphaira::ui::menu::filebrowser {
 namespace {
 
 using RomDatabaseIndexs = std::vector<size_t>;
 
-struct ForwarderForm final : public Sidebar {
+struct ForwarderForm final : public FormSidebar {
     explicit ForwarderForm(const FileAssocEntry& assoc, const RomDatabaseIndexs& db_indexs, const FileEntry& entry, const fs::FsPath& arg_path);
 
 private:
@@ -65,29 +74,23 @@ private:
     SidebarEntryFilePicker* m_icon{};
 };
 
-constinit UEvent g_change_uevent;
+std::atomic_bool g_change_signalled{};
 
 constexpr FsEntry FS_ENTRY_DEFAULT{
-    "microSD card", "/", FsType::Sd, FsEntryFlag_Assoc,
+    "microSD card", "/", FsType::Sd, FsEntryFlag_Assoc | FsEntryFlag_IsSd,
 };
 
 constexpr FsEntry FS_ENTRIES[]{
     FS_ENTRY_DEFAULT,
-    { "Image System memory", "/", FsType::ImageNand },
-    { "Image microSD card", "/", FsType::ImageSd},
-};
-
-struct ExtDbEntry {
-    std::string_view db_name;
-    std::span<const std::string_view> ext;
+    { "Album", "/", FsType::ImageSd},
 };
 
 constexpr std::string_view AUDIO_EXTENSIONS[] = {
-    "mp3", "ogg", "flac", "wav", "aac" "ac3", "aif", "asf", "bfwav",
-    "bfsar", "bfstm",
+    "mp3", "ogg", "flac", "wav", "aac", "ac3", "aif", "asf", "bfwav",
+    "bfsar", "bfstm", "bwav",
 };
 constexpr std::string_view VIDEO_EXTENSIONS[] = {
-    "mp4", "mkv", "m3u", "m3u8", "hls", "vob", "avi", "dv", "flv", "m2ts",
+    "mp4", "mkv", "m3u", "m3u8", "hls", "vob", "avi", "dv", "flv", "m2ts", "webm",
     "m2v", "m4a", "mov", "mpeg", "mpg", "mts", "swf", "ts", "vob", "wma", "wmv",
 };
 constexpr std::string_view IMAGE_EXTENSIONS[] = {
@@ -95,6 +98,15 @@ constexpr std::string_view IMAGE_EXTENSIONS[] = {
 };
 constexpr std::string_view INSTALL_EXTENSIONS[] = {
     "nsp", "xci", "nsz", "xcz",
+};
+constexpr std::string_view NSP_EXTENSIONS[] = {
+    "nsp", "nsz",
+};
+constexpr std::string_view XCI_EXTENSIONS[] = {
+    "xci", "xcz",
+};
+constexpr std::string_view NCA_EXTENSIONS[] = {
+    "nca", "ncz",
 };
 // these are files that are already compressed or encrypted and should
 // be stored raw in a zip file.
@@ -104,11 +116,16 @@ constexpr std::string_view COMPRESSED_EXTENSIONS[] = {
 constexpr std::string_view ZIP_EXTENSIONS[] = {
     "zip",
 };
+// supported music playback extensions.
+constexpr std::string_view MUSIC_EXTENSIONS[] = {
+    "bfstm", "bfwav", "wav", "mp3", "ogg", "flac", "adf",
+};
+// supported theme music playback extensions.
+constexpr std::span THEME_MUSIC_EXTENSIONS = MUSIC_EXTENSIONS;
 
-// case insensitive check
-auto IsSamePath(std::string_view a, std::string_view b) -> bool {
-    return a.length() == b.length() && !strncasecmp(a.data(), b.data(), a.length());
-}
+constexpr std::string_view CDDVD_EXTENSIONS[] = {
+    "iso", "cue",
+};
 
 struct RomDatabaseEntry {
     // uses the naming scheme from retropie.
@@ -180,19 +197,6 @@ constexpr RomDatabaseEntry PATHS[]{
 };
 
 constexpr fs::FsPath DAYBREAK_PATH{"/switch/daybreak.nro"};
-
-auto IsExtension(std::string_view ext, std::span<const std::string_view> list) -> bool {
-    for (auto e : list) {
-        if (e.length() == ext.length() && !strncasecmp(ext.data(), e.data(), ext.length())) {
-            return true;
-        }
-    }
-    return false;
-}
-
-auto IsExtension(std::string_view ext1, std::string_view ext2) -> bool {
-    return ext1.length() == ext2.length() && !strncasecmp(ext1.data(), ext2.data(), ext1.length());
-}
 
 // tries to find database path using folder name
 // names are taken from retropie
@@ -285,7 +289,7 @@ auto GetRomIcon(std::string filename, const RomDatabaseIndexs& db_indexs, const 
 }
 
 ForwarderForm::ForwarderForm(const FileAssocEntry& assoc, const RomDatabaseIndexs& db_indexs, const FileEntry& entry, const fs::FsPath& arg_path)
-: Sidebar{"Forwarder Creation", Side::RIGHT}
+: FormSidebar{"Forwarder Creation"}
 , m_assoc{assoc}
 , m_db_indexs{db_indexs}
 , m_arg_path{arg_path} {
@@ -311,23 +315,23 @@ ForwarderForm::ForwarderForm(const FileAssocEntry& assoc, const RomDatabaseIndex
     const auto icon = m_assoc.path;
 
     m_name = this->Add<SidebarEntryTextInput>(
-        "Name", name, "", -1, sizeof(NacpLanguageEntry::name) - 1,
+        "Name"_i18n, name, "", "", -1, sizeof(NacpLanguageEntry::name) - 1,
         "Set the name of the application"_i18n
     );
 
     m_author = this->Add<SidebarEntryTextInput>(
-        "Author", author, "", -1, sizeof(NacpLanguageEntry::author) - 1,
+        "Author"_i18n, author, "", "", -1, sizeof(NacpLanguageEntry::author) - 1,
         "Set the author of the application"_i18n
     );
 
     m_version = this->Add<SidebarEntryTextInput>(
-        "Version", version, "", -1, sizeof(NacpStruct::display_version) - 1,
+        "Version"_i18n, version, "", "", -1, sizeof(NacpStruct::display_version) - 1,
         "Set the display version of the application"_i18n
     );
 
-    const std::vector<std::string> filters{".nro", ".png", ".jpg"};
+    const std::vector<std::string> filters{"nro", "png", "jpg"};
     m_icon = this->Add<SidebarEntryFilePicker>(
-        "Icon", icon, filters,
+        "Icon"_i18n, icon, filters,
         "Set the path to the icon for the forwarder"_i18n
     );
 
@@ -358,7 +362,7 @@ ForwarderForm::ForwarderForm(const FileAssocEntry& assoc, const RomDatabaseIndex
             // try and read icon file into memory, bail if this fails.
             const auto rc = fs::FsStdio().read_entire_file(m_icon->GetValue(), config.icon);
             if (R_FAILED(rc)) {
-                App::PushErrorBox(rc, "Failed to load icon");
+                App::PushErrorBox(rc, "Failed to load icon"_i18n);
                 return;
             }
         }
@@ -396,11 +400,29 @@ auto ForwarderForm::LoadNroMeta() -> Result {
 
 } // namespace
 
-void SignalChange() {
-    ueventSignal(&g_change_uevent);
+// case insensitive check
+auto IsSamePath(std::string_view a, std::string_view b) -> bool {
+    return a.length() == b.length() && !strncasecmp(a.data(), b.data(), a.length());
 }
 
-FsView::FsView(Menu* menu, const fs::FsPath& path, const FsEntry& entry, ViewSide side) : m_menu{menu}, m_side{side} {
+auto IsExtension(std::string_view ext1, std::string_view ext2) -> bool {
+    return ext1.length() == ext2.length() && !strncasecmp(ext1.data(), ext2.data(), ext1.length());
+}
+
+auto IsExtension(std::string_view ext, std::span<const std::string_view> list) -> bool {
+    for (auto e : list) {
+        if (IsExtension(e, ext)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SignalChange() {
+    g_change_signalled = true;
+}
+
+FsView::FsView(Base* menu, const std::shared_ptr<fs::Fs>& fs, const fs::FsPath& path, const FsEntry& entry, ViewSide side) : m_menu{menu}, m_side{side} {
     this->SetActions(
         std::make_pair(Button::L2, Action{[this](){
             if (!m_menu->m_selected.Empty()) {
@@ -436,61 +458,7 @@ FsView::FsView(Menu* menu, const fs::FsPath& path, const FsEntry& entry, ViewSid
                 return;
             }
 
-            if (IsSd() && m_is_update_folder && m_daybreak_path.has_value()) {
-                App::Push<OptionBox>("Open with DayBreak?"_i18n, "No"_i18n, "Yes"_i18n, 1, [this](auto op_index){
-                    if (op_index && *op_index) {
-                        // daybreak uses native fs so do not use nro_add_arg_file
-                        // otherwise it'll fail to open the folder...
-                        nro_launch(m_daybreak_path.value(), nro_add_arg(m_path));
-                    }
-                });
-                return;
-            }
-
-            const auto& entry = GetEntry();
-
-            if (entry.type == FsDirEntryType_Dir) {
-                Scan(GetNewPathCurrent());
-            } else {
-                // special case for nro
-                if (IsSd() && IsSamePath(entry.GetExtension(), "nro")) {
-                    App::Push<OptionBox>("Launch "_i18n + entry.GetName() + '?',
-                        "No"_i18n, "Launch"_i18n, 1, [this](auto op_index){
-                            if (op_index && *op_index) {
-                                nro_launch(GetNewPathCurrent());
-                            }
-                        });
-                } else if (IsExtension(entry.GetExtension(), INSTALL_EXTENSIONS)) {
-                    InstallFiles();
-                } else if (IsSd()) {
-                    const auto assoc_list = m_menu->FindFileAssocFor();
-                    if (!assoc_list.empty()) {
-                        // for (auto&e : assoc_list) {
-                        //     log_write("assoc got: %s\n", e.path.c_str());
-                        // }
-
-                        PopupList::Items items;
-                        for (const auto&p : assoc_list) {
-                            items.emplace_back(p.name);
-                        }
-
-                        const auto title = "Launch option for: "_i18n + GetEntry().name;
-                        App::Push<PopupList>(
-                            title, items, [this, assoc_list](auto op_index){
-                                if (op_index) {
-                                    log_write("selected: %s\n", assoc_list[*op_index].name.c_str());
-                                    nro_launch(assoc_list[*op_index].path, nro_add_arg_file(GetNewPathCurrent()));
-                                } else {
-                                    log_write("pressed B to skip launch...\n");
-                                }
-                            }
-
-                        );
-                    } else {
-                        log_write("assoc list is empty\n");
-                    }
-                }
-            }
+            m_menu->OnClick(this, m_fs_entry, GetEntry(), GetNewPathCurrent());
         }}),
 
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
@@ -525,34 +493,67 @@ FsView::FsView(Menu* menu, const fs::FsPath& path, const FsEntry& entry, ViewSid
         }})
     );
 
+    log_write("setting side\n");
     SetSide(m_side);
 
+    log_write("getting path\n");
     auto buf = path;
-    if (path.empty()) {
+    if (path.empty() && entry.IsSd()) {
         ini_gets("paths", "last_path", entry.root, buf, sizeof(buf), App::CONFIG_PATH);
     }
 
-    SetFs(buf, entry);
+    // in case the above fails.
+    if (buf.empty()) {
+        buf = entry.root;
+    }
+
+    log_write("setting fs\n");
+    SetFs(fs, buf, entry);
+    log_write("set fs\n");
 }
 
-FsView::FsView(Menu* menu, ViewSide side) : FsView{menu, "", FS_ENTRY_DEFAULT, side} {
+FsView::FsView(FsView* view, ViewSide side) : FsView{view->m_menu, view->m_fs, view->m_path, view->m_fs_entry, side} {
+
+}
+
+FsView::FsView(Base* menu, ViewSide side) : FsView{menu, menu->CreateFs(FS_ENTRY_DEFAULT), {}, FS_ENTRY_DEFAULT, side} {
 
 }
 
 FsView::~FsView() {
     // don't store mount points for non-sd card paths.
-    if (IsSd()) {
+    if (IsSd() && !m_entries_current.empty()) {
         ini_puts("paths", "last_path", m_path, App::CONFIG_PATH);
+        ini_puts("paths", "last_file", GetEntry().name, App::CONFIG_PATH);
     }
 }
 
 void FsView::Update(Controller* controller, TouchInfo* touch) {
-    m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this](bool touch, auto i) {
+    m_list->OnUpdate(controller, touch, m_index, m_entries_current.size(), [this, controller](bool touch, auto i) {
         if (touch && m_index == i) {
             FireAction(Button::A);
         } else {
-            App::PlaySoundEffect(SoundEffect_Focus);
+            App::PlaySoundEffect(SoundEffect::Focus);
+            auto old_index = m_index;
             SetIndex(i);
+            const auto new_index = m_index;
+
+            // if L2 is helt, select all between old and new index.
+            if (old_index != new_index && controller->GotHeld(Button::L2)) {
+                const auto inc = old_index < new_index ? +1 : -1;
+
+                while (old_index != new_index) {
+                    old_index += inc;
+
+                    auto& e = GetEntry(old_index);
+                    e.selected ^= 1;
+                    if (e.selected) {
+                        m_selected_count++;
+                    } else {
+                        m_selected_count--;
+                    }
+                }
+            }
         }
     });
 }
@@ -568,7 +569,7 @@ void FsView::Draw(NVGcontext* vg, Theme* theme) {
     constexpr float text_xoffset{15.f};
     bool got_dir_count = false;
 
-    m_list->Draw(vg, theme, m_entries_current.size(), [this, text_col, &got_dir_count](auto* vg, auto* theme, auto v, auto i) {
+    m_list->Draw(vg, theme, m_entries_current.size(), [this, text_col, &got_dir_count](auto* vg, auto* theme, auto& v, auto i) {
         const auto& [x, y, w, h] = v;
         auto& e = GetEntry(i);
 
@@ -612,23 +613,24 @@ void FsView::Draw(NVGcontext* vg, Theme* theme) {
 
         m_scroll_name.Draw(vg, selected, x + text_xoffset+65, y + (h / 2.f), w-(75+text_xoffset+65+50), 20, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(text_id), e.name);
 
-        // NOTE: make this native only if i disable dir scan from above.
-        if (e.IsDir()) {
+        if (e.IsDir() && !m_fs_entry.IsNoStatDir() && (e.dir_count != -1 || !e.done_stat)) {
             // NOTE: this takes longer than 16ms when opening a new folder due to it
             // checking all 9 folders at once.
-            if (!got_dir_count && e.file_count == -1 && e.dir_count == -1) {
+            if (!got_dir_count && !e.done_stat && e.file_count == -1 && e.dir_count == -1) {
                 got_dir_count = true;
+                e.done_stat = true;
                 m_fs->DirGetEntryCount(GetNewPath(e), &e.file_count, &e.dir_count);
             }
 
             if (e.file_count != -1) {
-                gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(text_id), "%zd files"_i18n.c_str(), e.file_count);
+                gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(ThemeEntryID_TEXT_INFO), "%zd files"_i18n.c_str(), e.file_count);
             }
             if (e.dir_count != -1) {
-                gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(text_id), "%zd dirs"_i18n.c_str(), e.dir_count);
+                gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_INFO), "%zd dirs"_i18n.c_str(), e.dir_count);
             }
-        } else if (e.IsFile()) {
-            if (!e.time_stamp.is_valid) {
+        } else if (e.IsFile() && !m_fs_entry.IsNoStatFile() && (e.file_size != -1 || !e.time_stamp.is_valid)) {
+            if (!e.time_stamp.is_valid && !e.done_stat) {
+                e.done_stat = true;
                 const auto path = GetNewPath(e);
                 if (m_fs->IsNative()) {
                     m_fs->GetFileTimeStampRaw(path, &e.time_stamp);
@@ -640,12 +642,9 @@ void FsView::Draw(NVGcontext* vg, Theme* theme) {
             const auto t = (time_t)(e.time_stamp.modified);
             struct tm tm{};
             localtime_r(&t, &tm);
-            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(text_id), "%02u/%02u/%u", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
-            if ((double)e.file_size / 1024.0 / 1024.0 <= 0.009) {
-                gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(text_id), "%.2f KiB", (double)e.file_size / 1024.0);
-            } else {
-                gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(text_id), "%.2f MiB", (double)e.file_size / 1024.0 / 1024.0);
-            }
+
+            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_INFO), "%02u/%02u/%u", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
+            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(ThemeEntryID_TEXT_INFO), "%s", utils::formatSizeStorage(e.file_size).c_str());
         }
     });
 }
@@ -657,6 +656,13 @@ void FsView::OnFocusGained() {
             Scan(m_fs->Root());
         } else {
             Scan(m_path);
+        }
+
+        if (!m_entries.empty()) {
+            LastFile last_file{};
+            if (ini_gets("paths", "last_file", "", last_file.name, sizeof(last_file.name), App::CONFIG_PATH)) {
+                SetIndexFromLastFile(last_file);
+            }
         }
     }
 }
@@ -694,6 +700,106 @@ void FsView::SetSide(ViewSide side) {
 
     // reset scroll position.
     m_scroll_name.Reset();
+}
+
+void FsView::OnClick() {
+    if (IsSd() && m_is_update_folder && m_daybreak_path.has_value()) {
+        App::Push<OptionBox>("Open with DayBreak?"_i18n, "No"_i18n, "Yes"_i18n, 1, [this](auto op_index){
+            if (op_index && *op_index) {
+                // daybreak uses native fs so do not use nro_add_arg_file
+                // otherwise it'll fail to open the folder...
+                nro_launch(m_daybreak_path.value(), nro_add_arg(m_path));
+            }
+        });
+        return;
+    }
+
+    const auto& entry = GetEntry();
+
+    if (entry.type == FsDirEntryType_Dir) {
+        Scan(GetNewPathCurrent());
+    } else {
+        // special case for nro
+        if (IsSd() && IsSamePath(entry.GetExtension(), "nro")) {
+            App::Push<OptionBox>(i18n::Reorder("Launch ", entry.GetName()) + '?',
+                "No"_i18n, "Launch"_i18n, 1, [this](auto op_index){
+                    if (op_index && *op_index) {
+                        nro_launch(GetNewPathCurrent());
+                    }
+                });
+        } else if (IsExtension(entry.GetExtension(), NCA_EXTENSIONS)) {
+            MountFileFs(devoptab::MountNca, devoptab::UmountNeworkDevice);
+        } else if (IsExtension(entry.GetExtension(), NSP_EXTENSIONS)) {
+            MountFileFs(devoptab::MountNsp, devoptab::UmountNeworkDevice);
+        } else if (IsExtension(entry.GetExtension(), XCI_EXTENSIONS)) {
+            MountFileFs(devoptab::MountXci, devoptab::UmountNeworkDevice);
+        } else if (IsExtension(entry.GetExtension(), "zip")) {
+            MountFileFs(devoptab::MountZip, devoptab::UmountNeworkDevice);
+        } else if (IsExtension(entry.GetExtension(), "bfsar")) {
+            MountFileFs(devoptab::MountBfsar, devoptab::UmountNeworkDevice);
+        } else if (IsExtension(entry.GetExtension(), MUSIC_EXTENSIONS)) {
+            App::Push<music::Menu>(GetFs(), GetNewPathCurrent());
+        } else if (IsExtension(entry.GetExtension(), IMAGE_EXTENSIONS)) {
+            App::Push<imageview::Menu>(GetFs(), GetNewPathCurrent());
+        }
+#ifdef ENABLE_LIBUSBDVD
+        else if (IsExtension(entry.GetExtension(), CDDVD_EXTENSIONS)) {
+            std::shared_ptr<CUSBDVD> usbdvd;
+
+            if (entry.GetExtension() == "cue") {
+                const auto cue_path = GetNewPathCurrent();
+                fs::FsPath bin_path = cue_path;
+                std::strcpy(std::strstr(bin_path, ".cue"), ".bin");
+                if (m_fs->FileExists(bin_path)) {
+                    usbdvd = std::make_shared<CUSBDVD>(cue_path, bin_path);
+                }
+            } else {
+                usbdvd = std::make_shared<CUSBDVD>(GetNewPathCurrent());
+            }
+
+            if (usbdvd && usbdvd->usbdvd_drive_ctx.fs.mounted) {
+                auto fs = std::make_shared<FsStdioWrapper>(usbdvd->usbdvd_drive_ctx.fs.mountpoint, [usbdvd](){
+                    // dummy func to keep shared_ptr alive until fs is closed.
+                });
+
+                MountFsHelper(fs, usbdvd->usbdvd_drive_ctx.fs.disc_fstype);
+                log_write("[USBDVD] mounted\n");
+            } else {
+                log_write("[USBDVD] failed to mount\n");
+            }
+        }
+#endif // ENABLE_LIBUSBDVD
+        else if (IsExtension(entry.GetExtension(), INSTALL_EXTENSIONS)) {
+            InstallFiles();
+        } else if (IsSd()) {
+            const auto assoc_list = m_menu->FindFileAssocFor();
+            if (!assoc_list.empty()) {
+                // for (auto&e : assoc_list) {
+                //     log_write("assoc got: %s\n", e.path.c_str());
+                // }
+
+                PopupList::Items items;
+                for (const auto&p : assoc_list) {
+                    items.emplace_back(p.name);
+                }
+
+                const auto title = "Launch option for: "_i18n + GetEntry().name;
+                App::Push<PopupList>(
+                    title, items, [this, assoc_list](auto op_index){
+                        if (op_index) {
+                            log_write("selected: %s\n", assoc_list[*op_index].name.c_str());
+                            nro_launch(assoc_list[*op_index].path, nro_add_arg_file(GetNewPathCurrent()));
+                        } else {
+                            log_write("pressed B to skip launch...\n");
+                        }
+                    }
+
+                );
+            } else {
+                log_write("assoc list is empty\n");
+            }
+        }
+    }
 }
 
 void FsView::SetIndex(s64 index) {
@@ -766,7 +872,7 @@ void FsView::InstallFiles() {
             App::Push<ui::ProgressBox>(0, "Installing "_i18n, "", [this, targets](auto pbox) -> Result {
                 for (auto& e : targets) {
                     R_TRY(yati::InstallFromFile(pbox, m_fs.get(), GetNewPath(e)));
-                    App::Notify("Installed "_i18n + e.GetName());
+                    App::Notify(i18n::Reorder("Installed ", e.GetName()));
                 }
 
                 R_SUCCEED();
@@ -862,7 +968,7 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
 
         auto zfile = zipOpen2_64(zip_out, APPEND_STATUS_CREATE, nullptr, &file_func);
         R_UNLESS(zfile, Result_ZipOpen2_64);
-        ON_SCOPE_EXIT(zipClose(zfile, "sphaira v" APP_VERSION_HASH));
+        ON_SCOPE_EXIT(zipClose(zfile, "sphaira v" APP_DISPLAY_VERSION));
 
         const auto zip_add = [&](const fs::FsPath& file_path) -> Result {
             // the file name needs to be relative to the current directory.
@@ -920,117 +1026,14 @@ void FsView::ZipFiles(fs::FsPath zip_out) {
     });
 }
 
-void FsView::UploadFiles() {
-    const auto targets = GetSelectedEntries();
-
-    const auto network_locations = location::Load();
-    if (network_locations.empty()) {
-        App::Notify("No upload locations set!"_i18n);
-        return;
-    }
-
-    PopupList::Items items;
-    for (const auto&p : network_locations) {
-        items.emplace_back(p.name);
-    }
-
-    App::Push<PopupList>(
-        "Select upload location"_i18n, items, [this, network_locations](auto op_index){
-            if (!op_index) {
-                return;
-            }
-
-            const auto loc = network_locations[*op_index];
-            App::Push<ProgressBox>(0, "Uploading"_i18n, "", [this, loc](auto pbox) -> Result {
-                auto targets = GetSelectedEntries();
-                const auto is_file_based_emummc = App::IsFileBaseEmummc();
-
-                const auto file_add = [&](s64 file_size, const fs::FsPath& file_path, const char* name) -> Result {
-                    // the file name needs to be relative to the current directory.
-                    const auto relative_file_name = file_path.s + std::strlen(m_path);
-                    pbox->SetTitle(name);
-                    pbox->NewTransfer(relative_file_name);
-
-                    fs::File f;
-                    R_TRY(m_fs->OpenFile(file_path, FsOpenMode_Read, &f));
-
-                    return thread::TransferPull(pbox, file_size,
-                        [&](void* data, s64 off, s64 size, u64* bytes_read) -> Result {
-                            const auto rc = f.Read(off, data, size, FsReadOption_None, bytes_read);
-                            if (m_fs->IsNative() && is_file_based_emummc) {
-                                svcSleepThread(2e+6); // 2ms
-                            }
-                            return rc;
-                        },
-                        [&](thread::PullCallback pull) -> Result {
-                            s64 offset{};
-                            const auto result = curl::Api().FromMemory(
-                                CURL_LOCATION_TO_API(loc),
-                                curl::OnProgress{pbox->OnDownloadProgressCallback()},
-                                curl::UploadInfo{
-                                    relative_file_name, file_size,
-                                    [&](void *ptr, size_t size) -> size_t {
-                                        // curl will request past the size of the file, causing an error.
-                                        if (offset >= file_size) {
-                                            log_write("finished file upload\n");
-                                            return 0;
-                                        }
-
-                                        u64 bytes_read{};
-                                        if (R_FAILED(pull(ptr, size, &bytes_read))) {
-                                            log_write("failed to read in custom callback: %zd size: %zd\n", offset, size);
-                                            return 0;
-                                        }
-
-                                        offset += bytes_read;
-                                        return bytes_read;
-                                    }
-                                }
-                            );
-
-                            R_UNLESS(result.success, Result_FileBrowserFailedUpload);
-                            R_SUCCEED();
-                        }
-                    );
-                };
-
-                for (auto& e : targets) {
-                    if (e.IsFile()) {
-                        const auto file_path = GetNewPath(e);
-                        R_TRY(file_add(e.file_size, file_path, e.GetName().c_str()));
-                    } else {
-                        FsDirCollections collections;
-                        get_collections(GetNewPath(e), e.name, collections, true);
-
-                        for (const auto& collection : collections) {
-                            for (const auto& file : collection.files) {
-                                const auto file_path = fs::AppendPath(collection.path, file.name);
-                                R_TRY(file_add(file.file_size, file_path, file.name));
-                            }
-                        }
-                    }
-                }
-
-                R_SUCCEED();
-            }, [this](Result rc){
-                App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
-                m_menu->ResetSelection();
-
-                if (R_SUCCEEDED(rc)) {
-                    App::Notify("Upload successfull!"_i18n);
-                    log_write("Upload successfull!!!\n");
-                } else {
-                    App::Notify("Upload failed!"_i18n);
-                    log_write("Upload failed!!!\n");
-                }
-            });
-        }
-    );
-}
-
-auto FsView::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
+auto FsView::Scan(fs::FsPath new_path, bool is_walk_up) -> Result {
     App::SetBoostMode(true);
     ON_SCOPE_EXIT(App::SetBoostMode(false));
+
+    // ensure that we have a slash as part of the file name.
+    if (!std::strchr(new_path, '/')) {
+        std::strcat(new_path, "/");
+    }
 
     log_write("new scan path: %s\n", new_path.s);
     if (!is_walk_up && !m_path.empty() && !m_entries_current.empty()) {
@@ -1038,12 +1041,17 @@ auto FsView::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
         m_previous_highlighted_file.emplace_back(f);
     }
 
+    g_change_signalled = false;
     m_path = new_path;
     m_entries.clear();
-    m_index = 0;
-    m_list->SetYoff(0);
-    m_menu->SetTitleSubHeading(m_path);
+    m_entries_index.clear();
+    m_entries_index_hidden.clear();
+    m_entries_index_search.clear();
+    m_entries_current = {};
     m_selected_count = 0;
+    m_is_update_folder = false;
+    SetIndex(0);
+    m_menu->SetTitleSubHeading(m_path);
 
     fs::Dir d;
     R_TRY(m_fs->OpenDirectory(new_path, FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &d));
@@ -1054,31 +1062,45 @@ auto FsView::Scan(const fs::FsPath& new_path, bool is_walk_up) -> Result {
 
     const auto count = dir_entries.size();
     m_entries.reserve(count);
-
-    m_entries_index.clear();
-    m_entries_index_hidden.clear();
-    m_entries_index_search.clear();
-
     m_entries_index.reserve(count);
     m_entries_index_hidden.reserve(count);
 
     u32 i = 0;
     for (const auto& e : dir_entries) {
-        m_entries_index_hidden.emplace_back(i);
-        if ('.' != e.name[0]) {
+        bool hidden = false;
+        if ('.' == e.name[0]) {
+            hidden = true;
+        }
+        // check if we have a filter.
+        else if (e.type == FsDirEntryType_File && !m_menu->m_filter.empty()) {
+            hidden = true;
+            if (const auto ext = std::strrchr(e.name, '.')) {
+                for (const auto& filter : m_menu->m_filter) {
+                    if (IsExtension(ext + 1, filter)) {
+                        hidden = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!hidden) {
             m_entries_index.emplace_back(i);
         }
 
+        m_entries_index_hidden.emplace_back(i);
         m_entries.emplace_back(e);
         i++;
     }
 
     Sort();
+    SetIndex(0);
 
     // quick check to see if this is an update folder
-    m_is_update_folder = R_SUCCEEDED(CheckIfUpdateFolder());
-
-    SetIndex(0);
+    // todo: only check this on click.
+    if (m_menu->m_options & FsOption_LoadAssoc) {
+        m_is_update_folder = R_SUCCEEDED(CheckIfUpdateFolder());
+    }
 
     // find previous entry
     if (is_walk_up && !m_previous_highlighted_file.empty()) {
@@ -1233,7 +1255,7 @@ void FsView::OnDeleteCallback() {
 
                 const auto full_path = GetNewPath(selected.m_path, p.name);
                 if (p.IsDir()) {
-                    pbox->NewTransfer("Scanning "_i18n + full_path);
+                    pbox->NewTransfer(i18n::Reorder("Scanning ", full_path));
                     R_TRY(get_collections(src_fs, full_path, p.name, collections));
                 }
             }
@@ -1276,7 +1298,7 @@ void FsView::OnPasteCallback() {
                     const auto dst_path = GetNewPath(m_path, p.name);
 
                     pbox->SetTitle(p.name);
-                    pbox->NewTransfer("Pasting "_i18n + src_path);
+                    pbox->NewTransfer(i18n::Reorder("Pasting ", src_path));
 
                     if (p.IsDir()) {
                         m_fs->RenameDirectory(src_path, dst_path);
@@ -1311,7 +1333,7 @@ void FsView::OnPasteCallback() {
 
                     const auto full_path = GetNewPath(selected.m_path, p.name);
                     if (p.IsDir()) {
-                        pbox->NewTransfer("Scanning "_i18n + full_path);
+                        pbox->NewTransfer(i18n::Reorder("Scanning ", full_path));
                         R_TRY(get_collections(src_fs, full_path, p.name, collections));
                     }
                 }
@@ -1325,11 +1347,11 @@ void FsView::OnPasteCallback() {
 
                     if (p.IsDir()) {
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Creating "_i18n + dst_path);
+                        pbox->NewTransfer(i18n::Reorder("Creating ", dst_path));
                         m_fs->CreateDirectory(dst_path);
                     } else {
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Copying "_i18n + src_path);
+                        pbox->NewTransfer(i18n::Reorder("Copying ", src_path));
                         R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path, is_same_fs));
                         R_TRY(on_paste_file(src_path, dst_path));
                     }
@@ -1347,7 +1369,7 @@ void FsView::OnPasteCallback() {
                         const auto dst_path = GetNewPath(base_dst_path, p.name);
 
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Creating "_i18n + dst_path);
+                        pbox->NewTransfer(i18n::Reorder("Creating ", dst_path));
                         m_fs->CreateDirectory(dst_path);
                     }
 
@@ -1359,7 +1381,7 @@ void FsView::OnPasteCallback() {
                         const auto dst_path = GetNewPath(base_dst_path, p.name);
 
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Copying "_i18n + src_path);
+                        pbox->NewTransfer(i18n::Reorder("Copying ", src_path));
                         R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path, is_same_fs));
                         R_TRY(on_paste_file(src_path, dst_path));
                     }
@@ -1475,7 +1497,7 @@ auto FsView::get_collections(fs::Fs* fs, const fs::FsPath& path, const fs::FsPat
 }
 
 auto FsView::get_collection(const fs::FsPath& path, const fs::FsPath& parent_name, FsDirCollection& out, bool inc_file, bool inc_dir, bool inc_size) -> Result {
-    return get_collection(m_fs.get(), path, parent_name, out, true, true, inc_size);
+    return get_collection(m_fs.get(), path, parent_name, out, inc_file, inc_dir, inc_size);
 }
 
 auto FsView::get_collections(const fs::FsPath& path, const fs::FsPath& parent_name, FsDirCollections& out, bool inc_size) -> Result {
@@ -1492,7 +1514,7 @@ Result FsView::DeleteAllCollections(ProgressBox* pbox, fs::Fs* fs, const FsDirCo
 
                 const auto full_path = FsView::GetNewPath(c.path, p.name);
                 pbox->SetTitle(p.name);
-                pbox->NewTransfer("Deleting "_i18n + full_path.toString());
+                pbox->NewTransfer(i18n::Reorder("Deleting ", full_path.toString()));
                 if ((mode & FsDirOpenMode_ReadDirs) && p.type == FsDirEntryType_Dir) {
                     log_write("deleting dir: %s\n", full_path.s);
                     R_TRY(fs->DeleteDirectory(full_path));
@@ -1523,7 +1545,7 @@ static Result DeleteAllCollectionsWithSelected(ProgressBox* pbox, fs::Fs* fs, co
 
         const auto full_path = FsView::GetNewPath(selected.m_path, p.name);
         pbox->SetTitle(p.name);
-        pbox->NewTransfer("Deleting "_i18n + full_path.toString());
+        pbox->NewTransfer(i18n::Reorder("Deleting ", full_path.toString()));
 
         if ((mode & FsDirOpenMode_ReadDirs) && p.type == FsDirEntryType_Dir) {
             log_write("deleting dir: %s\n", full_path.s);
@@ -1537,7 +1559,7 @@ static Result DeleteAllCollectionsWithSelected(ProgressBox* pbox, fs::Fs* fs, co
     R_SUCCEED();
 }
 
-void FsView::SetFs(const fs::FsPath& new_path, const FsEntry& new_entry) {
+void FsView::SetFs(const std::shared_ptr<fs::Fs>& fs, const fs::FsPath& new_path, const FsEntry& new_entry) {
     if (m_fs && m_fs_entry.root == new_entry.root && m_fs_entry.type == new_entry.type) {
         log_write("same fs, ignoring\n");
         return;
@@ -1554,21 +1576,7 @@ void FsView::SetFs(const fs::FsPath& new_path, const FsEntry& new_entry) {
     m_menu->m_selected.Reset();
     m_selected_count = 0;
     m_fs_entry = new_entry;
-
-    switch (new_entry.type) {
-         case FsType::Sd:
-            m_fs = std::make_unique<fs::FsNativeSd>(m_menu->m_ignore_read_only.Get());
-            break;
-        case FsType::ImageNand:
-            m_fs = std::make_unique<fs::FsNativeImage>(FsImageDirectoryId_Nand);
-            break;
-        case FsType::ImageSd:
-            m_fs = std::make_unique<fs::FsNativeImage>(FsImageDirectoryId_Sd);
-            break;
-        case FsType::Stdio:
-            m_fs = std::make_unique<fs::FsStdio>(true, new_entry.root);
-            break;
-    }
+    m_fs = fs;
 
     if (HasFocus()) {
         if (m_path.empty()) {
@@ -1605,6 +1613,34 @@ void FsView::DisplayHash(hash::Type type) {
 void FsView::DisplayOptions() {
     auto options = std::make_unique<Sidebar>("File Options"_i18n, Sidebar::Side::RIGHT);
     ON_SCOPE_EXIT(App::Push(std::move(options)));
+
+    SidebarEntryArray::Items mount_items;
+    std::vector<FsEntry> fs_entries;
+
+    for (const auto& e: FS_ENTRIES) {
+        fs_entries.emplace_back(e);
+        mount_items.push_back(i18n::get(e.name));
+    }
+
+    if (m_menu->m_custom_fs) {
+        fs_entries.emplace_back(m_menu->m_custom_fs_entry);
+        mount_items.push_back(m_menu->m_custom_fs_entry.name);
+    }
+
+    const auto stdio_locations = location::GetStdio(false);
+    for (const auto& e: stdio_locations) {
+        if (e.fs_hidden) {
+            continue;
+        }
+
+        fs_entries.emplace_back(e.name, e.mount, FsType::Stdio, e.flags);
+        mount_items.push_back(e.name);
+    }
+
+    options->Add<SidebarEntryArray>("Mount"_i18n, mount_items, [this, fs_entries](s64& index_out){
+        App::PopToMenu();
+        SetFs(m_menu->CreateFs(fs_entries[index_out]), fs_entries[index_out].root, fs_entries[index_out]);
+    }, i18n::get(m_fs_entry.name));
 
     options->Add<SidebarEntryCallback>("Sort By"_i18n, [this](){
         auto options = std::make_unique<Sidebar>("Sort Options"_i18n, Sidebar::Side::RIGHT);
@@ -1645,16 +1681,18 @@ void FsView::DisplayOptions() {
     });
 
     if (m_entries_current.size()) {
-        options->Add<SidebarEntryCallback>("Cut"_i18n, [this](){
-            m_menu->AddSelectedEntries(SelectedType::Cut);
-        }, true);
+        if (!m_fs_entry.IsReadOnly()) {
+            options->Add<SidebarEntryCallback>("Cut"_i18n, [this](){
+                m_menu->AddSelectedEntries(SelectedType::Cut);
+            }, true);
+        }
 
         options->Add<SidebarEntryCallback>("Copy"_i18n, [this](){
             m_menu->AddSelectedEntries(SelectedType::Copy);
         }, true);
     }
 
-    if (!m_menu->m_selected.Empty() && (m_menu->m_selected.Type() == SelectedType::Cut || m_menu->m_selected.Type() == SelectedType::Copy)) {
+    if (!m_menu->m_selected.Empty() && !m_fs_entry.IsReadOnly() && (m_menu->m_selected.Type() == SelectedType::Cut || m_menu->m_selected.Type() == SelectedType::Copy)) {
         options->Add<SidebarEntryCallback>("Paste"_i18n, [this](){
             const std::string buf = "Paste file(s)?"_i18n;
             App::Push<OptionBox>(
@@ -1668,12 +1706,13 @@ void FsView::DisplayOptions() {
     }
 
     // can't rename more than 1 file
-    if (m_entries_current.size() && !m_selected_count) {
+    if (m_entries_current.size() && !m_selected_count && !m_fs_entry.IsReadOnly()) {
         options->Add<SidebarEntryCallback>("Rename"_i18n, [this](){
             std::string out;
             const auto& entry = GetEntry();
             const auto name = entry.GetName();
-            if (R_SUCCEEDED(swkbd::ShowText(out, "Set New File Name"_i18n.c_str(), name.c_str())) && !out.empty() && out != name) {
+            const auto header = "Set new name"_i18n;
+            if (R_SUCCEEDED(swkbd::ShowText(out, header.c_str(), header.c_str(), name.c_str())) && !out.empty() && out != name) {
                 App::PopToMenu();
 
                 const auto src_path = GetNewPath(entry);
@@ -1696,7 +1735,7 @@ void FsView::DisplayOptions() {
         });
     }
 
-    if (m_entries_current.size()) {
+    if (m_entries_current.size() && !m_fs_entry.IsReadOnly()) {
         options->Add<SidebarEntryCallback>("Delete"_i18n, [this](){
             m_menu->AddSelectedEntries(SelectedType::Delete);
 
@@ -1714,37 +1753,39 @@ void FsView::DisplayOptions() {
     }
 
     // returns true if all entries match the ext array.
-    const auto check_all_ext = [this](auto& exts){
+    const auto check_all_ext = [this](const auto& exts){
         const auto entries = GetSelectedEntries();
         for (auto&e : entries) {
             if (!IsExtension(e.GetExtension(), exts)) {
+                log_write("not ext: %s\n", e.GetExtension().c_str());
                 return false;
             }
         }
         return true;
     };
 
-    // if install is enabled, check if all currently selected files are installable.
-    if (m_entries_current.size()) {
-        if (check_all_ext(INSTALL_EXTENSIONS)) {
-            auto entry = options->Add<SidebarEntryCallback>("Install"_i18n, [this](){
-                InstallFiles();
-            });
-            entry->Depends(App::GetInstallEnable, i18n::get(App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
+    if (m_menu->CanInstall()) {
+        if (m_entries_current.size()) {
+            if (check_all_ext(INSTALL_EXTENSIONS)) {
+                auto entry = options->Add<SidebarEntryCallback>("Install"_i18n, [this](){
+                    InstallFiles();
+                });
+                entry->Depends(App::GetInstallEnable, i18n::get(App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
+            }
+        }
+
+        if (IsSd() && m_entries_current.size() && !m_selected_count) {
+            if (GetEntry().IsFile() && (IsSamePath(GetEntry().GetExtension(), "nro") || !m_menu->FindFileAssocFor().empty())) {
+                auto entry = options->Add<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){;
+                    InstallForwarder();
+                });
+                entry->Depends(App::GetInstallEnable, i18n::get(App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
+            }
         }
     }
 
-    if (IsSd() && m_entries_current.size() && !m_selected_count) {
-        if (GetEntry().IsFile() && (IsSamePath(GetEntry().GetExtension(), "nro") || !m_menu->FindFileAssocFor().empty())) {
-            auto entry = options->Add<SidebarEntryCallback>("Install Forwarder"_i18n, [this](){;
-                InstallForwarder();
-            });
-            entry->Depends(App::GetInstallEnable, i18n::get(App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
-        }
-    }
-
     if (m_entries_current.size()) {
-        if (check_all_ext(ZIP_EXTENSIONS)) {
+        if (check_all_ext(ZIP_EXTENSIONS) && !m_fs_entry.IsReadOnly()) {
             options->Add<SidebarEntryCallback>("Extract zip"_i18n, [this](){
                 auto options = std::make_unique<Sidebar>("Extract Options"_i18n, Sidebar::Side::RIGHT);
                 ON_SCOPE_EXIT(App::Push(std::move(options)));
@@ -1764,14 +1805,14 @@ void FsView::DisplayOptions() {
 
                 options->Add<SidebarEntryCallback>("Extract to..."_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Enter the path to the folder to extract into", fs::AppendPath(m_path, ""))) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Extract path", "Enter the path to the folder to extract into"_i18n.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
                         UnzipFiles(out);
                     }
                 });
             });
         }
 
-        if (!check_all_ext(ZIP_EXTENSIONS) || m_selected_count) {
+        if ((!check_all_ext(ZIP_EXTENSIONS) || m_selected_count) && !m_fs_entry.IsReadOnly()) {
             options->Add<SidebarEntryCallback>("Compress to zip"_i18n, [this](){
                 auto options = std::make_unique<Sidebar>("Compress Options"_i18n, Sidebar::Side::RIGHT);
                 ON_SCOPE_EXIT(App::Push(std::move(options)));
@@ -1782,7 +1823,7 @@ void FsView::DisplayOptions() {
 
                 options->Add<SidebarEntryCallback>("Compress to..."_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Enter the path to the folder to extract into", m_path)) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Compress path", "Enter the path to the folder to compress into"_i18n.c_str(), m_path)) && !out.empty()) {
                         ZipFiles(out);
                     }
                 });
@@ -1799,82 +1840,63 @@ void FsView::DisplayAdvancedOptions() {
     auto options = std::make_unique<Sidebar>("Advanced Options"_i18n, Sidebar::Side::RIGHT);
     ON_SCOPE_EXIT(App::Push(std::move(options)));
 
-    SidebarEntryArray::Items mount_items;
-    std::vector<FsEntry> fs_entries;
+    if (!m_fs_entry.IsReadOnly()) {
+        options->Add<SidebarEntryCallback>("Create File"_i18n, [this](){
+            std::string out;
+            const auto header = "Set File Name"_i18n;
+            if (R_SUCCEEDED(swkbd::ShowText(out, header.c_str(), header.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
+                App::PopToMenu();
 
-    const auto stdio_locations = location::GetStdio(false);
-    for (const auto& e: stdio_locations) {
-        u32 flags{};
-        if (e.write_protect) {
-            flags |= FsEntryFlag_ReadOnly;
-        }
+                fs::FsPath full_path;
+                if (out.starts_with(m_fs_entry.root.s)) {
+                    full_path = out;
+                } else {
+                    full_path = fs::AppendPath(m_path, out);
+                }
 
-        fs_entries.emplace_back(e.name, e.mount, FsType::Stdio, flags);
-        mount_items.push_back(e.name);
-    }
-
-    for (const auto& e: FS_ENTRIES) {
-        fs_entries.emplace_back(e);
-        mount_items.push_back(i18n::get(e.name));
-    }
-
-    options->Add<SidebarEntryArray>("Mount"_i18n, mount_items, [this, fs_entries](s64& index_out){
-        App::PopToMenu();
-        SetFs(fs_entries[index_out].root, fs_entries[index_out]);
-    }, i18n::get(m_fs_entry.name));
-
-    options->Add<SidebarEntryCallback>("Create File"_i18n, [this](){
-        std::string out;
-        if (R_SUCCEEDED(swkbd::ShowText(out, "Set File Name"_i18n.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
-            App::PopToMenu();
-
-            fs::FsPath full_path;
-            if (out.starts_with(m_fs_entry.root.s)) {
-                full_path = out;
-            } else {
-                full_path = fs::AppendPath(m_path, out);
+                m_fs->CreateDirectoryRecursivelyWithPath(full_path);
+                if (R_SUCCEEDED(m_fs->CreateFile(full_path, 0, 0))) {
+                    log_write("created file: %s\n", full_path.s);
+                    Scan(m_path);
+                } else {
+                    log_write("failed to create file: %s\n", full_path.s);
+                }
             }
+        });
 
-            m_fs->CreateDirectoryRecursivelyWithPath(full_path);
-            if (R_SUCCEEDED(m_fs->CreateFile(full_path, 0, 0))) {
-                log_write("created file: %s\n", full_path.s);
-                Scan(m_path);
-            } else {
-                log_write("failed to create file: %s\n", full_path.s);
+        options->Add<SidebarEntryCallback>("Create Folder"_i18n, [this](){
+            std::string out;
+            const auto header = "Set Folder Name"_i18n;
+            if (R_SUCCEEDED(swkbd::ShowText(out, header.c_str(), header.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
+                App::PopToMenu();
+
+                fs::FsPath full_path;
+                if (out.starts_with(m_fs_entry.root.s)) {
+                    full_path = out;
+                } else {
+                    full_path = fs::AppendPath(m_path, out);
+                }
+
+                if (R_SUCCEEDED(m_fs->CreateDirectoryRecursively(full_path))) {
+                    log_write("created dir: %s\n", full_path.s);
+                    Scan(m_path);
+                } else {
+                    log_write("failed to create dir: %s\n", full_path.s);
+                }
             }
-        }
-    });
-
-    options->Add<SidebarEntryCallback>("Create Folder"_i18n, [this](){
-        std::string out;
-        if (R_SUCCEEDED(swkbd::ShowText(out, "Set Folder Name"_i18n.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
-            App::PopToMenu();
-
-            fs::FsPath full_path;
-            if (out.starts_with(m_fs_entry.root.s)) {
-                full_path = out;
-            } else {
-                full_path = fs::AppendPath(m_path, out);
-            }
-
-            if (R_SUCCEEDED(m_fs->CreateDirectoryRecursively(full_path))) {
-                log_write("created dir: %s\n", full_path.s);
-                Scan(m_path);
-            } else {
-                log_write("failed to create dir: %s\n", full_path.s);
-            }
-        }
-    });
-
-    if (IsSd() && m_entries_current.size() && !m_selected_count && GetEntry().IsFile() && GetEntry().file_size < 1024*64) {
-        options->Add<SidebarEntryCallback>("View as text (unfinished)"_i18n, [this](){
-            App::Push<fileview::Menu>(GetNewPathCurrent());
         });
     }
 
-    if (m_entries_current.size()) {
-        options->Add<SidebarEntryCallback>("Upload"_i18n, [this](){
-            UploadFiles();
+    if (m_entries_current.size() && !m_selected_count && GetEntry().IsFile() && GetEntry().file_size < 1024*64) {
+        options->Add<SidebarEntryCallback>("View as text (unfinished)"_i18n, [this](){
+            App::Push<fileview::Menu>(GetFs(), GetNewPathCurrent());
+        });
+    }
+
+    if (m_entries_current.size() && !m_selected_count && IsExtension(GetEntry().GetExtension(), THEME_MUSIC_EXTENSIONS)) {
+        options->Add<SidebarEntryCallback>("Set as background music"_i18n, [this](){
+            const auto rc = App::SetDefaultBackgroundMusic(GetFs(), GetNewPathCurrent());
+            App::PushErrorBox(rc, "Failed to set default music path"_i18n);
         });
     }
 
@@ -1895,6 +1917,9 @@ void FsView::DisplayAdvancedOptions() {
             options->Add<SidebarEntryCallback>("SHA256"_i18n, [this](){
                 DisplayHash(hash::Type::Sha256);
             });
+            options->Add<SidebarEntryCallback>("/dev/null (Speed Test)"_i18n, [this](){
+                DisplayHash(hash::Type::Null);
+            });
         });
     }
 
@@ -1904,27 +1929,35 @@ void FsView::DisplayAdvancedOptions() {
     });
 }
 
-Menu::Menu(u32 flags) : MenuBase{"FileBrowser"_i18n, flags} {
-    SetAction(Button::L3, Action{"Split"_i18n, [this](){
-        SetSplitScreen(IsSplitScreen() ^ 1);
-    }});
+void FsView::MountFileFs(const MountFsFunc& mount_func, const UmountFsFunc& umount_func) {
+    fs::FsPath mount;
+    const auto rc = mount_func(GetFs(), GetNewPathCurrent(), mount);
+    App::PushErrorBox(rc, "Failed to mount FS."_i18n);
 
-    if (!IsTab()) {
-        SetAction(Button::SELECT, Action{"Close"_i18n, [this](){
-            PromptIfShouldExit();
-        }});
+    if (R_SUCCEEDED(rc)) {
+        auto fs = std::make_shared<FsStdioWrapper>(mount, [mount, umount_func](){
+            umount_func(mount);
+        });
+
+        MountFsHelper(fs, GetEntry().GetName());
     }
-
-    view_left = std::make_unique<FsView>(this, ViewSide::Left);
-    view = view_left.get();
-    ueventCreate(&g_change_uevent, true);
 }
 
-Menu::~Menu() {
+Base::Base(u32 flags, u32 options)
+: MenuBase{"FileBrowser"_i18n, flags}
+, m_options{options} {
+    Init(CreateFs(FS_ENTRY_DEFAULT), FS_ENTRY_DEFAULT, {}, false);
 }
 
-void Menu::Update(Controller* controller, TouchInfo* touch) {
-    if (R_SUCCEEDED(waitSingle(waiterForUEvent(&g_change_uevent), 0))) {
+Base::Base(const std::shared_ptr<fs::Fs>& fs, const FsEntry& fs_entry, const fs::FsPath& path, bool is_custom, u32 flags, u32 options)
+: MenuBase{"FileBrowser"_i18n, flags}
+, m_options{options} {
+    Init(fs, fs_entry, path, is_custom);
+}
+
+void Base::Update(Controller* controller, TouchInfo* touch) {
+    if (g_change_signalled.exchange(false)) {
+
         if (IsSplitScreen()) {
             view_left->SortAndFindLastFile(true);
             view_right->SortAndFindLastFile(true);
@@ -1944,8 +1977,8 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
     view->Update(controller, touch);
 }
 
-void Menu::Draw(NVGcontext* vg, Theme* theme) {
-    // see Menu::Update().
+void Base::Draw(NVGcontext* vg, Theme* theme) {
+    // see Base::Update().
     const auto view_actions = view->GetActions();
     m_actions.insert_range(view_actions);
     ON_SCOPE_EXIT(RemoveActions(view_actions));
@@ -1968,7 +2001,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     }
 }
 
-void Menu::OnFocusGained() {
+void Base::OnFocusGained() {
     MenuBase::OnFocusGained();
 
     if (IsSplitScreen()) {
@@ -1985,7 +2018,11 @@ void Menu::OnFocusGained() {
     }
 }
 
-auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
+void Base::OnClick(FsView* view, const FsEntry& fs_entry, const FileEntry& entry, const fs::FsPath& path) {
+    view->OnClick();
+}
+
+auto Base::FindFileAssocFor() -> std::vector<FileAssocEntry> {
     // only support roms in correctly named folders, sorry!
     const auto db_indexs = GetRomDatabaseFromPath(view->m_path);
     const auto& entry = view->GetEntry();
@@ -2034,7 +2071,7 @@ auto Menu::FindFileAssocFor() -> std::vector<FileAssocEntry> {
     return out_entries;
 }
 
-void Menu::LoadAssocEntriesPath(const fs::FsPath& path) {
+void Base::LoadAssocEntriesPath(const fs::FsPath& path) {
     auto dir = opendir(path);
     if (!dir) {
         return;
@@ -2095,8 +2132,16 @@ void Menu::LoadAssocEntriesPath(const fs::FsPath& path) {
         if (!assoc.path.empty()) {
             file_exists = view->m_fs->FileExists(assoc.path);
         } else {
+            auto nros = homebrew::GetNroEntries();
+            if (nros.empty()) {
+                if (m_nro_entries.empty()) {
+                    nro_scan("/switch", m_nro_entries);
+                    nros = m_nro_entries;
+                }
+            }
+
             const auto nro_name = assoc.name + ".nro";
-            for (const auto& nro : homebrew::GetNroEntries()) {
+            for (const auto& nro : nros) {
                 const auto len = std::strlen(nro.path);
                 if (len < nro_name.length()) {
                     continue;
@@ -2128,22 +2173,28 @@ void Menu::LoadAssocEntriesPath(const fs::FsPath& path) {
     }
 }
 
-void Menu::LoadAssocEntries() {
-    // load from romfs first
-    if (R_SUCCEEDED(romfsInit())) {
-        LoadAssocEntriesPath("romfs:/assoc/");
-        romfsExit();
+void Base::LoadAssocEntries() {
+    if (m_options & FsOption_LoadAssoc) {
+        // load from romfs first
+        if (R_SUCCEEDED(romfsInit())) {
+            LoadAssocEntriesPath("romfs:/assoc/");
+            romfsExit();
+        }
+        // then load custom entries
+        LoadAssocEntriesPath("/config/sphaira/assoc/");
     }
-    // then load custom entries
-    LoadAssocEntriesPath("/config/sphaira/assoc/");
 }
 
-void Menu::UpdateSubheading() {
+void Base::UpdateSubheading() {
     const auto index = view->m_entries_current.empty() ? 0 : view->m_index + 1;
     this->SetSubHeading(std::to_string(index) + " / " + std::to_string(view->m_entries_current.size()));
 }
 
-void Menu::SetSplitScreen(bool enable) {
+void Base::SetSplitScreen(bool enable) {
+    if (!(m_options & FsOption_CanSplit)) {
+        return;
+    }
+
     if (m_split_screen != enable) {
         m_split_screen = enable;
 
@@ -2160,7 +2211,7 @@ void Menu::SetSplitScreen(bool enable) {
 
             // load second screen as a copy of the left side.
             view->SetSide(ViewSide::Left);
-            view_right = std::make_unique<FsView>(this, view->m_path, view->GetFsEntry(), ViewSide::Right);
+            view_right = std::make_unique<FsView>(view, ViewSide::Right);
             change_view(view_right.get());
 
             SetAction(Button::LEFT, Action{[this, change_view](){
@@ -2185,7 +2236,7 @@ void Menu::SetSplitScreen(bool enable) {
     }
 }
 
-void Menu::RefreshViews() {
+void Base::RefreshViews() {
     ResetSelection();
 
     if (IsSplitScreen()) {
@@ -2196,8 +2247,13 @@ void Menu::RefreshViews() {
     }
 }
 
-void Menu::PromptIfShouldExit() {
+void Base::PromptIfShouldExit() {
     if (IsTab()) {
+        return;
+    }
+
+    if (m_options & FsOption_DoNotPrompt) {
+        SetPop();
         return;
     }
 
@@ -2209,6 +2265,59 @@ void Menu::PromptIfShouldExit() {
             }
         }
     );
+}
+
+auto Base::CreateFs(const FsEntry& fs_entry) -> std::shared_ptr<fs::Fs> {
+    switch (fs_entry.type) {
+        case FsType::Sd:
+            return std::make_shared<fs::FsNativeSd>(m_ignore_read_only.Get());
+        case FsType::ImageNand:
+            return std::make_shared<fs::FsNativeImage>(FsImageDirectoryId_Nand);
+        case FsType::ImageSd:
+            return std::make_shared<fs::FsNativeImage>(FsImageDirectoryId_Sd);
+        case FsType::Stdio:
+            return std::make_shared<fs::FsStdio>(true, fs_entry.root);
+        case FsType::Custom:
+            return m_custom_fs;
+    }
+
+    std::unreachable();
+}
+
+void Base::Init(const std::shared_ptr<fs::Fs>& fs, const FsEntry& fs_entry, const fs::FsPath& path, bool is_custom) {
+    if (m_options & FsOption_CanSplit) {
+        SetAction(Button::L3, Action{"Split"_i18n, [this](){
+            SetSplitScreen(IsSplitScreen() ^ 1);
+        }});
+    }
+
+    if (!IsTab()) {
+        SetAction(Button::SELECT, Action{"Close"_i18n, [this](){
+            PromptIfShouldExit();
+        }});
+    }
+
+    if (is_custom) {
+        m_custom_fs = fs;
+        m_custom_fs_entry = fs_entry;
+    }
+
+    log_write("creating view\n");
+
+    view_left = std::make_unique<FsView>(this, fs, path, fs_entry, ViewSide::Left);
+    view = view_left.get();
+}
+
+void MountFsHelper(const std::shared_ptr<fs::Fs>& fs, const fs::FsPath& name) {
+    const filebrowser::FsEntry fs_entry{
+        .name = name,
+        .root = fs->Root(),
+        .type = filebrowser::FsType::Custom,
+        .flags = filebrowser::FsEntryFlag_ReadOnly,
+    };
+
+    const auto options = FsOption_All &~ FsOption_LoadAssoc;
+    App::Push<filebrowser::Menu>(fs, fs_entry, fs->Root(), options);
 }
 
 } // namespace sphaira::ui::menu::filebrowser

@@ -15,7 +15,10 @@ enum class Mode {
     SingleThreadedIfSmaller,
 };
 
+using DecompressWriteCallback = std::function<Result(const void* data, s64 size)>;
+
 using ReadCallback = std::function<Result(void* data, s64 off, s64 size, u64* bytes_read)>;
+using DecompressCallback = std::function<Result(void* data, s64 off, s64 size, const DecompressWriteCallback& callback)>;
 using WriteCallback = std::function<Result(const void* data, s64 off, s64 size)>;
 
 // used for pull api
@@ -32,11 +35,12 @@ using StartCallback = std::function<Result(PullCallback pull)>;
 using StartCallback2 = std::function<Result(StartThreadCallback start, PullCallback pull)>;
 
 // reads data from rfunc into wfunc.
-Result Transfer(ui::ProgressBox* pbox, s64 size, ReadCallback rfunc, WriteCallback wfunc, Mode mode = Mode::MultiThreaded);
+Result Transfer(ui::ProgressBox* pbox, s64 size, const ReadCallback& rfunc, const WriteCallback& wfunc, Mode mode = Mode::MultiThreaded);
+Result Transfer(ui::ProgressBox* pbox, s64 size, const ReadCallback& rfunc, const DecompressCallback& dfunc, const WriteCallback& wfunc, Mode mode = Mode::MultiThreaded);
 
 // reads data from rfunc, pull data from provided pull() callback.
-Result TransferPull(ui::ProgressBox* pbox, s64 size, ReadCallback rfunc, StartCallback sfunc, Mode mode = Mode::MultiThreaded);
-Result TransferPull(ui::ProgressBox* pbox, s64 size, ReadCallback rfunc, StartCallback2 sfunc, Mode mode = Mode::MultiThreaded);
+Result TransferPull(ui::ProgressBox* pbox, s64 size, const ReadCallback& rfunc, const StartCallback& sfunc, Mode mode = Mode::MultiThreaded);
+Result TransferPull(ui::ProgressBox* pbox, s64 size, const ReadCallback& rfunc, const StartCallback2& sfunc, Mode mode = Mode::MultiThreaded);
 
 // helper for extract zips.
 // this will multi-thread unzip if size >= 512KiB, otherwise it'll single pass.
@@ -50,7 +54,7 @@ using UnzipAllFilter = std::function<bool(const fs::FsPath& name, fs::FsPath& pa
 
 // helper all-in-one unzip function that unzips a zip (either open or path provided).
 // the filter function can be used to modify the path and filter out unwanted files.
-Result TransferUnzipAll(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& base_path, UnzipAllFilter filter = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
-Result TransferUnzipAll(ui::ProgressBox* pbox, const fs::FsPath& zip_out, fs::Fs* fs, const fs::FsPath& base_path, UnzipAllFilter filter = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
+Result TransferUnzipAll(ui::ProgressBox* pbox, void* zfile, fs::Fs* fs, const fs::FsPath& base_path, const UnzipAllFilter& filter = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
+Result TransferUnzipAll(ui::ProgressBox* pbox, const fs::FsPath& zip_out, fs::Fs* fs, const fs::FsPath& base_path, const UnzipAllFilter& filter = nullptr, Mode mode = Mode::SingleThreadedIfSmaller);
 
 } // namespace sphaira::thread

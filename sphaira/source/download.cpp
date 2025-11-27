@@ -4,6 +4,7 @@
 #include "evman.hpp"
 #include "fs.hpp"
 #include "app.hpp"
+#include "utils/thread.hpp"
 
 #include <switch.h>
 #include <cstring>
@@ -32,8 +33,6 @@ namespace {
 constexpr auto API_AGENT = "TotalJustice";
 constexpr u64 CHUNK_SIZE = 1024*1024;
 constexpr auto MAX_THREADS = 4;
-constexpr int THREAD_PRIO = PRIO_PREEMPTIVE;
-constexpr int THREAD_CORE = 1;
 
 std::atomic_bool g_running{};
 CURLSH* g_curl_share{};
@@ -61,11 +60,6 @@ struct SeekCustomData {
     s64 size{};
 };
 
-// helper for creating webdav folders as libcurl does not have built-in
-// support for it.
-// only creates the folders if they don't exist.
-auto WebdavCreateFolder(CURL* curl, const Api& e) -> bool;
-
 auto generate_key_from_path(const fs::FsPath& path) -> std::string {
     const auto key = crc32Calculate(path.s, path.size());
     return std::to_string(key);
@@ -79,47 +73,58 @@ struct Cache {
     using Value = std::pair<std::string, std::string>;
 
     bool init() {
-        mutexLock(&m_mutex);
-        ON_SCOPE_EXIT(mutexUnlock(&m_mutex));
+        SCOPED_MUTEX(&m_mutex);
 
-        if (m_json) {
-            return true;
+        if (!m_json) {
+            auto json_in = yyjson_read_file(JSON_PATH, YYJSON_READ_NOFLAG, nullptr, nullptr);
+            if (json_in) {
+                log_write("loading old json doc\n");
+                m_json = yyjson_doc_mut_copy(json_in, nullptr);
+                yyjson_doc_free(json_in);
+                m_root = yyjson_mut_doc_get_root(m_json);
+            } else {
+                log_write("creating new json doc\n");
+                m_json = yyjson_mut_doc_new(nullptr);
+                m_root = yyjson_mut_obj(m_json);
+                yyjson_mut_doc_set_root(m_json, m_root);
+            }
         }
 
-        auto json_in = yyjson_read_file(JSON_PATH, YYJSON_READ_NOFLAG, nullptr, nullptr);
-        if (json_in) {
-            log_write("loading old json doc\n");
-            m_json = yyjson_doc_mut_copy(json_in, nullptr);
-            yyjson_doc_free(json_in);
-            m_root = yyjson_mut_doc_get_root(m_json);
-        } else {
-            log_write("creating new json doc\n");
-            m_json = yyjson_mut_doc_new(nullptr);
-            m_root = yyjson_mut_obj(m_json);
-            yyjson_mut_doc_set_root(m_json, m_root);
+        if (!m_json) {
+            return false;
         }
 
-        return m_json && m_root;
+        m_init_ref_count++;
+        log_write("[ETAG] init: %u\n", m_init_ref_count);
+        return true;
     }
 
     void exit() {
-        mutexLock(&m_mutex);
-        ON_SCOPE_EXIT(mutexUnlock(&m_mutex));
+        SCOPED_MUTEX(&m_mutex);
 
         if (!m_json) {
             return;
         }
 
+        m_init_ref_count--;
+        if (m_init_ref_count) {
+            return;
+        }
+
+        // note: this takes 20ms
         if (!yyjson_mut_write_file(JSON_PATH, m_json, YYJSON_WRITE_NOFLAG, nullptr, nullptr)) {
-            log_write("failed to write etag json: %s\n", JSON_PATH.s);
+            log_write("[ETAG] failed to write etag json: %s\n", JSON_PATH.s);
         }
 
         yyjson_mut_doc_free(m_json);
         m_json = nullptr;
         m_root = nullptr;
+        log_write("[ETAG] exit\n");
     }
 
     void get(const fs::FsPath& path, curl::Header& header) {
+        ON_SCOPE_EXIT(mutexUnlock(&m_mutex));
+
         const auto [etag, last_modified] = get_internal(path);
         if (!etag.empty()) {
             header.m_map.emplace("if-none-match", etag);
@@ -131,7 +136,6 @@ struct Cache {
     }
 
     void set(const fs::FsPath& path, const curl::Header& value) {
-        mutexLock(&m_mutex);
         ON_SCOPE_EXIT(mutexUnlock(&m_mutex));
 
         std::string etag_str;
@@ -246,7 +250,7 @@ private:
         }
     }
 
-    static constexpr inline fs::FsPath JSON_PATH{"/switch/sphaira/cache/cache.json"};
+    static constexpr inline fs::FsPath JSON_PATH{"/switch/sphaira/cache/etag_v2.json"};
     static constexpr inline const char* ETAG_STR{"etag"};
     static constexpr inline const char* LAST_MODIFIED_STR{"last-modified"};
 
@@ -254,6 +258,7 @@ private:
     yyjson_mut_doc* m_json{};
     yyjson_mut_val* m_root{};
     std::unordered_map<std::string, Value> m_cache{};
+    u32 m_init_ref_count{};
 };
 
 struct ThreadEntry {
@@ -262,14 +267,17 @@ struct ThreadEntry {
         R_UNLESS(m_curl != nullptr, Result_CurlFailedEasyInit);
 
         ueventCreate(&m_uevent, true);
-        R_TRY(threadCreate(&m_thread, ThreadFunc, this, nullptr, 1024*32, THREAD_PRIO, THREAD_CORE));
-        R_TRY(svcSetThreadCoreMask(m_thread.handle, THREAD_CORE, THREAD_AFFINITY_DEFAULT(THREAD_CORE)));
+        R_TRY(utils::CreateThread(&m_thread, ThreadFunc, this, 1024*32));
         R_TRY(threadStart(&m_thread));
         R_SUCCEED();
     }
 
-    void Close() {
+    void SignalClose() {
         ueventSignal(&m_uevent);
+    }
+
+    void Close() {
+        SignalClose();
         threadWaitForExit(&m_thread);
         threadClose(&m_thread);
         if (m_curl) {
@@ -313,20 +321,24 @@ struct ThreadQueueEntry {
 };
 
 struct ThreadQueue {
-    std::deque<ThreadQueueEntry> m_entries;
-    Thread m_thread;
+    std::deque<ThreadQueueEntry> m_entries{};
+    Thread m_thread{};
     Mutex m_mutex{};
     UEvent m_uevent{};
 
     auto Create() -> Result {
         ueventCreate(&m_uevent, true);
-        R_TRY(threadCreate(&m_thread, ThreadFunc, this, nullptr, 1024*32, THREAD_PRIO, THREAD_CORE));
+        R_TRY(utils::CreateThread(&m_thread, ThreadFunc, this, 1024*32));
         R_TRY(threadStart(&m_thread));
         R_SUCCEED();
     }
 
-    void Close() {
+    void SignalClose() {
         ueventSignal(&m_uevent);
+    }
+
+    void Close() {
+        SignalClose();
         threadWaitForExit(&m_thread);
         threadClose(&m_thread);
     }
@@ -576,14 +588,8 @@ auto EscapeString(CURL* curl, const std::string& str) -> std::string {
     return result;
 }
 
-auto EncodeUrl(std::string url) -> std::string {
+auto EncodeUrl(const std::string& url) -> std::string {
     log_write("[CURL] encoding url\n");
-
-    if (url.starts_with("webdav://")) {
-        log_write("[CURL] updating host\n");
-        url.replace(0, std::strlen("webdav"), "https");
-        log_write("[CURL] updated host: %s\n", url.c_str());
-    }
 
     auto clu = curl_url();
     R_UNLESS(clu, url);
@@ -591,7 +597,7 @@ auto EncodeUrl(std::string url) -> std::string {
 
     log_write("[CURL] setting url\n");
     CURLUcode clu_code;
-    clu_code = curl_url_set(clu, CURLUPART_URL, url.c_str(), CURLU_URLENCODE);
+    clu_code = curl_url_set(clu, CURLUPART_URL, url.c_str(), CURLU_DEFAULT_SCHEME | CURLU_URLENCODE);
     R_UNLESS(clu_code == CURLUE_OK, url);
     log_write("[CURL] set url success\n");
 
@@ -815,13 +821,6 @@ auto UploadInternal(CURL* curl, const Api& e) -> ApiResult {
         return {};
     }
 
-    if (e.GetUrl().starts_with("webdav://")) {
-        if (!WebdavCreateFolder(curl, e)) {
-            log_write("[CURL] failed to create webdav folder, aborting\n");
-            return {};
-        }
-    }
-
     const auto& info = e.GetUploadInfo();
     const auto url = e.GetUrl() + "/" + info.m_name;
     const auto encoded_url = EncodeUrl(url);
@@ -941,76 +940,6 @@ auto UploadInternal(CURL* curl, const Api& e) -> ApiResult {
     return {success, http_code, header_out, chunk_out.data};
 }
 
-auto WebdavCreateFolder(CURL* curl, const Api& e) -> bool {
-    // if using webdav, extract the file path and create the directories.
-    // https://github.com/WebDAVDevs/webdav-request-samples/blob/master/webdav_curl.md
-    if (e.GetUrl().starts_with("webdav://")) {
-        log_write("[CURL] found webdav url\n");
-
-        const auto info = e.GetUploadInfo();
-        if (info.m_name.empty()) {
-            return true;
-        }
-
-        const auto& file_path = info.m_name;
-        log_write("got file path: %s\n", file_path.c_str());
-
-        const auto file_loc = file_path.find_last_of('/');
-        if (file_loc == file_path.npos) {
-            log_write("failed to find last slash\n");
-            return true;
-        }
-
-        const auto path_view = file_path.substr(0, file_loc);
-        log_write("got folder path: %s\n", path_view.c_str());
-
-        auto e2 = e;
-        e2.SetOption(Path{});
-        e2.SetOption(Url{e.GetUrl() + "/" + path_view});
-        e2.SetOption(Flags{e.GetFlags() | Flag_NoBody});
-        e2.SetOption(CustomRequest{"PROPFIND"});
-        e2.SetOption(Header{
-            { "Depth", "0" },
-        });
-
-        // test to see if the directory exists first.
-        const auto exist_result = DownloadInternal(curl, e2);
-        if (exist_result.success) {
-            log_write("[CURL] folder already exist: %s\n", path_view.c_str());
-            return true;
-        } else {
-            log_write("[CURL] folder does NOT exist, manually creating: %s\n", path_view.c_str());
-        }
-
-        // make the request to create the folder.
-        std::string folder;
-        for (const auto dir : std::views::split(path_view, '/')) {
-            if (dir.empty()) {
-                continue;
-            }
-
-            folder += "/" + std::string{dir.data(), dir.size()};
-            e2.SetOption(Url{e.GetUrl() + folder});
-            e2.SetOption(Header{});
-            e2.SetOption(CustomRequest{"MKCOL"});
-
-            const auto result = DownloadInternal(curl, e2);
-            if (result.code == 201) {
-                log_write("[CURL] created webdav directory\n");
-            } else if (result.code == 405) {
-                log_write("[CURL] webdav directory already exists: %ld\n", result.code);
-            } else {
-                log_write("[CURL] failed to create webdav directory: %ld\n", result.code);
-                return false;
-            }
-        }
-    } else {
-        log_write("[CURL] not a webdav url: %s\n", e.GetUrl().c_str());
-    }
-
-    return true;
-}
-
 void my_lock(CURL *handle, curl_lock_data data, curl_lock_access laccess, void *useptr) {
     mutexLock(&g_mutex_share[data]);
 }
@@ -1021,6 +950,12 @@ void my_unlock(CURL *handle, curl_lock_data data, void *useptr) {
 
 void ThreadEntry::ThreadFunc(void* p) {
     auto data = static_cast<ThreadEntry*>(p);
+
+    if (!g_cache.init()) {
+        log_write("failed to init json cache\n");
+    }
+    ON_SCOPE_EXIT(g_cache.exit());
+
     while (g_running) {
         auto rc = waitSingle(waiterForUEvent(&data->m_uevent), UINT64_MAX);
         // log_write("woke up\n");
@@ -1049,6 +984,7 @@ void ThreadEntry::ThreadFunc(void* p) {
 
 void ThreadQueue::ThreadFunc(void* p) {
     auto data = static_cast<ThreadQueue*>(p);
+
     while (g_running) {
         auto rc = waitSingle(waiterForUEvent(&data->m_uevent), UINT64_MAX);
         log_write("[thread queue] woke up\n");
@@ -1066,7 +1002,6 @@ void ThreadQueue::ThreadFunc(void* p) {
         }
 
         // find the next avaliable thread
-        u32 pop_count{};
         for (auto& entry : data->m_entries) {
             if (!g_running) {
                 return;
@@ -1080,13 +1015,14 @@ void ThreadQueue::ThreadFunc(void* p) {
                 }
 
                 if (!thread.InProgress()) {
-                    thread.Setup(entry.api);
-                    // log_write("[dl queue] starting download\n");
-                    // mark entry for deletion
-                    entry.m_delete = true;
-                    pop_count++;
-                    keep_going = true;
-                    break;
+                    if (thread.Setup(entry.api)) {
+                        // log_write("[dl queue] starting download\n");
+                        // mark entry for deletion
+                        entry.m_delete = true;
+                        // pop_count++;
+                        keep_going = true;
+                        break;
+                    }
                 }
             }
 
@@ -1096,9 +1032,9 @@ void ThreadQueue::ThreadFunc(void* p) {
         }
 
         // delete all entries marked for deletion
-        for (u32 i = 0; i < pop_count; i++) {
-            data->m_entries.pop_front();
-        }
+        std::erase_if(data->m_entries, [](auto& e){
+            return e.m_delete;
+        });
     }
 
     log_write("exited download thread queue\n");
@@ -1141,15 +1077,21 @@ auto Init() -> bool {
 
     log_write("finished creating threads\n");
 
-    if (!g_cache.init()) {
-        log_write("failed to init json cache\n");
-    }
-
     return true;
 }
 
-void Exit() {
+void ExitSignal() {
     g_running = false;
+
+    g_thread_queue.SignalClose();
+
+    for (auto& entry : g_threads) {
+        entry.SignalClose();
+    }
+}
+
+void Exit() {
+    ExitSignal();
 
     g_thread_queue.Close();
 
@@ -1168,7 +1110,6 @@ void Exit() {
     }
 
     curl_global_cleanup();
-    g_cache.exit();
 }
 
 auto ToMemory(const Api& e) -> ApiResult {

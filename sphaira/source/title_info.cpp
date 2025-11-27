@@ -3,8 +3,12 @@
 #include "ui/types.hpp"
 #include "log.hpp"
 
+#include "yati/nx/ns.hpp"
 #include "yati/nx/nca.hpp"
 #include "yati/nx/ncm.hpp"
+
+#include "utils/thread.hpp"
+#include "i18n.hpp"
 
 #include <cstring>
 #include <atomic>
@@ -17,9 +21,6 @@
 namespace sphaira::title {
 namespace {
 
-constexpr int THREAD_PRIO = PRIO_PREEMPTIVE;
-constexpr int THREAD_CORE = 1;
-
 struct ThreadData {
     ThreadData(bool title_cache);
 
@@ -28,6 +29,7 @@ struct ThreadData {
     void Clear();
 
     void PushAsync(u64 id);
+    void PushAsync(const std::span<const NsApplicationRecord> app_ids);
     auto GetAsync(u64 app_id) -> ThreadResultData*;
     auto Get(u64 app_id, bool* cached = nullptr) -> ThreadResultData*;
 
@@ -112,8 +114,8 @@ auto& GetNcmEntry(u8 storage_id) {
 void FakeNacpEntry(ThreadResultData* e) {
     e->status = NacpLoadStatus::Error;
     // fake the nacp entry
-    std::strcpy(e->lang.name, "Corrupted");
-    std::strcpy(e->lang.author, "Corrupted");
+    std::strcpy(e->lang.name, "Corrupted"_i18n.c_str());
+    std::strcpy(e->lang.author, "Corrupted"_i18n.c_str());
 }
 
 Result LoadControlManual(u64 id, NacpStruct& nacp, ThreadResultData* data) {
@@ -208,6 +210,30 @@ void ThreadData::PushAsync(u64 id) {
     }
 }
 
+void ThreadData::PushAsync(const std::span<const NsApplicationRecord> app_ids) {
+    SCOPED_MUTEX(&m_mutex_id);
+    SCOPED_MUTEX(&m_mutex_result);
+    bool added_at_least_one = false;
+
+    for (auto& record : app_ids) {
+        const auto id = record.application_id;
+
+        const auto it_id = std::ranges::find(m_ids, id);
+        const auto it_result = std::ranges::find_if(m_result, [id](auto& e){
+            return id == e->id;
+        });
+
+        if (it_id == m_ids.end() && it_result == m_result.end()) {
+            m_ids.emplace_back(id);
+            added_at_least_one = true;
+        }
+    }
+
+    if (added_at_least_one) {
+        ueventSignal(&m_uevent);
+    }
+}
+
 auto ThreadData::GetAsync(u64 app_id) -> ThreadResultData* {
     SCOPED_MUTEX(&m_mutex_result);
 
@@ -251,36 +277,37 @@ auto ThreadData::Get(u64 app_id, bool* cached) -> ThreadResultData* {
             *cached = false;
         }
 
-        bool manual_load = true;
+        bool has_nacp = false;
+        bool manual_load = false;
         u64 actual_size{};
         auto control = std::make_unique<NsApplicationControlData>();
 
-        if (hosversionBefore(20,0,0)) {
+        if (!ns::IsNsControlFetchSlow()) {
             TimeStamp ts;
             if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_CacheOnly, app_id, control.get(), sizeof(NsApplicationControlData), &actual_size))) {
-                manual_load = false;
+                has_nacp = true;
                 log_write("\t\t[ns control cache] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
             }
         }
 
-        if (manual_load) {
-            manual_load = R_SUCCEEDED(LoadControlManual(app_id, control->nacp, result.get()));
+        if (!has_nacp) {
+            has_nacp = manual_load = R_SUCCEEDED(LoadControlManual(app_id, control->nacp, result.get()));
         }
 
-        Result rc{};
-        if (!manual_load) {
+        if (!has_nacp) {
             TimeStamp ts;
-            if (R_SUCCEEDED(rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, app_id, control.get(), sizeof(NsApplicationControlData), &actual_size))) {
+            if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, app_id, control.get(), sizeof(NsApplicationControlData), &actual_size))) {
+                has_nacp = true;
                 log_write("\t\t[ns control storage] time taken: %.2fs %zums\n", ts.GetSecondsD(), ts.GetMs());
             }
         }
 
-        if (R_FAILED(rc)) {
+        if (!has_nacp) {
             FakeNacpEntry(result.get());
         } else {
             bool valid = true;
             NacpLanguageEntry* lang;
-            if (R_SUCCEEDED(nsGetApplicationDesiredLanguage(&control->nacp, &lang))) {
+            if (R_SUCCEEDED(nsGetApplicationDesiredLanguage(&control->nacp, &lang)) && lang) {
                 result->lang = *lang;
             } else {
                 FakeNacpEntry(result.get());
@@ -373,7 +400,7 @@ Result Init() {
     SCOPED_MUTEX(&g_mutex);
 
     if (!g_ref_count) {
-        R_TRY(nsInitialize());
+        R_TRY(ns::Initialize());
         R_TRY(ncmInitialize());
 
         for (auto& e : ncm_entries) {
@@ -381,8 +408,7 @@ Result Init() {
         }
 
         g_thread_data = std::make_unique<ThreadData>(true);
-        R_TRY(threadCreate(&g_thread, ThreadFunc, g_thread_data.get(), nullptr, 1024*32, THREAD_PRIO, THREAD_CORE));
-        svcSetThreadCoreMask(g_thread.handle, THREAD_CORE, THREAD_AFFINITY_DEFAULT(THREAD_CORE));
+        R_TRY(utils::CreateThread(&g_thread, ThreadFunc, g_thread_data.get(), 1024*32));
         R_TRY(threadStart(&g_thread));
     }
 
@@ -409,7 +435,7 @@ void Exit() {
             e.Close();
         }
 
-        nsExit();
+        ns::Exit();
         ncmExit();
     }
 }
@@ -425,6 +451,13 @@ void PushAsync(u64 app_id) {
     SCOPED_MUTEX(&g_mutex);
     if (g_thread_data) {
         g_thread_data->PushAsync(app_id);
+    }
+}
+
+void PushAsync(const std::span<const NsApplicationRecord> app_ids) {
+    SCOPED_MUTEX(&g_mutex);
+    if (g_thread_data) {
+        g_thread_data->PushAsync(app_ids);
     }
 }
 
@@ -453,17 +486,16 @@ auto GetNcmDb(u8 storage_id) -> NcmContentMetaDatabase& {
 }
 
 Result GetMetaEntries(u64 id, MetaEntries& out, u32 flags) {
-    for (s32 i = 0; ; i++) {
-        s32 count;
-        NsApplicationContentMetaStatus status;
-        R_TRY(nsListApplicationContentMetaStatus(id, i, &status, 1, &count));
+    s32 count;
+    R_TRY(nsCountApplicationContentMeta(id, &count));
 
-        if (!count) {
-            break;
-        }
+    std::vector<NsApplicationContentMetaStatus> entries(count);
+    R_TRY(nsListApplicationContentMetaStatus(id, 0, entries.data(), entries.size(), &count));
+    entries.resize(count);
 
-        if (flags & ContentMetaTypeToContentFlag(status.meta_type)) {
-            out.emplace_back(status);
+    for (const auto& e : entries) {
+        if (flags & ContentMetaTypeToContentFlag(e.meta_type)) {
+            out.emplace_back(e);
         }
     }
 
@@ -485,10 +517,7 @@ Result GetControlPathFromStatus(const NsApplicationContentMetaStatus& status, u6
     NcmContentId content_id;
     R_TRY(ncmContentMetaDatabaseGetContentIdByType(&db, &content_id, &key, NcmContentType_Control));
 
-    R_TRY(ncmContentStorageGetProgramId(&cs, out_program_id, &content_id, FsContentAttributes_All));
-
-    R_TRY(ncmContentStorageGetPath(&cs, out_path->s, sizeof(*out_path), &content_id));
-    R_SUCCEED();
+    return ncm::GetFsPathFromContentId(&cs, key, content_id, out_program_id, out_path);
 }
 
 // taken from nxdumptool.

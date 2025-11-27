@@ -54,4 +54,15 @@ static inline void cryptoAes128Xts(const void* in, void* out, const u8* key, u64
     Aes128Xts(key, is_encryptor).Run(out, in, sector, sector_size, data_size);
 }
 
+static inline void UpdateCtr(u8* counter, u64 offset) {
+    const u64 swp = __bswap64(offset >> 4);
+    std::memcpy(&counter[0x8], &swp, 0x8);
+}
+
+static inline void SetCtr(u8* counter, u64 ctr, u64 offset = 0) {
+    const u64 swp = __bswap64(ctr);
+    std::memcpy(&counter[0x0], &swp, 0x8);
+    UpdateCtr(counter, offset);
+}
+
 } // namespace sphaira::crypto

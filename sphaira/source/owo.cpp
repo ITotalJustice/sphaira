@@ -851,8 +851,8 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
     R_TRY(ncmInitialize());
     ON_SCOPE_EXIT(ncmExit());
 
-    R_TRY(nsInitialize());
-    ON_SCOPE_EXIT(nsExit());
+    R_TRY(ns::Initialize());
+    ON_SCOPE_EXIT(ns::Exit());
 
     keys::Keys keys;
     R_TRY(keys::parse_keys(keys, false));
@@ -974,20 +974,6 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
     // push record
     {
         pbox->NewTransfer("Pushing application record"_i18n).UpdateTransfer(5, 8);
-        Service srv{}, *srv_ptr = &srv;
-        bool already_installed{};
-
-        if (hosversionAtLeast(3,0,0)) {
-            R_TRY(nsGetApplicationManagerInterface(&srv));
-        } else {
-            srv_ptr = nsGetServiceSession_ApplicationManagerInterface();
-        }
-        ON_SCOPE_EXIT(serviceClose(&srv));
-
-
-        if (hosversionAtLeast(2,0,0)) {
-            R_TRY(nsIsAnyApplicationEntityInstalled(tid, &already_installed));
-        }
 
         // remove old id for forwarders.
         const auto rc = nsDeleteApplicationCompletely(old_tid);
@@ -995,19 +981,13 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
             App::Notify("Failed to remove old forwarder, please manually remove it!"_i18n);
         }
 
-        // remove previous application record
-        if (already_installed || hosversionBefore(2,0,0)) {
-            const auto rc = ns::DeleteApplicationRecord(srv_ptr, tid);
-            R_UNLESS(R_SUCCEEDED(rc) || hosversionBefore(2,0,0), rc);
-        }
+        // remove previous ncas.
+        nsDeleteApplicationEntity(tid);
 
-        R_TRY(ns::PushApplicationRecord(srv_ptr, tid, &content_storage_record, 1));
+        R_TRY(ns::PushApplicationRecord(tid, &content_storage_record, 1));
 
-        // force flush
-        if (already_installed || hosversionBefore(2,0,0)) {
-            const auto rc = ns::InvalidateApplicationControlCache(srv_ptr, tid);
-            R_UNLESS(R_SUCCEEDED(rc) || hosversionBefore(2,0,0), rc);
-        }
+        // force flush.
+        ns::InvalidateApplicationControlCache(tid);
     }
 
     R_SUCCEED();

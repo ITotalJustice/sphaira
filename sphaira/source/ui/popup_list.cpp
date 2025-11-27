@@ -6,8 +6,8 @@
 
 namespace sphaira::ui {
 
-PopupList::PopupList(std::string title, Items items, std::string& index_str_ref, s64& index_ref)
-: PopupList{std::move(title), std::move(items), Callback{}, index_ref}  {
+PopupList::PopupList(const std::string& title, const Items& items, std::string& index_str_ref, s64& index_ref)
+: PopupList{title, items, Callback{}, index_ref}  {
 
     m_callback = [&index_str_ref, &index_ref, this](auto op_idx) {
         if (op_idx) {
@@ -17,8 +17,8 @@ PopupList::PopupList(std::string title, Items items, std::string& index_str_ref,
     };
 }
 
-PopupList::PopupList(std::string title, Items items, std::string& index_ref)
-: PopupList{std::move(title), std::move(items), Callback{}}  {
+PopupList::PopupList(const std::string& title, const Items& items, std::string& index_ref)
+: PopupList{title, items, Callback{}}  {
 
     const auto it = std::find(m_items.cbegin(), m_items.cend(), index_ref);
     if (it != m_items.cend()) {
@@ -35,8 +35,8 @@ PopupList::PopupList(std::string title, Items items, std::string& index_ref)
     };
 }
 
-PopupList::PopupList(std::string title, Items items, s64& index_ref)
-: PopupList{std::move(title), std::move(items), Callback{}, index_ref}  {
+PopupList::PopupList(const std::string& title, const Items& items, s64& index_ref)
+: PopupList{title, items, Callback{}, index_ref}  {
 
     m_callback = [&index_ref, this](auto op_idx) {
         if (op_idx) {
@@ -45,8 +45,8 @@ PopupList::PopupList(std::string title, Items items, s64& index_ref)
     };
 }
 
-PopupList::PopupList(std::string title, Items items, Callback cb, std::string index)
-: PopupList{std::move(title), std::move(items), cb, 0} {
+PopupList::PopupList(const std::string& title, const Items& items, const Callback& cb, const std::string& index)
+: PopupList{title, items, cb, 0} {
 
     const auto it = std::find(m_items.cbegin(), m_items.cend(), index);
     if (it != m_items.cend()) {
@@ -57,9 +57,9 @@ PopupList::PopupList(std::string title, Items items, Callback cb, std::string in
     }
 }
 
-PopupList::PopupList(std::string title, Items items, Callback cb, s64 index)
-: m_title{std::move(title)}
-, m_items{std::move(items)}
+PopupList::PopupList(const std::string& title, const Items& items, const Callback& cb, s64 index)
+: m_title{title}
+, m_items{items}
 , m_callback{cb}
 , m_index{index} {
     this->SetActions(
@@ -110,8 +110,9 @@ auto PopupList::Draw(NVGcontext* vg, Theme* theme) -> void {
     gfx::drawText(vg, m_pos + m_title_pos, 24.f, theme->GetColour(ThemeEntryID_TEXT), m_title.c_str());
     gfx::drawRect(vg, 30.f, m_line_top, m_line_width, 1.f, theme->GetColour(ThemeEntryID_LINE));
     gfx::drawRect(vg, 30.f, m_line_bottom, m_line_width, 1.f, theme->GetColour(ThemeEntryID_LINE));
+    gfx::drawTextArgs(vg, 80, 675, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%zu / %zu", m_index + 1, m_items.size());
 
-    m_list->Draw(vg, theme, m_items.size(), [this](auto* vg, auto* theme, auto v, auto i) {
+    m_list->Draw(vg, theme, m_items.size(), [this](auto* vg, auto* theme, auto& v, auto i) {
         const auto& [x, y, w, h] = v;
         auto colour = ThemeEntryID_TEXT;
         const auto selected = m_index == i;
