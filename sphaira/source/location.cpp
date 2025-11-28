@@ -2,6 +2,7 @@
 #include "fs.hpp"
 #include "app.hpp"
 #include "utils/devoptab.hpp"
+#include "i18n.hpp"
 
 #include <cstring>
 
@@ -29,7 +30,7 @@ auto GetStdio(bool write) -> StdioEntries {
             }
 
             if (e.flags & FsEntryFlag::FsEntryFlag_ReadOnly) {
-                e.name += " (Read Only)";
+                e.name += i18n::get(" (Read Only)");
             }
 
             out.emplace_back(e);

@@ -718,10 +718,10 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             nvgIntersectScissor(vg, 50, 90, 325, 555);
             gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%s", e.lang_entry.name);
             gfx::drawTextArgs(vg, 50, 455, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%s", e.lang_entry.author);
-            gfx::drawTextArgs(vg, 50, 495, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "App-ID: 0%lX", e.app_id);
-            gfx::drawTextArgs(vg, 50, 535, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Key-Gen: %u (%s)", e.key_gen, nca::GetKeyGenStr(e.key_gen));
-            gfx::drawTextArgs(vg, 50, 575, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Size: %.2f GB", (double)size / 0x40000000);
-            gfx::drawTextArgs(vg, 50, 615, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Base: %zu Patch: %zu Addon: %zu Data: %zu", e.application.size(), e.patch.size(), e.add_on.size(), e.data_patch.size());
+            gfx::drawTextArgs(vg, 50, 495, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "App-ID: 0%lX"_i18n.c_str(), e.app_id);
+            gfx::drawTextArgs(vg, 50, 535, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Key-Gen: %u (%s)"_i18n.c_str(), e.key_gen, nca::GetKeyGenStr(e.key_gen));
+            gfx::drawTextArgs(vg, 50, 575, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Size: %.2f GB"_i18n.c_str(), (double)size / 0x40000000);
+            gfx::drawTextArgs(vg, 50, 615, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Base: %zu Patch: %zu Addon: %zu Data: %zu"_i18n.c_str(), e.application.size(), e.patch.size(), e.add_on.size(), e.data_patch.size());
         nvgRestore(vg);
     }
 
@@ -1098,7 +1098,7 @@ void Menu::OnChangeIndex(s64 new_index) {
     m_entry_index = new_index;
 
     if (m_entries.empty()) {
-        this->SetSubHeading("No GameCard inserted");
+        this->SetSubHeading("No GameCard inserted"_i18n);
     } else {
         const auto index = m_entries.empty() ? 0 : m_entry_index + 1;
         this->SetSubHeading(std::to_string(index) + " / " + std::to_string(m_entries.size()));

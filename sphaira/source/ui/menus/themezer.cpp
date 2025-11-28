@@ -252,7 +252,7 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.details.name);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", entry.details.name));
         log_write("starting download\n");
 
         const auto url = apiBuildUrlDownloadPack(entry);
@@ -272,7 +272,7 @@ auto InstallTheme(ProgressBox* pbox, const PackListEntry& entry) -> Result {
 
     // 2. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.details.name);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", entry.details.name));
         log_write("starting download: %s\n", download_pack.url.c_str());
 
         const auto result = curl::Api().ToFile(
@@ -383,13 +383,13 @@ Menu::Menu(u32 flags) : MenuBase{"Themezer"_i18n, flags} {
                             const auto& entry = page.m_packList[m_index];
                             const auto url = apiBuildUrlDownloadPack(entry);
 
-                            App::Push<ProgressBox>(entry.themes[0].preview.lazy_image.image, "Downloading "_i18n, entry.details.name, [this, &entry](auto pbox) -> Result {
+                            App::Push<ProgressBox>(entry.themes[0].preview.lazy_image.image, i18n::Reorder("Downloading ", entry.details.name), [this, &entry](auto pbox) -> Result {
                                 return InstallTheme(pbox, entry);
                             }, [this, &entry](Result rc){
                                 App::PushErrorBox(rc, "Failed to download theme"_i18n);
 
                                 if (R_SUCCEEDED(rc)) {
-                                    App::Notify("Downloaded "_i18n + entry.details.name);
+                                    App::Notify(i18n::Reorder("Downloaded ", entry.details.name));
                                 }
                             });
                         }

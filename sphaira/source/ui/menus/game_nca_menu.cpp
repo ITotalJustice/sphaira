@@ -205,9 +205,10 @@ Menu::Menu(Entry& entry, const meta::MetaEntry& meta_entry)
                             }
                         }
                     });
-                },  "Performs sha256 hash over the NCA to check if it's valid.\n\n"
-                    "NOTE: This only detects if the hash is missmatched, it does not validate if \
-                    the content has been modified at all."_i18n);
+                },  i18n::get("nca_validate_info",
+                        "Performs sha256 hash over the NCA to check if it's valid.\n\n"
+                        "NOTE: This only detects if the hash is missmatched, it does not validate if "
+                        "the content has been modified at all."));
 
                 options->Add<SidebarEntryCallback>("Verify NCA fixed key"_i18n, [this](){
                     if (R_FAILED(nca::VerifyFixedKey(GetEntry().header))) {
@@ -215,9 +216,10 @@ Menu::Menu(Entry& entry, const meta::MetaEntry& meta_entry)
                     } else {
                         App::Push<OptionBox>("NCA fixed key is valid."_i18n, "OK"_i18n);
                     }
-                },  "Performs RSA NCA fixed key verification. "\
-                    "This is a hash over the NCA header. It is used to verify that the header has not been modified. "\
-                    "The header is signed by nintendo, thus it cannot be forged, and is reliable to detect modified NCA headers (such as NSP/XCI converts)."_i18n);
+                },  i18n::get("nca_fixedkey_info",
+                        "Performs RSA NCA fixed key verification. "
+                        "This is a hash over the NCA header. It is used to verify that the header has not been modified. "
+                        "The header is signed by nintendo, thus it cannot be forged, and is reliable to detect modified NCA headers (such as NSP/XCI converts)."));
             }
         }})
     );
@@ -307,16 +309,16 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
     gfx::drawImage(vg, 90, 130, 256, 256, m_entry.image ? m_entry.image : App::GetDefaultImage());
 
     if (e.header.magic != NCA3_MAGIC) {
-        gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Failed to decrypt NCA");
+        gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Failed to decrypt NCA"_i18n.c_str());
     } else {
         nvgSave(vg);
         nvgIntersectScissor(vg, 50, 90, 325, 555);
-        gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Application Type: %s", ncm::GetReadableMetaTypeStr(m_meta_entry.status.meta_type));
-        gfx::drawTextArgs(vg, 50, 455, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Content Type: %s", nca::GetContentTypeStr(e.header.content_type));
-        gfx::drawTextArgs(vg, 50, 495, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Distribution Type: %s", nca::GetDistributionTypeStr(e.header.distribution_type));
-        gfx::drawTextArgs(vg, 50, 535, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Program ID: %016lX", e.header.program_id);
-        gfx::drawTextArgs(vg, 50, 575, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Key Generation: %u (%s)", e.header.GetKeyGeneration(), nca::GetKeyGenStr(e.header.GetKeyGeneration()));
-        gfx::drawTextArgs(vg, 50, 615, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "SDK Version: %u.%u.%u.%u", e.header.sdk_major, e.header.sdk_minor, e.header.sdk_micro, e.header.sdk_revision);
+        gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Application Type: %s"_i18n.c_str(), i18n::get(ncm::GetReadableMetaTypeStr(m_meta_entry.status.meta_type)).c_str());
+        gfx::drawTextArgs(vg, 50, 455, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Content Type: %s"_i18n.c_str(), nca::GetContentTypeStr(e.header.content_type));
+        gfx::drawTextArgs(vg, 50, 495, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Distribution Type: %s"_i18n.c_str(), nca::GetDistributionTypeStr(e.header.distribution_type));
+        gfx::drawTextArgs(vg, 50, 535, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Program ID: %016lX"_i18n.c_str(), e.header.program_id);
+        gfx::drawTextArgs(vg, 50, 575, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Key Generation: %u (%s)"_i18n.c_str(), e.header.GetKeyGeneration(), nca::GetKeyGenStr(e.header.GetKeyGeneration()));
+        gfx::drawTextArgs(vg, 50, 615, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "SDK Version: %u.%u.%u.%u"_i18n.c_str(), e.header.sdk_major, e.header.sdk_minor, e.header.sdk_micro, e.header.sdk_revision);
         nvgRestore(vg);
     }
 

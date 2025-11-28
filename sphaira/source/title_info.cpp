@@ -8,6 +8,7 @@
 #include "yati/nx/ncm.hpp"
 
 #include "utils/thread.hpp"
+#include "i18n.hpp"
 
 #include <cstring>
 #include <atomic>
@@ -113,8 +114,8 @@ auto& GetNcmEntry(u8 storage_id) {
 void FakeNacpEntry(ThreadResultData* e) {
     e->status = NacpLoadStatus::Error;
     // fake the nacp entry
-    std::strcpy(e->lang.name, "Corrupted");
-    std::strcpy(e->lang.author, "Corrupted");
+    std::strcpy(e->lang.name, "Corrupted"_i18n.c_str());
+    std::strcpy(e->lang.author, "Corrupted"_i18n.c_str());
 }
 
 Result LoadControlManual(u64 id, NacpStruct& nacp, ThreadResultData* data) {

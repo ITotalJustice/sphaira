@@ -188,7 +188,7 @@ Menu::Menu(u32 flags) : MenuBase{"Irs"_i18n, flags} {
         return;
     }
 
-    static_assert(IRS_MAX_CAMERAS >= 9, "max camaeras has gotten smaller!");
+    static_assert(IRS_MAX_CAMERAS >= 9, "max cameras has gotten smaller!");
 
     // open all handles
     irsGetIrCameraHandle(&m_entries[0].m_handle, HidNpadIdType_No1);
@@ -534,7 +534,7 @@ void Menu::updateColourArray() {
 
 auto Menu::GetEntryName(s64 i) -> std::string {
     const auto& e = m_entries[i];
-    std::string text = "Pad "_i18n + (i == 8 ? "HandHeld"_i18n : std::to_string(i));
+    std::string text = i18n::Reorder("Pad ", (i == 8 ? "HandHeld"_i18n : std::to_string(i)));
     switch (e.status) {
         case IrsIrCameraStatus_Available:
             text += " (Available)"_i18n;

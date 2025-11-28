@@ -839,9 +839,10 @@ void App::SetReplaceHbmenuEnable(bool enable) {
                     NacpStruct actual_hbmenu_nacp;
                     if (R_FAILED(nro_get_nacp("/switch/hbmenu.nro", actual_hbmenu_nacp))) {
                         App::Push<ui::OptionBox>(
-                            "Failed to find /switch/hbmenu.nro\n"
-                            "Use the Appstore to re-install hbmenu"_i18n,
-                            "OK"_i18n
+                            i18n::get("missing_hbmenu_info",
+                                "Failed to find /switch/hbmenu.nro\n"
+                                "Use the Appstore to re-install hbmenu"
+                            ), "OK"_i18n
                         );
                         return;
                     }
@@ -1960,18 +1961,23 @@ void App::DisplayThemeOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>("Music"_i18n, App::GetThemeMusicEnable(), [](bool& enable){
         App::SetThemeMusicEnable(enable);
-    },  "Enable background music.\n"
-        "Each theme can have it's own music file. "
-        "If a theme does not set a music file, the default music is loaded instead (if it exists)."_i18n);
+    },  i18n::get("bgm_enable_info",
+            "Enable background music.\n"
+            "Each theme can have it's own music file. "
+            "If a theme does not set a music file, the default music is loaded instead (if it exists)."
+        )
+    );
 
     options->Add<ui::SidebarEntryBool>("Show IP address"_i18n, App::GetApp()->m_show_ip_addr,
-        "Shows the IP address in all menus, including the WiFi strength.\n\n"
-        "NOTE: The IP address will be hidden in applet mode due to the applet warning being displayed in it's place."_i18n
+        i18n::get("display_ip_info",
+            "Shows the IP address in all menus, including the WiFi strength.\n\n"
+            "NOTE: The IP address will be hidden in applet mode due to the applet warning being displayed in it's place."
+        )
     );
 
     // todo: add file picker for music here.
     // todo: add array to audio which has the list of supported extensions.
-    auto remove_music = options->Add<ui::SidebarEntryCallback>("Remove Background Music", [](){
+    auto remove_music = options->Add<ui::SidebarEntryCallback>("Remove Background Music"_i18n, [](){
         g_app->m_default_music.Set("");
         audio::CloseSong(&g_app->m_background_music);
     },  "Removes the background music file"_i18n);
@@ -2003,7 +2009,7 @@ void App::DisplayMenuOptions(bool left_side) {
         }, i18n::get(e.info));
 
         if (e.IsInstall()) {
-            entry->Depends(App::GetInstallEnable, i18n::get(App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
+            entry->Depends(App::GetInstallEnable, i18n::get("enable_install_info", App::INSTALL_DEPENDS_STR), App::ShowEnableInstallPrompt);
         }
     }
 
@@ -2033,8 +2039,10 @@ void App::DisplayMenuOptions(bool left_side) {
                 }
             );
         },
-        "Launch the built-in web browser.\n\n",
-        "NOTE: The browser is very limted, some websites will fail to load and there's a 30 minute timeout which closes the browser"_i18n);
+        i18n::get("web_browser_info",
+            "Launch the built-in web browser.\n\n"
+            "NOTE: The browser is very limted, some websites will fail to load and there's a 30 minute timeout which closes the browser"
+        ));
     }
 }
 
@@ -2064,18 +2072,21 @@ void App::DisplayAdvancedOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>("Replace hbmenu on exit"_i18n, App::GetReplaceHbmenuEnable(), [](bool& enable){
         App::SetReplaceHbmenuEnable(enable);
-    }, "When enabled, it replaces /hbmenu.nro with Sphaira, creating a backup of hbmenu to /switch/hbmenu.nro\n\n" \
-       "Disabling will give you the option to restore hbmenu."_i18n);
+    },  i18n::get("hbmenu_replace_info",
+            "When enabled, it replaces /hbmenu.nro with Sphaira, creating a backup of hbmenu to /switch/hbmenu.nro\n\n"
+            "Disabling will give you the option to restore hbmenu."));
 
     options->Add<ui::SidebarEntryCallback>("Add / modify mounts"_i18n, [](){
         devoptab::DisplayDevoptabSideBar();
-    },  "Create, modify, delete network mounts (HTTP, FTP, SFTP, SMB, NFS).\n"
-        "Mount options only require a URL and Name be set, with other fields being optional, such as port, user, pass etc.\n\n"
-        "Any changes made will require restarting Sphaira to take effect."_i18n);
+    },  i18n::get("mount_options_info",
+            "Create, modify, delete network mounts (HTTP, FTP, SFTP, SMB, NFS).\n"
+            "Mount options only require a URL and Name be set, with other fields being optional, such as port, user, pass etc.\n\n"
+            "Any changes made will require restarting Sphaira to take effect."));
 
     options->Add<ui::SidebarEntryBool>("Boost CPU during transfer"_i18n, App::GetApp()->m_progress_boost_mode,
-        "Enables boost mode during transfers which can improve transfer speed. "
-        "This sets the CPU to 1785mhz and lowers the GPU 76mhz"_i18n);
+        i18n::get("transfer_boost_info",
+            "Enables boost mode during transfers which can improve transfer speed. "
+            "This sets the CPU to 1785mhz and lowers the GPU 76mhz"));
 
     options->Add<ui::SidebarEntryArray>("Text scroll speed"_i18n, text_scroll_speed_items, [](s64& index_out){
         App::SetTextScrollSpeed(index_out);
@@ -2141,8 +2152,9 @@ void App::DisplayAdvancedOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryCallback>("Install options"_i18n, [left_side](){
         App::DisplayInstallOptions(left_side);
-    },  "Change the install options.\n"
-        "You can enable installing from here."_i18n);
+    },  i18n::get("install_options_info",
+            "Change the install options.\n"
+            "You can enable installing from here."));
 
     options->Add<ui::SidebarEntryCallback>("Export options"_i18n, [left_side](){
         App::DisplayDumpOptions(left_side);
@@ -2194,46 +2206,54 @@ void App::DisplayInstallOptions(bool left_side) {
         "Skips installing tickets, not recommended."_i18n);
 
     options->Add<ui::SidebarEntryBool>("Skip NCA hash verify"_i18n, App::GetApp()->m_skip_nca_hash_verify,
-        "Enables the option to skip sha256 verification. This is a hash over the entire NCA. "
-        "It is used to verify that the NCA is valid / not corrupted. "
-        "You may have seen the option for \"checking for corrupted data\" when a corrupted game is installed. "
-        "That check performs various hash checks, including the hash over the NCA.\n\n"
-        "It is recommended to keep this disabled."_i18n);
+        i18n::get("skip_nca_info",
+            "Enables the option to skip sha256 verification. This is a hash over the entire NCA. "
+            "It is used to verify that the NCA is valid / not corrupted. "
+            "You may have seen the option for \"checking for corrupted data\" when a corrupted game is installed. "
+            "That check performs various hash checks, including the hash over the NCA.\n\n"
+            "It is recommended to keep this disabled."));
 
     options->Add<ui::SidebarEntryBool>("Skip RSA header verify"_i18n, App::GetApp()->m_skip_rsa_header_fixed_key_verify,
-        "Enables the option to skip RSA NCA fixed key verification. "
-        "This is a hash over the NCA header. It is used to verify that the header has not been modified. "
-        "The header is signed by nintendo, thus it cannot be forged, and is reliable to detect modified NCA headers (such as NSP/XCI converts).\n\n"
-        "It is recommended to keep this disabled, unless you need to install nsp/xci converts."_i18n);
+        i18n::get("nca_verify_info",
+            "Enables the option to skip RSA NCA fixed key verification. "
+            "This is a hash over the NCA header. It is used to verify that the header has not been modified. "
+            "The header is signed by nintendo, thus it cannot be forged, and is reliable to detect modified NCA headers (such as NSP/XCI converts).\n\n"
+            "It is recommended to keep this disabled, unless you need to install nsp/xci converts."));
 
     options->Add<ui::SidebarEntryBool>("Skip RSA NPDM verify"_i18n, App::GetApp()->m_skip_rsa_npdm_fixed_key_verify,
-        "Enables the option to skip RSA NPDM fixed key verification.\n\n"
-        "Currently, this option is stubbed (not implemented)."_i18n);
+        i18n::get("npdm_verify_info",
+            "Enables the option to skip RSA NPDM fixed key verification.\n\n"
+            "Currently, this option is stubbed (not implemented)."));
 
     options->Add<ui::SidebarEntryBool>("Ignore distribution bit"_i18n, App::GetApp()->m_ignore_distribution_bit,
-        "If set, it will ignore the distribution bit in the NCA header. "
-        "The distribution bit is used to signify whether a NCA is Eshop or GameCard. "
-        "You cannot (normally) launch install games that have the distruction bit set to GameCard.\n\n"
-        "It is recommended to keep this disabled."_i18n);
+        i18n::get("nca_distbit_info",
+            "If set, it will ignore the distribution bit in the NCA header. "
+            "The distribution bit is used to signify whether a NCA is Eshop or GameCard. "
+            "You cannot (normally) launch install games that have the distruction bit set to GameCard.\n\n"
+            "It is recommended to keep this disabled."));
 
     options->Add<ui::SidebarEntryBool>("Convert to common ticket"_i18n, App::GetApp()->m_convert_to_common_ticket,
-        "[Requires keys] Converts personalised tickets to common (fake) tickets.\n\n"
-        "It is recommended to keep this enabled."_i18n);
+        i18n::get("ticket_convert_info",
+            "[Requires keys] Converts personalised tickets to common (fake) tickets.\n\n"
+            "It is recommended to keep this enabled."));
 
     options->Add<ui::SidebarEntryBool>("Convert to standard crypto"_i18n, App::GetApp()->m_convert_to_standard_crypto,
-        "[Requires keys] Converts titlekey to standard crypto, also known as \"ticketless\".\n\n"
-        "It is recommended to keep this disabled."_i18n);
+        i18n::get("titlekey_crypto_info",
+            "[Requires keys] Converts titlekey to standard crypto, also known as \"ticketless\".\n\n"
+            "It is recommended to keep this disabled."));
 
     options->Add<ui::SidebarEntryBool>("Lower master key"_i18n, App::GetApp()->m_lower_master_key,
-        "[Requires keys] Encrypts the keak (key area key) with master key 0, which allows the game to be launched on every fw. "
-        "Implicitly performs standard crypto.\n\n"
-        "Do note that just because the game can be launched on any fw (as it can be decrypted), doesn't mean it will work. It is strongly recommened to update your firmware and Atmosphere version in order to play the game, rather than enabling this option.\n\n"
-        "It is recommended to keep this disabled."_i18n);
+        i18n::get("keyarea_crypto_info",
+            "[Requires keys] Encrypts the keak (key area key) with master key 0, which allows the game to be launched on every fw. "
+            "Implicitly performs standard crypto.\n\n"
+            "Do note that just because the game can be launched on any fw (as it can be decrypted), doesn't mean it will work. It is strongly recommened to update your firmware and Atmosphere version in order to play the game, rather than enabling this option.\n\n"
+            "It is recommended to keep this disabled."));
 
     options->Add<ui::SidebarEntryBool>("Lower system version"_i18n, App::GetApp()->m_lower_system_version,
-        "Sets the system_firmware field in the cnmt extended header to 0. "
-        "Note: if the master key is higher than fw version, the game still won't launch as the fw won't have the key to decrypt keak (see above).\n\n"
-        "It is recommended to keep this disabled."_i18n);
+        i18n::get("cnmt_fw_info",
+            "Sets the system_firmware field in the cnmt extended header to 0. "
+            "Note: if the master key is higher than fw version, the game still won't launch as the fw won't have the key to decrypt keak (see above).\n\n"
+            "It is recommended to keep this disabled."));
 }
 
 void App::DisplayDumpOptions(bool left_side) {
@@ -2242,30 +2262,34 @@ void App::DisplayDumpOptions(bool left_side) {
 
     ui::SidebarEntryArray::Items nsz_level_items;
     for (auto& e : NSZ_COMPRESS_LEVEL_OPTIONS) {
-        nsz_level_items.emplace_back(e.name);
+        nsz_level_items.emplace_back(i18n::get(e.name));
     }
 
     ui::SidebarEntryArray::Items nsz_thread_items;
     for (auto& e : NSZ_COMPRESS_THREAD_OPTIONS) {
-        nsz_thread_items.emplace_back(e.name);
+        nsz_thread_items.emplace_back(i18n::get(e.name));
     }
 
     ui::SidebarEntryArray::Items nsz_block_items;
     for (auto& e : NSZ_COMPRESS_BLOCK_OPTIONS) {
-        nsz_block_items.emplace_back(e.name);
+        nsz_block_items.emplace_back(i18n::get(e.name));
     }
 
     options->Add<ui::SidebarEntryBool>(
         "Created nested folder"_i18n, App::GetApp()->m_dump_app_folder,
-        "Creates a folder using the name of the game.\n"
-        "For example, /name/name.xci\n"
-        "Disabling this would use /name.xci"_i18n
+        i18n::get("game_folder_info",
+            "Creates a folder using the name of the game.\n"
+            "For example, /name/name.xci\n"
+            "Disabling this would use /name.xci"
+        )
     );
     options->Add<ui::SidebarEntryBool>(
         "Append folder with .xci"_i18n, App::GetApp()->m_dump_append_folder_with_xci,
-        "XCI dumps will name the folder with the .xci extension.\n"
-        "For example, /name.xci/name.xci\n\n"
-        "Some devices only function is the xci folder is named exactly the same as the xci."_i18n
+        i18n::get("xci_folder_info",
+            "XCI dumps will name the folder with the .xci extension.\n"
+            "For example, /name.xci/name.xci\n\n"
+            "Some devices only function is the xci folder is named exactly the same as the xci."
+        )
     );
     options->Add<ui::SidebarEntryBool>(
         "Trim XCI"_i18n, App::GetApp()->m_dump_trim_xci,
@@ -2284,20 +2308,24 @@ void App::DisplayDumpOptions(bool left_side) {
     options->Add<ui::SidebarEntryArray>("NSZ level"_i18n, nsz_level_items, [](s64& index_out){
         App::GetApp()->m_nsz_compress_level.Set(index_out);
     }, App::GetApp()->m_nsz_compress_level.Get(),
-        "Sets the compression level used when exporting to NSZ.\n\n"
-        "NOTE: The switch CPU is not very fast, and setting the value too high can "
-        "result in exporting taking a very long time for very little gain in size.\n\n"
-        "It is recommended to set this value to 3."_i18n
+        i18n::get("compress_level_info",
+            "Sets the compression level used when exporting to NSZ.\n\n"
+            "NOTE: The switch CPU is not very fast, and setting the value too high can "
+            "result in exporting taking a very long time for very little gain in size.\n\n"
+            "It is recommended to set this value to 3."
+        )
     );
 
     options->Add<ui::SidebarEntryArray>("NSZ threads"_i18n, nsz_thread_items, [](s64& index_out){
         App::GetApp()->m_nsz_compress_threads.Set(index_out);
     }, App::GetApp()->m_nsz_compress_threads.Get(),
-        "Sets the number of threads used when compression the NCA.\n\n"
-        "A value less than 3 allows for another thread to run freely, such as read/write threads. "
-        "However in my testing, a value of 3 was usually the most performant.\n"
-        "A value of 0 will use no threads and should only be used for testing as it is always slower.\n\n"
-        "It is recommended to set this value between 1-3."_i18n
+        i18n::get("compress_threads_info",
+            "Sets the number of threads used when compression the NCA.\n\n"
+            "A value less than 3 allows for another thread to run freely, such as read/write threads. "
+            "However in my testing, a value of 3 was usually the most performant.\n"
+            "A value of 0 will use no threads and should only be used for testing as it is always slower.\n\n"
+            "It is recommended to set this value between 1-3."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
@@ -2307,9 +2335,11 @@ void App::DisplayDumpOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>(
         "NSZ block compression"_i18n, App::GetApp()->m_nsz_compress_block,
-        "Enables block compression, which compresses the NCA into blocks (at the cost of compression ratio) "
-        "which allows for random access, allowing the NCZ to be mounted as a file system.\n\n"
-        "NOTE: Sphaira does not yet support mounting NCZ as a file system, but it will be added evntually."_i18n
+        i18n::get("block_compress_info",
+            "Enables block compression, which compresses the NCA into blocks (at the cost of compression ratio) "
+            "which allows for random access, allowing the NCZ to be mounted as a file system.\n\n"
+            "NOTE: Sphaira does not yet support mounting NCZ as a file system, but it will be added evntually."
+        )
     );
 
     auto block_size_option = options->Add<ui::SidebarEntryArray>("NSZ block size"_i18n, nsz_block_items, [](s64& index_out){
@@ -2338,7 +2368,7 @@ void App::DisplayFtpOptions(bool left_side) {
     },  "Enable FTP server to run in the background."_i18n);
 
     options->Add<ui::SidebarEntryTextInput>(
-        "Port", App::GetApp()->m_ftp_port.Get(), "", "", 1, 5,
+        "Port"_i18n, App::GetApp()->m_ftp_port.Get(), "", "", 1, 5,
         "Opens the FTP server on this port."_i18n,
         [](auto* input){
             App::GetApp()->m_ftp_port.Set(input->GetNumValue());
@@ -2347,12 +2377,14 @@ void App::DisplayFtpOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>(
         "Anon"_i18n, App::GetApp()->m_ftp_anon,
-        "Allows you to login without setting a username and password.\n"
-        "If disabled, you must set a user name and password below!"_i18n
+        i18n::get("login_require_info",
+            "Allows you to login without setting a username and password.\n"
+            "If disabled, you must set a user name and password below!"
+        )
     );
 
     options->Add<ui::SidebarEntryTextInput>(
-        "User", App::GetApp()->m_ftp_user.Get(), "", "", -1, 64,
+        "User"_i18n, App::GetApp()->m_ftp_user.Get(), "", "", -1, 64,
         "Sets the username, must be set if anon is disabled."_i18n,
         [](auto* input){
             App::GetApp()->m_ftp_user.Set(input->GetValue());
@@ -2360,7 +2392,7 @@ void App::DisplayFtpOptions(bool left_side) {
     );
 
     options->Add<ui::SidebarEntryTextInput>(
-        "Pass", App::GetApp()->m_ftp_pass.Get(), "", "", -1, 64,
+        "Pass"_i18n, App::GetApp()->m_ftp_pass.Get(), "", "", -1, 64,
         "Sets the password, must be set if anon is disabled."_i18n,
         [](auto* input){
             App::GetApp()->m_ftp_pass.Set(input->GetValue());
@@ -2379,30 +2411,34 @@ void App::DisplayFtpOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>(
         "Show bis storage"_i18n, App::GetApp()->m_ftp_show_bis_storage,
-        "Shows the bis folder which contains the following:\n"
-        "- BootPartition1Root.bin\n"
-        "- BootPartition2Root.bin\n"
-        "- UserDataRoot.bin\n"
-        "- BootConfigAndPackage2Part1.bin\n"
-        "- BootConfigAndPackage2Part2.bin\n"
-        "- BootConfigAndPackage2Part3.bin\n"
-        "- BootConfigAndPackage2Part4.bin\n"
-        "- BootConfigAndPackage2Part5.bin\n"
-        "- BootConfigAndPackage2Part6.bin\n"
-        "- CalibrationFile.bin\n"
-        "- SafeMode.bin\n"
-        "- User.bin\n"
-        "- System.bin\n"
-        "- SystemProperEncryption.bin"_i18n
+        i18n::get("bis_contents_info",
+            "Shows the bis folder which contains the following:\n"
+            "- BootPartition1Root.bin\n"
+            "- BootPartition2Root.bin\n"
+            "- UserDataRoot.bin\n"
+            "- BootConfigAndPackage2Part1.bin\n"
+            "- BootConfigAndPackage2Part2.bin\n"
+            "- BootConfigAndPackage2Part3.bin\n"
+            "- BootConfigAndPackage2Part4.bin\n"
+            "- BootConfigAndPackage2Part5.bin\n"
+            "- BootConfigAndPackage2Part6.bin\n"
+            "- CalibrationFile.bin\n"
+            "- SafeMode.bin\n"
+            "- User.bin\n"
+            "- System.bin\n"
+            "- SystemProperEncryption.bin"
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show bis file systems"_i18n, App::GetApp()->m_ftp_show_bis_fs,
-        "Shows the following bis file systems:\n"
-        "- bis_calibration_file\n"
-        "- bis_safe_mode\n"
-        "- bis_user\n"
-        "- bis_system"_i18n
+        i18n::get("bis_fs_info",
+            "Shows the following bis file systems:\n"
+            "- bis_calibration_file\n"
+            "- bis_safe_mode\n"
+            "- bis_user\n"
+            "- bis_system"
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
@@ -2417,37 +2453,47 @@ void App::DisplayFtpOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>(
         "Show microSD contents"_i18n, App::GetApp()->m_ftp_show_content_sd,
-        "Shows the microSD contents folder.\n\n"
-        "NOTE: This is not the normal microSD card storage, it is instead "
-        "the location where NCA's are stored. The normal microSD card is always mounted."_i18n
+        i18n::get("microsd_contents_info",
+            "Shows the microSD contents folder.\n\n"
+            "NOTE: This is not the normal microSD card storage, it is instead "
+            "the location where NCA's are stored. The normal microSD card is always mounted."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show games"_i18n, App::GetApp()->m_ftp_show_games,
-        "Shows the games folder.\n\n"
-        "This folder contains all of your installed games, allowing you to create "
-        "backups over FTP!\n\n"
-        "NOTE: This folder is read-only. You cannot delete games over FTP."_i18n
+        i18n::get("games_ftp_info",
+            "Shows the games folder.\n\n"
+            "This folder contains all of your installed games, allowing you to create "
+            "backups over FTP!\n\n"
+            "NOTE: This folder is read-only. You cannot delete games over FTP."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show install"_i18n, App::GetApp()->m_ftp_show_install,
-        "Shows the install folder.\n\n"
-        "This folder is used for installing games via FTP.\n\n"
-        "NOTE: You must open the \"FTP Install\" menu when trying to install a game!"_i18n
+        i18n::get("install_ftp_info",
+            "Shows the install folder.\n\n"
+            "This folder is used for installing games via FTP.\n\n"
+            "NOTE: You must open the \"FTP Install\" menu when trying to install a game!"
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show mounts"_i18n, App::GetApp()->m_ftp_show_mounts,
-        "Shows the mounts folder.\n\n"
-        "This folder is contains all of the mounts added to Sphaira, allowing you to acces them over FTP!\n"
-        "For example, you can access your SMB, WebDav or other FTP mounts over FTP."_i18n
+        i18n::get("mounts_ftp_info",
+            "Shows the mounts folder.\n\n"
+            "This folder is contains all of the mounts added to Sphaira, allowing you to acces them over FTP!\n"
+            "For example, you can access your SMB, WebDav or other FTP mounts over FTP."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show switch"_i18n, App::GetApp()->m_ftp_show_switch,
-        "Shows the shortcut for the /switch folder."
-        "This is the folder that contains all your homebrew (NRO's)."_i18n
+        i18n::get("homebrew_folder_info",
+            "Shows the shortcut for the /switch folder."
+            "This is the folder that contains all your homebrew (NRO's)."
+        )
     );
 }
 
@@ -2473,13 +2519,15 @@ void App::DisplayMtpOptions(bool left_side) {
     #if 0
     options->Add<ui::SidebarEntryBool>(
         "Pre-allocate file"_i18n, App::GetApp()->m_mtp_allocate_file,
-        "Enables pre-allocating the file size before writing.\n"
-        "This speeds up file writes, however, this can cause timeouts if all these conditions are met:\n"
-        "- using Windows\n"
-        "- using emuMMC\n"
-        "- transferring a large file (>1GB)\n\n"
-        "This option should be left enabled, however if you use the above and experience timeouts, "
-        "then try again with this option disabled."_i18n
+        i18n::get("prealloc_info",
+            "Enables pre-allocating the file size before writing.\n"
+            "This speeds up file writes, however, this can cause timeouts if all these conditions are met:\n"
+            "- using Windows\n"
+            "- using emuMMC\n"
+            "- transferring a large file (>1GB)\n\n"
+            "This option should be left enabled, however if you use the above and experience timeouts, "
+            "then try again with this option disabled."
+        )
     );
     #endif
 
@@ -2490,9 +2538,11 @@ void App::DisplayMtpOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>(
         "Show microSD contents"_i18n, App::GetApp()->m_mtp_show_content_sd,
-        "Shows the microSD contents folder.\n\n"
-        "NOTE: This is not the normal microSD card storage, it is instead "
-        "the location where NCA's are stored. The normal microSD card is always mounted."_i18n
+        i18n::get("microsd_contents_info",
+            "Shows the microSD contents folder.\n\n"
+            "NOTE: This is not the normal microSD card storage, it is instead "
+            "the location where NCA's are stored. The normal microSD card is always mounted."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
@@ -2507,31 +2557,39 @@ void App::DisplayMtpOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>(
         "Show games"_i18n, App::GetApp()->m_mtp_show_games,
-        "Shows the games folder.\n\n"
-        "This folder contains all of your installed games, allowing you to create "
-        "backups over MTP!\n\n"
-        "NOTE: This folder is read-only. You cannot delete games over MTP."_i18n
+        i18n::get("games_mtp_info",
+            "Shows the games folder.\n\n"
+            "This folder contains all of your installed games, allowing you to create "
+            "backups over MTP!\n\n"
+            "NOTE: This folder is read-only. You cannot delete games over MTP."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show install"_i18n, App::GetApp()->m_mtp_show_install,
-        "Shows the install folder.\n\n"
-        "This folder is used for installing games via MTP.\n\n"
-        "NOTE: You must open the \"MTP Install\" menu when trying to install a game!"_i18n
+        i18n::get("install_mtp_info",
+            "Shows the install folder.\n\n"
+            "This folder is used for installing games via MTP.\n\n"
+            "NOTE: You must open the \"MTP Install\" menu when trying to install a game!"
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show mounts"_i18n, App::GetApp()->m_mtp_show_mounts,
-        "Shows the mounts folder.\n\n"
-        "This folder is contains all of the mounts added to Sphaira, allowing you to acces them over MTP!\n"
-        "For example, you can access your SMB, WebDav and FTP mounts over MTP."_i18n
+        i18n::get("mounts_mtp_info",
+            "Shows the mounts folder.\n\n"
+            "This folder is contains all of the mounts added to Sphaira, allowing you to acces them over MTP!\n"
+            "For example, you can access your SMB, WebDav and FTP mounts over MTP."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>(
         "Show DevNull"_i18n, App::GetApp()->m_mtp_show_speedtest,
-        "Shows the DevNull (Speed Test) folder.\n\n"
-        "This folder is used for benchmarking USB uploads. "
-        "This ia virtual folder, nothing is actally written to disk."_i18n
+        i18n::get("usb_benchmark_info",
+            "Shows the DevNull (Speed Test) folder.\n\n"
+            "This folder is used for benchmarking USB uploads. "
+            "This ia virtual folder, nothing is actally written to disk."
+        )
     );
 }
 
@@ -2541,8 +2599,10 @@ void App::DisplayHddOptions(bool left_side) {
 
     options->Add<ui::SidebarEntryBool>("Enable"_i18n, App::GetHddEnable(), [](bool& enable){
         App::SetHddEnable(enable);
-    },  "Enable mounting of connected USB/HDD devices. "
-        "Connected devices can be used in the FileBrowser, as well as a backup location when dumping games and saves."_i18n
+    },  i18n::get("mount_hdd_info",
+            "Enable mounting of connected USB/HDD devices. "
+            "Connected devices can be used in the FileBrowser, as well as a backup location when dumping games and saves."
+        )
     );
 
     options->Add<ui::SidebarEntryBool>("HDD write protect"_i18n, App::GetWriteProtect(), [](bool& enable){

@@ -354,7 +354,7 @@ auto UninstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
 
     // remove directory, this will also delete manifest and info
     const auto dir = BuildPackageCachePath(entry);
-    pbox->NewTransfer("Removing "_i18n + dir.toString());
+    pbox->NewTransfer(i18n::Reorder("Removing ", dir.toString()));
     if (R_FAILED(fs.DeleteDirectoryRecursively(dir))) {
         log_write("failed to delete folder: %s\n", dir.s);
     } else {
@@ -384,7 +384,7 @@ auto InstallApp(ProgressBox* pbox, const Entry& entry) -> Result {
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + entry.title);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", entry.title));
         log_write("starting download\n");
 
         const auto url = BuildZipUrl(entry);
@@ -739,7 +739,7 @@ void EntryMenu::Draw(NVGcontext* vg, Theme* theme) {
     text_start_y += text_inc_y;
     gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "updated: %s"_i18n.c_str(), m_entry.updated.c_str());
     text_start_y += text_inc_y;
-    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "category: %s"_i18n.c_str(), m_entry.category.c_str());
+    gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "category: %s"_i18n.c_str(), i18n::get(m_entry.category).c_str());
     text_start_y += text_inc_y;
     gfx::drawTextArgs(vg, text_start_x, text_start_y, font_size, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "extracted: %s"_i18n.c_str(), utils::formatSizeStorage(m_entry.extracted).c_str());
     text_start_y += text_inc_y;
@@ -806,7 +806,7 @@ void EntryMenu::UpdateOptions() {
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
             if (R_SUCCEEDED(rc)) {
-                App::Notify("Downloaded "_i18n + m_entry.title);
+                App::Notify(i18n::Reorder("Downloaded ", m_entry.title));
                 m_entry.status = EntryStatus::Installed;
                 m_menu.SetDirty();
                 UpdateOptions();
@@ -822,7 +822,7 @@ void EntryMenu::UpdateOptions() {
             App::PushErrorBox(rc, "Failed to, TODO: add message here"_i18n);
 
             if (R_SUCCEEDED(rc)) {
-                App::Notify("Removed "_i18n + m_entry.title);
+                App::Notify(i18n::Reorder("Removed ", m_entry.title));
                 m_entry.status = EntryStatus::Get;
                 m_menu.SetDirty();
                 UpdateOptions();
@@ -833,7 +833,7 @@ void EntryMenu::UpdateOptions() {
     const Option install_option{"Install"_i18n, install};
     const Option update_option{"Update"_i18n, install};
     const Option launch_option{"Launch"_i18n, launch};
-    const Option remove_option{"Remove"_i18n, "Completely remove "_i18n + m_entry.title + '?', uninstall};
+    const Option remove_option{"Remove"_i18n, i18n::Reorder("Completely remove ", m_entry.title) + '?', uninstall};
 
     m_options.clear();
     switch (m_entry.status) {

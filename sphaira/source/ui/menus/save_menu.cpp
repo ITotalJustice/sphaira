@@ -404,7 +404,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
     }
 
     if (m_dirty) {
-        App::Notify("Updating application record list");
+        App::Notify("Updating application record list"_i18n);
         SortAndFindLastFile(true);
     }
 
@@ -718,9 +718,11 @@ void Menu::DisplayOptions() {
             options->Add<SidebarEntryCallback>("Restore"_i18n, [this](){
                 RestoreSave();
             }, true,
-                "Restore the save for the current title.\n"
-                "if \"Auto backup\" is enabled, the save will first be backed up and then restored. "
-                "Saves that are auto backed up will have \"Auto\" in their name."_i18n
+                i18n::get("save_backuprestore_info",
+                    "Restore the save for the current title.\n"
+                    "if \"Auto backup\" is enabled, the save will first be backed up and then restored. "
+                    "Saves that are auto backed up will have \"Auto\" in their name."
+                )
             );
         }
     }
@@ -735,10 +737,13 @@ void Menu::DisplayOptions() {
 
         options->Add<SidebarEntryBool>("Compress backup"_i18n, m_compress_save_backup.Get(), [this](bool& v_out){
             m_compress_save_backup.Set(v_out);
-        },  "If enabled, backups will be compressed to a zip file.\n\n"
-            "NOTE: Disabling this option does not disable the zip file, it only disables compressing "
-            "the files stored in the zip.\n"
-            "Disabling will result in a much faster backup, at the cost of the file size."_i18n);
+        },  i18n::get("save_backup_compress_info",
+                "If enabled, backups will be compressed to a zip file.\n\n"
+                "NOTE: Disabling this option does not disable the zip file, it only disables compressing "
+                "the files stored in the zip.\n"
+                "Disabling will result in a much faster backup, at the cost of the file size."
+            )
+        );
     });
 }
 
@@ -797,7 +802,7 @@ void Menu::RestoreSave() {
 
         if (paths.empty()) {
             App::Push<ui::OptionBox>(
-                "No saves found in "_i18n + fs::AppendPath(mount, BuildSaveBasePath(m_entries[m_index])).toString(),
+                i18n::Reorder("No saves found in ", fs::AppendPath(mount, BuildSaveBasePath(m_entries[m_index])).toString()),
                 "OK"_i18n
             );
             return;
@@ -814,7 +819,7 @@ void Menu::RestoreSave() {
                 const auto file_path = paths[*op_index];
 
                 App::Push<OptionBox>(
-                    "Are you sure you want to restore "_i18n + file_name + "?",
+                    i18n::Reorder("Are you sure you want to restore ", file_name) + "?",
                     "Back"_i18n, "Restore"_i18n, 0, [this, file_path, location](auto op_index){
                         if (op_index && *op_index) {
                             App::Push<ProgressBox>(0, "Restore"_i18n, "", [this, file_path, location](auto pbox) -> Result {
@@ -871,8 +876,8 @@ auto Menu::BuildSavePath(const Entry& e, u32 flags) const -> fs::FsPath {
     if (flags & BackupFlag_SetName) {
         std::string out;
         while (out.empty()) {
-            const auto header = "Set name for "_i18n + e.GetName();
-            if (R_FAILED(swkbd::ShowText(out, header.c_str(), "Set backup name", name, 1, 128))) {
+            const auto header = i18n::Reorder("Set name for ", e.GetName());
+            if (R_FAILED(swkbd::ShowText(out, header.c_str(), "Set backup name"_i18n.c_str(), name, 1, 128))) {
                 out.clear();
             }
         }
@@ -1138,7 +1143,7 @@ Result Menu::BackupSaveInternal(ProgressBox* pbox, const dump::DumpLocation& loc
 
         // if we dumped the save to ram, flush the data to file.
         if (!file_download) {
-            pbox->NewTransfer("Flushing zip to file");
+            pbox->NewTransfer("Flushing zip to file"_i18n);
             R_TRY(writer->SetSize(mz_mem.buf.size()));
 
             R_TRY(thread::Transfer(pbox, mz_mem.buf.size(),

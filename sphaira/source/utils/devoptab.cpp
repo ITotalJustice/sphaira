@@ -121,13 +121,13 @@ private:
 };
 
 DevoptabForm::DevoptabForm(DevoptabType type, const MountConfig& config)
-: FormSidebar{"Mount Creator"}
+: FormSidebar{"Mount Creator"_i18n}
 , m_type{type}
 , m_config{config} {
     SetupButtons(false);
 }
 
-DevoptabForm::DevoptabForm() : FormSidebar{"Mount Creator"} {
+DevoptabForm::DevoptabForm() : FormSidebar{"Mount Creator"_i18n} {
     SetupButtons(true);
 }
 
@@ -157,7 +157,7 @@ void DevoptabForm::SetupButtons(bool type_change) {
         }
 
         this->Add<SidebarEntryArray>(
-            "Type", items, [this](s64& index) {
+            "Type"_i18n, items, [this](s64& index) {
                 m_type = TYPE_ENTRIES[index].type;
                 UpdateSchemeURL();
             },
@@ -167,67 +167,70 @@ void DevoptabForm::SetupButtons(bool type_change) {
     }
 
     m_name = this->Add<SidebarEntryTextInput>(
-        "Name", m_config.name, "", "", -1, 32,
+        "Name"_i18n, m_config.name, "", "", -1, 32,
         "Set the name of the application"_i18n
     );
 
     m_url = this->Add<SidebarEntryTextInput>(
-        "URL", m_config.url, "", "", -1, PATH_MAX,
+        "URL"_i18n, m_config.url, "", "", -1, PATH_MAX,
         "Set the URL of the application"_i18n
     );
 
     m_port = this->Add<SidebarEntryTextInput>(
-        "Port", m_config.port, "", "", 1, 5,
+        "Port"_i18n, m_config.port, "", "", 1, 5,
         "Optional: Set the port of the server. If left empty, the default port for the protocol will be used."_i18n
     );
 
     #if 0
     m_timeout = this->Add<SidebarEntryTextInput>(
-        "Timeout", m_config.timeout, "Timeout in milliseconds", 1, 5,
+        "Timeout"_i18n, m_config.timeout, "Timeout in milliseconds", 1, 5,
         "Optional: Set the timeout in seconds."_i18n
     );
     #endif
 
     m_user = this->Add<SidebarEntryTextInput>(
-        "User", m_config.user, "", "", -1, PATH_MAX,
+        "User"_i18n, m_config.user, "", "", -1, PATH_MAX,
         "Optional: Set the username of the application"_i18n
     );
 
     m_pass = this->Add<SidebarEntryTextInput>(
-        "Pass", m_config.pass, "", "", -1, PATH_MAX,
+        "Pass"_i18n, m_config.pass, "", "", -1, PATH_MAX,
         "Optional: Set the password of the application"_i18n
     );
 
     m_dump_path = this->Add<SidebarEntryTextInput>(
-        "Dump path", m_config.dump_path, "", "", -1, PATH_MAX,
+        "Dump path"_i18n, m_config.dump_path, "", "", -1, PATH_MAX,
         "Optional: Set the dump path used when exporting games and saves."_i18n
     );
 
     this->Add<SidebarEntryBool>(
-        "Read only", m_config.read_only,
-        "Mount the filesystem as read only.\n\n"
-        "Setting this option also hidens the mount from being show as an export option."_i18n
+        "Read only"_i18n, m_config.read_only,
+        i18n::get("mount_readonly_info",
+            "Mount the filesystem as read only.\n\n"
+            "Setting this option also hidens the mount from being show as an export option.")
     );
 
     this->Add<SidebarEntryBool>(
-        "No stat file", m_config.no_stat_file,
-        "Enabling stops the file browser from checking the file size and timestamp of each file. "
-        "This improves browsing performance."_i18n
+        "No stat file"_i18n, m_config.no_stat_file,
+        i18n::get("filecheck_disable_info",
+            "Enabling stops the file browser from checking the file size and timestamp of each file. "
+            "This improves browsing performance.")
     );
 
     this->Add<SidebarEntryBool>(
-        "No stat dir", m_config.no_stat_dir,
-        "Enabling stops the file browser from checking how many files and folders are in a folder. "
-        "This improves browsing performance, especially for servers that has slow directory listing."_i18n
+        "No stat dir"_i18n, m_config.no_stat_dir,
+        i18n::get("dircheck_disable_info",
+            "Enabling stops the file browser from checking how many files and folders are in a folder. "
+            "This improves browsing performance, especially for servers that has slow directory listing.")
     );
 
     this->Add<SidebarEntryBool>(
-        "FS hidden", m_config.fs_hidden,
+        "FS hidden"_i18n, m_config.fs_hidden,
         "Hide the mount from being visible in the file browser."_i18n
     );
 
     this->Add<SidebarEntryBool>(
-        "Export hidden", m_config.dump_hidden,
+        "Export hidden"_i18n, m_config.dump_hidden,
         "Hide the mount from being visible as a export option for games and saves."_i18n
     );
 
@@ -236,7 +239,7 @@ void DevoptabForm::SetupButtons(bool type_change) {
         UpdateSchemeURL();
     }
 
-    const auto callback = this->Add<SidebarEntryCallback>("Save", [this](){
+    const auto callback = this->Add<SidebarEntryCallback>("Save"_i18n, [this](){
         m_config.name = m_name->GetValue();
         m_config.url = m_url->GetValue();
         m_config.user = m_user->GetValue();

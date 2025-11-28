@@ -86,7 +86,7 @@ constexpr FsEntry FS_ENTRIES[]{
 };
 
 constexpr std::string_view AUDIO_EXTENSIONS[] = {
-    "mp3", "ogg", "flac", "wav", "aac" "ac3", "aif", "asf", "bfwav",
+    "mp3", "ogg", "flac", "wav", "aac", "ac3", "aif", "asf", "bfwav",
     "bfsar", "bfstm", "bwav",
 };
 constexpr std::string_view VIDEO_EXTENSIONS[] = {
@@ -315,23 +315,23 @@ ForwarderForm::ForwarderForm(const FileAssocEntry& assoc, const RomDatabaseIndex
     const auto icon = m_assoc.path;
 
     m_name = this->Add<SidebarEntryTextInput>(
-        "Name", name, "", "", -1, sizeof(NacpLanguageEntry::name) - 1,
+        "Name"_i18n, name, "", "", -1, sizeof(NacpLanguageEntry::name) - 1,
         "Set the name of the application"_i18n
     );
 
     m_author = this->Add<SidebarEntryTextInput>(
-        "Author", author, "", "", -1, sizeof(NacpLanguageEntry::author) - 1,
+        "Author"_i18n, author, "", "", -1, sizeof(NacpLanguageEntry::author) - 1,
         "Set the author of the application"_i18n
     );
 
     m_version = this->Add<SidebarEntryTextInput>(
-        "Version", version, "", "", -1, sizeof(NacpStruct::display_version) - 1,
+        "Version"_i18n, version, "", "", -1, sizeof(NacpStruct::display_version) - 1,
         "Set the display version of the application"_i18n
     );
 
     const std::vector<std::string> filters{"nro", "png", "jpg"};
     m_icon = this->Add<SidebarEntryFilePicker>(
-        "Icon", icon, filters,
+        "Icon"_i18n, icon, filters,
         "Set the path to the icon for the forwarder"_i18n
     );
 
@@ -362,7 +362,7 @@ ForwarderForm::ForwarderForm(const FileAssocEntry& assoc, const RomDatabaseIndex
             // try and read icon file into memory, bail if this fails.
             const auto rc = fs::FsStdio().read_entire_file(m_icon->GetValue(), config.icon);
             if (R_FAILED(rc)) {
-                App::PushErrorBox(rc, "Failed to load icon");
+                App::PushErrorBox(rc, "Failed to load icon"_i18n);
                 return;
             }
         }
@@ -721,7 +721,7 @@ void FsView::OnClick() {
     } else {
         // special case for nro
         if (IsSd() && IsSamePath(entry.GetExtension(), "nro")) {
-            App::Push<OptionBox>("Launch "_i18n + entry.GetName() + '?',
+            App::Push<OptionBox>(i18n::Reorder("Launch ", entry.GetName()) + '?',
                 "No"_i18n, "Launch"_i18n, 1, [this](auto op_index){
                     if (op_index && *op_index) {
                         nro_launch(GetNewPathCurrent());
@@ -872,7 +872,7 @@ void FsView::InstallFiles() {
             App::Push<ui::ProgressBox>(0, "Installing "_i18n, "", [this, targets](auto pbox) -> Result {
                 for (auto& e : targets) {
                     R_TRY(yati::InstallFromFile(pbox, m_fs.get(), GetNewPath(e)));
-                    App::Notify("Installed "_i18n + e.GetName());
+                    App::Notify(i18n::Reorder("Installed ", e.GetName()));
                 }
 
                 R_SUCCEED();
@@ -1255,7 +1255,7 @@ void FsView::OnDeleteCallback() {
 
                 const auto full_path = GetNewPath(selected.m_path, p.name);
                 if (p.IsDir()) {
-                    pbox->NewTransfer("Scanning "_i18n + full_path);
+                    pbox->NewTransfer(i18n::Reorder("Scanning ", full_path));
                     R_TRY(get_collections(src_fs, full_path, p.name, collections));
                 }
             }
@@ -1298,7 +1298,7 @@ void FsView::OnPasteCallback() {
                     const auto dst_path = GetNewPath(m_path, p.name);
 
                     pbox->SetTitle(p.name);
-                    pbox->NewTransfer("Pasting "_i18n + src_path);
+                    pbox->NewTransfer(i18n::Reorder("Pasting ", src_path));
 
                     if (p.IsDir()) {
                         m_fs->RenameDirectory(src_path, dst_path);
@@ -1333,7 +1333,7 @@ void FsView::OnPasteCallback() {
 
                     const auto full_path = GetNewPath(selected.m_path, p.name);
                     if (p.IsDir()) {
-                        pbox->NewTransfer("Scanning "_i18n + full_path);
+                        pbox->NewTransfer(i18n::Reorder("Scanning ", full_path));
                         R_TRY(get_collections(src_fs, full_path, p.name, collections));
                     }
                 }
@@ -1347,11 +1347,11 @@ void FsView::OnPasteCallback() {
 
                     if (p.IsDir()) {
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Creating "_i18n + dst_path);
+                        pbox->NewTransfer(i18n::Reorder("Creating ", dst_path));
                         m_fs->CreateDirectory(dst_path);
                     } else {
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Copying "_i18n + src_path);
+                        pbox->NewTransfer(i18n::Reorder("Copying ", src_path));
                         R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path, is_same_fs));
                         R_TRY(on_paste_file(src_path, dst_path));
                     }
@@ -1369,7 +1369,7 @@ void FsView::OnPasteCallback() {
                         const auto dst_path = GetNewPath(base_dst_path, p.name);
 
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Creating "_i18n + dst_path);
+                        pbox->NewTransfer(i18n::Reorder("Creating ", dst_path));
                         m_fs->CreateDirectory(dst_path);
                     }
 
@@ -1381,7 +1381,7 @@ void FsView::OnPasteCallback() {
                         const auto dst_path = GetNewPath(base_dst_path, p.name);
 
                         pbox->SetTitle(p.name);
-                        pbox->NewTransfer("Copying "_i18n + src_path);
+                        pbox->NewTransfer(i18n::Reorder("Copying ", src_path));
                         R_TRY(pbox->CopyFile(src_fs, m_fs.get(), src_path, dst_path, is_same_fs));
                         R_TRY(on_paste_file(src_path, dst_path));
                     }
@@ -1514,7 +1514,7 @@ Result FsView::DeleteAllCollections(ProgressBox* pbox, fs::Fs* fs, const FsDirCo
 
                 const auto full_path = FsView::GetNewPath(c.path, p.name);
                 pbox->SetTitle(p.name);
-                pbox->NewTransfer("Deleting "_i18n + full_path.toString());
+                pbox->NewTransfer(i18n::Reorder("Deleting ", full_path.toString()));
                 if ((mode & FsDirOpenMode_ReadDirs) && p.type == FsDirEntryType_Dir) {
                     log_write("deleting dir: %s\n", full_path.s);
                     R_TRY(fs->DeleteDirectory(full_path));
@@ -1545,7 +1545,7 @@ static Result DeleteAllCollectionsWithSelected(ProgressBox* pbox, fs::Fs* fs, co
 
         const auto full_path = FsView::GetNewPath(selected.m_path, p.name);
         pbox->SetTitle(p.name);
-        pbox->NewTransfer("Deleting "_i18n + full_path.toString());
+        pbox->NewTransfer(i18n::Reorder("Deleting ", full_path.toString()));
 
         if ((mode & FsDirOpenMode_ReadDirs) && p.type == FsDirEntryType_Dir) {
             log_write("deleting dir: %s\n", full_path.s);
@@ -1805,7 +1805,7 @@ void FsView::DisplayOptions() {
 
                 options->Add<SidebarEntryCallback>("Extract to..."_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Extract path", "Enter the path to the folder to extract into", fs::AppendPath(m_path, ""))) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Extract path", "Enter the path to the folder to extract into"_i18n.c_str(), fs::AppendPath(m_path, ""))) && !out.empty()) {
                         UnzipFiles(out);
                     }
                 });
@@ -1823,7 +1823,7 @@ void FsView::DisplayOptions() {
 
                 options->Add<SidebarEntryCallback>("Compress to..."_i18n, [this](){
                     std::string out;
-                    if (R_SUCCEEDED(swkbd::ShowText(out, "Compress path", "Enter the path to the folder to compress into", m_path)) && !out.empty()) {
+                    if (R_SUCCEEDED(swkbd::ShowText(out, "Compress path", "Enter the path to the folder to compress into"_i18n.c_str(), m_path)) && !out.empty()) {
                         ZipFiles(out);
                     }
                 });

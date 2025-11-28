@@ -285,7 +285,7 @@ Result DumpToUsb(ui::ProgressBox* pbox, BaseSource* source, std::span<const fs::
         const auto file_size = source->GetSize(path);
         pbox->SetImage(source->GetIcon(path));
         pbox->SetTitle(source->GetName(path));
-        pbox->NewTransfer("Waiting for USB connection...");
+        pbox->NewTransfer("Waiting for USB connection..."_i18n);
 
         // wait until usb is ready.
         while (true) {

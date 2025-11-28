@@ -108,7 +108,7 @@ auto DownloadApp(ProgressBox* pbox, const GhApiAsset& gh_asset, const AssetEntry
 
     // 2. download the asset
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + gh_asset.name);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", gh_asset.name));
         log_write("starting download: %s\n", gh_asset.browser_download_url.c_str());
 
         const auto result = curl::Api().ToFile(
@@ -233,7 +233,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         nvgRestore(vg);
 
         if (!e.tag.empty()) {
-            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f), 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "version: %s", e.tag.c_str());
+            gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f), 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE, theme->GetColour(ThemeEntryID_TEXT_INFO), "version: %s"_i18n.c_str(), e.tag.c_str());
         }
     });
 }
@@ -427,7 +427,7 @@ void DownloadEntries(const Entry& entry) {
                         App::PushErrorBox(rc, "Failed to download app!"_i18n);
 
                         if (R_SUCCEEDED(rc)) {
-                            App::Notify("Downloaded "_i18n + entry.repo);
+                            App::Notify(i18n::Reorder("Downloaded ", entry.repo));
                             auto post_install_message = entry.post_install_message;
                             if (ptr && !ptr->post_install_message.empty()) {
                                 post_install_message = ptr->post_install_message;

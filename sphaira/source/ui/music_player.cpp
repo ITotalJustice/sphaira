@@ -90,11 +90,11 @@ Menu::Menu(fs::Fs* fs, const fs::FsPath& path) {
         }
 
         if (m_meta.artist.empty()) {
-            m_meta.artist = "Artist: Unknown";
+            m_meta.artist = "Artist: Unknown"_i18n;
         }
 
         if (m_meta.album.empty()) {
-            m_meta.album = "Album: Unknown";
+            m_meta.album = "Album: Unknown"_i18n;
         }
     }
 

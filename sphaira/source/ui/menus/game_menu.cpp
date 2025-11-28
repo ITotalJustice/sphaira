@@ -201,7 +201,7 @@ void FreeEntry(NVGcontext* vg, Entry& e) {
 
 void LaunchEntry(const Entry& e) {
     const auto rc = appletRequestLaunchApplication(e.app_id, nullptr);
-    Notify(rc, "Failed to launch application");
+    Notify(rc, "Failed to launch application"_i18n);
 }
 
 Result CreateSave(u64 app_id, AccountUid uid) {
@@ -372,7 +372,7 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
                     LoadControlEntry(e, true);
 
                     App::Push<OptionBox>(
-                        "Launch "_i18n + e.GetName(),
+                        i18n::Reorder("Launch ", e.GetName()) + '?',
                         "Back"_i18n, "Launch"_i18n, 1, [this, &e](auto op_index){
                             if (op_index && *op_index) {
                                 LaunchEntry(e);
@@ -397,7 +397,7 @@ Menu::Menu(u32 flags) : grid::Menu{"Games"_i18n, flags} {
 
                 // completely deletes the application record and all data.
                 options->Add<SidebarEntryCallback>("Delete"_i18n, [this](){
-                    const auto buf = "Are you sure you want to delete "_i18n + m_entries[m_index].GetName() + "?";
+                    const auto buf = i18n::Reorder("Are you sure you want to delete ", m_entries[m_index].GetName()) + "?";
                     App::Push<OptionBox>(
                         buf,
                         "Back"_i18n, "Delete"_i18n, 0, [this](auto op_index){
@@ -839,7 +839,7 @@ void DeleteMetaEntries(u64 app_id, int image, const std::string& name, const tit
 
         R_SUCCEED();
     }, [](Result rc){
-        App::PushErrorBox(rc, "Failed to delete meta entry");
+        App::PushErrorBox(rc, "Failed to delete meta entry"_i18n);
     });
 }
 

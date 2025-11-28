@@ -87,7 +87,7 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
         usbDsGetSpeed(&speed);
 
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "State: %s | Speed: %s", i18n::get(GetUsbDsStateStr(state)).c_str(), i18n::get(GetUsbDsSpeedStr(speed)).c_str());
+        std::snprintf(buf, sizeof(buf), "State: %s | Speed: %s"_i18n.c_str(), i18n::get(GetUsbDsStateStr(state)).c_str(), i18n::get(GetUsbDsSpeedStr(speed)).c_str());
         SetSubHeading(buf);
     }
 

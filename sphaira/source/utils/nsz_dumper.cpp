@@ -226,7 +226,7 @@ Result NszExport(ui::ProgressBox* pbox, const NcaReaderCreator& nca_creator, s64
                 const auto section_number = std::distance(ncz_sections.begin(), section);
                 const auto rsize = section->size - (nca_off - section->offset);
 
-                pbox->NewTransfer("Section #" + std::to_string(section_number) + " - " + collection.name);
+                pbox->NewTransfer("Section #"_i18n + std::to_string(section_number) + " - " + collection.name);
                 ZSTD_CCtx_reset(cctx, ZSTD_reset_session_only);
 
                 R_TRY(thread::Transfer(pbox, rsize,

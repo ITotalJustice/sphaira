@@ -181,23 +181,23 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
         char req_vers_buf[128];
         const auto ver = e.content_meta.extened.application.required_system_version;
         switch (e.status.meta_type) {
-            case NcmContentMetaType_Application:  std::snprintf(req_vers_buf, sizeof(req_vers_buf), "Required System Version: %u.%u.%u", SYSVER_MAJOR(ver), SYSVER_MINOR(ver), SYSVER_MICRO(ver)); break;
-            case NcmContentMetaType_Patch:        std::snprintf(req_vers_buf, sizeof(req_vers_buf), "Required System Version: %u.%u.%u", SYSVER_MAJOR(ver), SYSVER_MINOR(ver), SYSVER_MICRO(ver)); break;
-            case NcmContentMetaType_AddOnContent: std::snprintf(req_vers_buf, sizeof(req_vers_buf), "Required Application Version: v%u", ver >> 16); break;
+            case NcmContentMetaType_Application:  std::snprintf(req_vers_buf, sizeof(req_vers_buf), "Required System Version: %u.%u.%u"_i18n.c_str(), SYSVER_MAJOR(ver), SYSVER_MINOR(ver), SYSVER_MICRO(ver)); break;
+            case NcmContentMetaType_Patch:        std::snprintf(req_vers_buf, sizeof(req_vers_buf), "Required System Version: %u.%u.%u"_i18n.c_str(), SYSVER_MAJOR(ver), SYSVER_MINOR(ver), SYSVER_MICRO(ver)); break;
+            case NcmContentMetaType_AddOnContent: std::snprintf(req_vers_buf, sizeof(req_vers_buf), "Required Application Version: v%u"_i18n.c_str(), ver >> 16); break;
         }
 
         if (e.missing_count) {
-            gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Content Count: %u (%u missing)", e.content_meta.header.content_count, e.missing_count);
+            gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Content Count: %u (%u missing)"_i18n.c_str(), e.content_meta.header.content_count, e.missing_count);
         } else {
-            gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Content Count: %u", e.content_meta.header.content_count);
+            gfx::drawTextArgs(vg, 50, 415, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Content Count: %u"_i18n.c_str(), e.content_meta.header.content_count);
         }
 
-        gfx::drawTextArgs(vg, 50, 455, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Ticket: %s", TICKET_STR[e.ticket_type]);
-        gfx::drawTextArgs(vg, 50, 495, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Key Generation: %u (%s)", e.key_gen, nca::GetKeyGenStr(e.key_gen));
+        gfx::drawTextArgs(vg, 50, 455, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Ticket: %s"_i18n.c_str(), i18n::get(TICKET_STR[e.ticket_type]).c_str());
+        gfx::drawTextArgs(vg, 50, 495, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Key Generation: %u (%s)"_i18n.c_str(), e.key_gen, nca::GetKeyGenStr(e.key_gen));
         gfx::drawTextArgs(vg, 50, 535, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "%s", req_vers_buf);
 
         if (e.status.meta_type == NcmContentMetaType_Application || e.status.meta_type == NcmContentMetaType_Patch) {
-            gfx::drawTextArgs(vg, 50, 575, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Display Version: %s", e.nacp.display_version);
+            gfx::drawTextArgs(vg, 50, 575, 18.f, NVG_ALIGN_LEFT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT), "Display Version: %s"_i18n.c_str(), e.nacp.display_version);
         }
     nvgRestore(vg);
 
@@ -224,7 +224,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             }
         }
 
-        gfx::drawTextArgs(vg, x + text_xoffset, y + (h / 2.f), 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(text_id), "%s", ncm::GetReadableMetaTypeStr(e.status.meta_type));
+        gfx::drawTextArgs(vg, x + text_xoffset, y + (h / 2.f), 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(text_id), "%s", i18n::get(ncm::GetReadableMetaTypeStr(e.status.meta_type)).c_str());
         gfx::drawTextArgs(vg, x + text_xoffset + 150, y + (h / 2.f), 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(text_id), "%016lX", e.status.application_id);
         gfx::drawTextArgs(vg, x + text_xoffset + 400, y + (h / 2.f), 20.f, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE, theme->GetColour(text_id), "v%u (%u)", e.status.version >> 16, e.status.version);
 
@@ -233,7 +233,7 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
             GetNcmSizeOfMetaStatus(e);
         }
 
-        gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_INFO), "%s", ncm::GetReadableStorageIdStr(e.status.storageID));
+        gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) + 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP, theme->GetColour(ThemeEntryID_TEXT_INFO), "%s", i18n::get(ncm::GetReadableStorageIdStr(e.status.storageID)).c_str());
         gfx::drawTextArgs(vg, x + w - text_xoffset, y + (h / 2.f) - 3, 16.f, NVG_ALIGN_RIGHT | NVG_ALIGN_BOTTOM, theme->GetColour(ThemeEntryID_TEXT_INFO), "%s", utils::formatSizeStorage(e.size).c_str());
 
         if (e.selected) {

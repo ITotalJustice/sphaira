@@ -114,7 +114,7 @@ auto InstallUpdate(ProgressBox* pbox, const std::string url, const std::string v
 
     // 1. download the zip
     if (!pbox->ShouldExit()) {
-        pbox->NewTransfer("Downloading "_i18n + version);
+        pbox->NewTransfer(i18n::Reorder("Downloading ", version));
         log_write("starting download: %s\n", url.c_str());
 
         const auto result = curl::Api().ToFile(
@@ -317,11 +317,12 @@ MainMenu::MainMenu() {
             language_items.push_back("German"_i18n);
             language_items.push_back("Italian"_i18n);
             language_items.push_back("Spanish"_i18n);
-            language_items.push_back("Chinese"_i18n);
+            language_items.push_back("Chinese (Simplified)"_i18n);
             language_items.push_back("Korean"_i18n);
             language_items.push_back("Dutch"_i18n);
             language_items.push_back("Portuguese"_i18n);
             language_items.push_back("Russian"_i18n);
+            language_items.push_back("Chinese (Traditional)"_i18n);
             language_items.push_back("Swedish"_i18n);
             language_items.push_back("Vietnamese"_i18n);
             language_items.push_back("Ukrainian"_i18n);
@@ -356,7 +357,7 @@ MainMenu::MainMenu() {
 
                             if (R_SUCCEEDED(rc)) {
                                 m_update_state = UpdateState::None;
-                                App::Notify("Updated to "_i18n + m_update_version);
+                                App::Notify(i18n::Reorder("Updated to ", m_update_version));
                                 App::Push<OptionBox>(
                                     "Press OK to restart Sphaira"_i18n, "OK"_i18n, [](auto){
                                         App::ExitRestart();
@@ -368,13 +369,15 @@ MainMenu::MainMenu() {
                 }
 
                 options->Add<SidebarEntryCallback>("FTP"_i18n, [](){ App::DisplayFtpOptions(); },
-                    "Enable / modify the FTP server settings such as port, user/pass and the folders that are shown.\n\n"
-                    "NOTE: Changing any of the options will automatically restart the FTP server when exiting the options menu."_i18n
+                    i18n::get("ftp_settings_info",
+                        "Enable / modify the FTP server settings such as port, user/pass and the folders that are shown.\n\n"
+                        "NOTE: Changing any of the options will automatically restart the FTP server when exiting the options menu.")
                 );
 
                 options->Add<SidebarEntryCallback>("MTP"_i18n, [](){ App::DisplayMtpOptions(); },
-                    "Enable / modify the MTP responder settings such as the folders that are shown.\n\n"
-                    "NOTE: Changing any of the options will automatically restart the MTP server when exiting the options menu."_i18n
+                    i18n::get("mtp_settings_info",
+                        "Enable / modify the MTP responder settings such as the folders that are shown.\n\n"
+                        "NOTE: Changing any of the options will automatically restart the MTP server when exiting the options menu.")
                 );
 
                 options->Add<SidebarEntryCallback>("HDD"_i18n, [](){
@@ -383,12 +386,14 @@ MainMenu::MainMenu() {
 
                 options->Add<SidebarEntryBool>("NXlink"_i18n, App::GetNxlinkEnable(), [](bool& enable){
                     App::SetNxlinkEnable(enable);
-                },  "Enable NXlink server to run in the background. "
-                    "NXlink is used to send .nro's from PC to the switch\n\n"
-                    "If you are not a developer, you can disable this option."_i18n);
+                },  i18n::get("nxlink_enable_info",
+                        "Enable NXlink server to run in the background. "
+                        "NXlink is used to send .nro's from PC to the switch\n\n"
+                        "If you are not a developer, you can disable this option."));
 
-            }, "Toggle FTP, MTP, HDD and NXlink\n\n"
-               "If Sphaira has a update available, you can download it from this menu"_i18n);
+            },  i18n::get("nxlink_toggle_info",
+                    "Toggle FTP, MTP, HDD and NXlink\n\n"
+                    "If Sphaira has a update available, you can download it from this menu"));
 
             options->Add<SidebarEntryCallback>("Theme"_i18n, [](){
                 App::DisplayThemeOptions();
@@ -397,14 +402,16 @@ MainMenu::MainMenu() {
             options->Add<SidebarEntryArray>("Language"_i18n, language_items, [](s64& index_out){
                 App::SetLanguage(index_out);
             }, (s64)App::GetLanguage(),
-                "Change the language.\n\n"
-                "If your language isn't found, or translations are missing, please consider opening a PR at "
-                "github.com/ITotalJustice/sphaira"_i18n);
+                i18n::get("translation_info",
+                    "Change the language.\n\n"
+                    "If your language isn't found, or translations are missing, please consider opening a PR at "
+                    "github.com/ITotalJustice/sphaira"));
 
             options->Add<SidebarEntryCallback>("Advanced Options"_i18n, [](){
                 App::DisplayAdvancedOptions();
-            },  "Change the advanced options. "
-                "Please view the info boxes to better understand each option."_i18n);
+            },  i18n::get("advanced_options_info",
+                    "Change the advanced options. "
+                    "Please view the info boxes to better understand each option."));
         }}
     ));
 
