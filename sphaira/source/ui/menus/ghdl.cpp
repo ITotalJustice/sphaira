@@ -2,6 +2,7 @@
 #include "ui/menus/homebrew.hpp"
 
 #include "ui/sidebar.hpp"
+#include "swkbd.hpp"
 #include "ui/option_box.hpp"
 #include "ui/popup_list.hpp"
 #include "ui/progress_box.hpp"
@@ -63,6 +64,7 @@ void from_json(const fs::FsPath& path, Entry& e) {
         JSON_SET_STR(pre_install_message);
         JSON_SET_STR(post_install_message);
         JSON_SET_ARR_OBJ(assets);
+        JSON_SET_STR(direct_url);
     );
 }
 
@@ -165,6 +167,158 @@ auto DownloadReleaseJsonJson(ProgressBox* pbox, const std::string& url, std::vec
     R_SUCCEED();
 }
 
+constexpr s64 MAX_DIRECT_LINK_SIZE = 20 * 1024 * 1024; // 20MB soft limit
+constexpr fs::FsPath DIRECT_LINK_TEMP{"/switch/sphaira/cache/github/direct_link.zip"};
+constexpr fs::FsPath DIRECT_LINKS_JSON{"/config/sphaira/github/direct_links.json"};
+
+void SaveUrlToHistory(const std::string& url) {
+    fs::FsNativeSd fs;
+    fs.CreateDirectoryRecursively("/config/sphaira/github");
+
+    // Read existing entries from direct_links.json
+    std::vector<std::string> urls;
+    auto json_in = yyjson_read_file(DIRECT_LINKS_JSON, YYJSON_READ_NOFLAG, nullptr, nullptr);
+    if (json_in) {
+        auto root = yyjson_doc_get_root(json_in);
+        if (yyjson_is_arr(root)) {
+            size_t idx, max;
+            yyjson_val* val;
+            yyjson_arr_foreach(root, idx, max, val) {
+                if (yyjson_is_obj(val)) {
+                    auto direct_url_val = yyjson_obj_get(val, "direct_url");
+                    if (direct_url_val && yyjson_is_str(direct_url_val)) {
+                        urls.emplace_back(yyjson_get_str(direct_url_val));
+                    }
+                }
+            }
+        }
+        yyjson_doc_free(json_in);
+    }
+
+    // Check if URL already exists
+    for (const auto& existing : urls) {
+        if (existing == url) {
+            App::Notify("URL already saved"_i18n);
+            return;
+        }
+    }
+
+    // Add new URL
+    urls.emplace_back(url);
+
+    // Write updated array to direct_links.json
+    auto json_out = yyjson_mut_doc_new(nullptr);
+    auto arr = yyjson_mut_arr(json_out);
+    yyjson_mut_doc_set_root(json_out, arr);
+
+    for (const auto& u : urls) {
+        auto obj = yyjson_mut_arr_add_obj(json_out, arr);
+        yyjson_mut_obj_add_str(json_out, obj, "direct_url", u.c_str());
+    }
+
+    if (yyjson_mut_write_file(DIRECT_LINKS_JSON, json_out, YYJSON_WRITE_PRETTY, nullptr, nullptr)) {
+        App::Notify("URL saved!"_i18n);
+    }
+
+    yyjson_mut_doc_free(json_out);
+}
+
+void AskToSaveUrl(const std::string& url) {
+    App::Push<OptionBox>(
+        "Save URL to history?"_i18n,
+        "No"_i18n, "Yes"_i18n, 1, [url](auto op_index){
+            if (op_index && *op_index) {
+                SaveUrlToHistory(url);
+            }
+        }
+    );
+}
+
+void DoDirectLinkDownload(const std::string& url) {
+    App::Push<ProgressBox>(0, "Downloading..."_i18n, "", [url](auto pbox) -> Result {
+        fs::FsNativeSd fs;
+        R_TRY(fs.GetFsOpenResult());
+
+        // Download the file
+        pbox->NewTransfer("Downloading..."_i18n);
+        const auto result = curl::Api().ToFile(
+            curl::Url{url},
+            curl::Path{DIRECT_LINK_TEMP},
+            curl::OnProgress{pbox->OnDownloadProgressCallback()}
+        );
+        R_UNLESS(result.success, Result_GhdlFailedToDownloadAsset);
+
+        // Extract the ZIP
+        pbox->NewTransfer("Extracting..."_i18n);
+        R_TRY(thread::TransferUnzipAll(pbox, DIRECT_LINK_TEMP, &fs, "/"));
+
+        R_SUCCEED();
+    }, [url](Result rc){
+        App::PushErrorBox(rc, "Download failed!"_i18n);
+
+        if (R_SUCCEEDED(rc)) {
+            homebrew::SignalChange();
+
+            // Ask whether to delete the ZIP
+            App::Push<OptionBox>(
+                "Download and extract completed!\nDelete ZIP file?"_i18n,
+                "Keep"_i18n, "Delete"_i18n, 1, [url](auto op_index){
+                    if (op_index && *op_index) {
+                        fs::FsNativeSd fs;
+                        fs.DeleteFile(DIRECT_LINK_TEMP);
+                    }
+
+                    // Ask to save URL to history
+                    AskToSaveUrl(url);
+                }
+            );
+        }
+    });
+}
+
+void DownloadDirectLink() {
+    std::string url;
+    if (R_FAILED(swkbd::ShowText(url, "Enter ZIP URL", "https://", "https://")) || url.empty()) {
+        return;
+    }
+
+    // Validate URL ends with .zip
+    if (url.size() < 4 || strcasecmp(url.c_str() + url.size() - 4, ".zip") != 0) {
+        App::Push<OptionBox>("URL must end with .zip"_i18n, "OK"_i18n);
+        return;
+    }
+
+    // Check file size via HEAD request
+    const auto head_result = curl::Api().ToMemory(
+        curl::Url{url},
+        curl::Flags{curl::Flag_NoBody}
+    );
+
+    if (head_result.success) {
+        auto it = head_result.header.Find("content-length");
+        if (it != head_result.header.m_map.end()) {
+            s64 size = std::atoll(it->second.c_str());
+            if (size > MAX_DIRECT_LINK_SIZE) {
+                // File is larger than 20MB - warn user
+                char msg[256];
+                std::snprintf(msg, sizeof(msg),
+                    "File is %.1f MB (limit: 20 MB)\nLarge files may cause issues.\nForce download?",
+                    (double)size / (1024.0 * 1024.0));
+
+                App::Push<OptionBox>(msg, "Cancel"_i18n, "Force"_i18n, 0, [url](auto op_index){
+                    if (op_index && *op_index) {
+                        DoDirectLinkDownload(url);
+                    }
+                });
+                return;
+            }
+        }
+    }
+
+    // Size OK or unknown - proceed with download
+    DoDirectLinkDownload(url);
+}
+
 } // namespace
 
 Menu::Menu(u32 flags) : MenuBase{"GitHub"_i18n, flags} {
@@ -181,6 +335,10 @@ Menu::Menu(u32 flags) : MenuBase{"GitHub"_i18n, flags} {
 
         std::make_pair(Button::B, Action{"Back"_i18n, [this](){
             SetPop();
+        }}),
+
+        std::make_pair(Button::Y, Action{"Direct Link"_i18n, [this](){
+            DownloadDirectLink();
         }})
     );
 
@@ -255,6 +413,54 @@ void Menu::SetIndex(s64 index) {
     UpdateSubheading();
 }
 
+void Menu::LoadDirectLinksJson() {
+    auto json_in = yyjson_read_file(DIRECT_LINKS_JSON, YYJSON_READ_NOFLAG, nullptr, nullptr);
+    if (!json_in) {
+        return;
+    }
+    ON_SCOPE_EXIT(yyjson_doc_free(json_in));
+
+    auto root = yyjson_doc_get_root(json_in);
+    if (!yyjson_is_arr(root)) {
+        return;
+    }
+
+    size_t idx, max;
+    yyjson_val* val;
+    yyjson_arr_foreach(root, idx, max, val) {
+        if (!yyjson_is_obj(val)) {
+            continue;
+        }
+
+        auto direct_url_val = yyjson_obj_get(val, "direct_url");
+        if (!direct_url_val || !yyjson_is_str(direct_url_val)) {
+            continue;
+        }
+
+        Entry entry{};
+        entry.direct_url = yyjson_get_str(direct_url_val);
+
+        // Extract filename from URL for display
+        auto pos = entry.direct_url.rfind('/');
+        if (pos != std::string::npos && pos + 1 < entry.direct_url.size()) {
+            entry.repo = entry.direct_url.substr(pos + 1);
+            // Remove .zip extension for cleaner display
+            if (entry.repo.size() > 4) {
+                auto ext_pos = entry.repo.rfind(".zip");
+                if (ext_pos != std::string::npos && ext_pos == entry.repo.size() - 4) {
+                    entry.repo = entry.repo.substr(0, ext_pos);
+                }
+            }
+        } else {
+            entry.repo = "Direct Link";
+        }
+        entry.owner = "Direct";
+        entry.json_path = DIRECT_LINKS_JSON;
+
+        m_entries.emplace_back(entry);
+    }
+}
+
 void Menu::Scan() {
     m_entries.clear();
 
@@ -266,6 +472,10 @@ void Menu::Scan() {
 
     // then load custom entries
     LoadEntriesFromPath("/config/sphaira/github/");
+
+    // load saved direct links from array file
+    LoadDirectLinksJson();
+
     Sort();
     SetIndex(0);
 }
@@ -305,9 +515,28 @@ void Menu::LoadEntriesFromPath(const fs::FsPath& path) {
             }
         }
 
-        // check that we have a owner and repo
-        if (entry.owner.empty() || entry.repo.empty()) {
+        // check that we have a owner and repo, OR a direct_url
+        if ((entry.owner.empty() || entry.repo.empty()) && entry.direct_url.empty()) {
             continue;
+        }
+
+        // For direct_url entries without owner/repo, use filename as display name
+        if (!entry.direct_url.empty() && entry.repo.empty()) {
+            // Extract filename from URL for display
+            auto pos = entry.direct_url.rfind('/');
+            if (pos != std::string::npos && pos + 1 < entry.direct_url.size()) {
+                entry.repo = entry.direct_url.substr(pos + 1);
+                // Remove .zip extension for cleaner display
+                if (entry.repo.size() > 4) {
+                    auto ext_pos = entry.repo.rfind(".zip");
+                    if (ext_pos != std::string::npos && ext_pos == entry.repo.size() - 4) {
+                        entry.repo = entry.repo.substr(0, ext_pos);
+                    }
+                }
+            } else {
+                entry.repo = "Direct Link";
+            }
+            entry.owner = "Direct";
         }
 
         entry.json_path = full_path;
@@ -340,6 +569,12 @@ void Menu::UpdateSubheading() {
 }
 
 void DownloadEntries(const Entry& entry) {
+    // Handle direct URL entries differently - skip GitHub API
+    if (!entry.direct_url.empty()) {
+        DoDirectLinkDownload(entry.direct_url);
+        return;
+    }
+
     // hack
     static std::vector<GhApiEntry> gh_entries;
     gh_entries = {};

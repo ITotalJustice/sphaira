@@ -25,6 +25,7 @@ struct Entry {
     std::string pre_install_message{};
     std::string post_install_message{};
     std::vector<AssetEntry> assets{};
+    std::string direct_url{}; // Direct ZIP URL (bypasses GitHub API)
 };
 
 struct GhApiAsset {
@@ -57,6 +58,7 @@ private:
     void SetIndex(s64 index);
     void Scan();
     void LoadEntriesFromPath(const fs::FsPath& path);
+    void LoadDirectLinksJson();
 
     auto GetEntry() -> Entry& {
         return m_entries[m_index];
