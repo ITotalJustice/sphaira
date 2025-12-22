@@ -109,6 +109,7 @@ auto GetCodeMessage(Result rc) -> const char* {
         case Result_GhdlEmptyAsset: return "SphairaError_GhdlEmptyAsset";
         case Result_GhdlFailedToDownloadAsset: return "SphairaError_GhdlFailedToDownloadAsset";
         case Result_GhdlFailedToDownloadAssetJson: return "SphairaError_GhdlFailedToDownloadAssetJson";
+        case Result_GhdlFileTooLarge: return "SphairaError_GhdlFileTooLarge";
         case Result_ThemezerFailedToDownloadThemeMeta: return "SphairaError_ThemezerFailedToDownloadThemeMeta";
         case Result_ThemezerFailedToDownloadTheme: return "SphairaError_ThemezerFailedToDownloadTheme";
         case Result_MainFailedToDownloadUpdate: return "SphairaError_MainFailedToDownloadUpdate";
