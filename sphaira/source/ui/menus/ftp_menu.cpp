@@ -30,8 +30,9 @@ Menu::Menu(u32 flags) : stream::Menu{"FTP Install"_i18n, flags} {
 }
 
 Menu::~Menu() {
-    // signal for thread to exit and wait.
-    ftpsrv::DisableInstallMode();
+    // unblocks any ftp callback that is currently waiting on us and then
+    // disables install mode. must happen before the server is torn down.
+    CancelInstallMode();
 
     if (!m_was_ftp_enabled) {
         log_write("[FTP] disabling on exit\n");
@@ -101,6 +102,10 @@ void Menu::Draw(NVGcontext* vg, Theme* theme) {
 
 void Menu::OnDisableInstallMode() {
     ftpsrv::DisableInstallMode();
+}
+
+bool Menu::IsInstallModeActive() const {
+    return ftpsrv::IsInstallModeEnabled();
 }
 
 } // namespace sphaira::ui::menu::ftp

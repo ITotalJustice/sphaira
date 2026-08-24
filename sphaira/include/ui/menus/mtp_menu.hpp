@@ -11,6 +11,7 @@ struct Menu final : stream::Menu {
     auto GetShortTitle() const -> const char* override { return "MTP"; };
     void Update(Controller* controller, TouchInfo* touch) override;
     void OnDisableInstallMode() override;
+    bool IsInstallModeActive() const override;
 
 private:
     bool m_was_mtp_enabled{};

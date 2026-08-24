@@ -7,6 +7,7 @@
 #include "i18n.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <haze.h>
 #include <limits>
 #include <map>
@@ -16,6 +17,7 @@ namespace {
 
 struct InstallSharedData {
     Mutex mutex;
+    CondVar cv;
     std::string current_file;
 
     void* user;
@@ -24,7 +26,10 @@ struct InstallSharedData {
     OnInstallClose on_close;
 
     bool in_progress;
-    bool enabled;
+    // number of install callbacks currently executing. the callbacks block for
+    // as long as an install takes, so they are *never* run whilst holding
+    // mutex, this counter is what keeps them alive instead.
+    u32 in_flight;
 };
 
 constexpr int THREAD_PRIO = 0x20;
@@ -33,24 +38,78 @@ std::atomic_bool g_should_exit = false;
 bool g_is_running{false};
 Mutex g_mutex{};
 
+// kept as an atomic (rather than a field of the struct above) so that it can be
+// polled by an in-flight callback without taking any lock.
+std::atomic_bool g_install_enabled{false};
+
 InstallSharedData g_shared_data{};
 
 const char* SUPPORTED_EXT[] = {
     ".nsp", ".xci", ".nsz", ".xcz", ".msp",
 };
 
+// holds a reference to the install callbacks whilst one of them is running.
+// DisableInstallMode() waits for every reference to be dropped before clearing
+// the callbacks, so they stay valid for as long as the guard is alive, and the
+// shared mutex stays free the whole time the (blocking) callback runs.
+struct InstallCallbackGuard {
+    InstallCallbackGuard() {
+        SCOPED_MUTEX(&g_shared_data.mutex);
+        if (!g_install_enabled) {
+            return;
+        }
+
+        m_data = std::addressof(g_shared_data);
+        m_data->in_flight++;
+    }
+
+    ~InstallCallbackGuard() {
+        if (!m_data) {
+            return;
+        }
+
+        SCOPED_MUTEX(&m_data->mutex);
+        m_data->in_flight--;
+        condvarWakeAll(std::addressof(m_data->cv));
+    }
+
+    InstallCallbackGuard(const InstallCallbackGuard&) = delete;
+    void operator=(const InstallCallbackGuard&) = delete;
+
+    explicit operator bool() const {
+        return m_data != nullptr;
+    }
+
+private:
+    InstallSharedData* m_data{};
+};
+
 bool StartInstall(std::string path) {
-    SCOPED_MUTEX(&g_shared_data.mutex);
-    if (!g_shared_data.enabled || g_shared_data.in_progress || !g_shared_data.current_file.empty() || !g_shared_data.on_start) {
+    InstallCallbackGuard guard;
+    if (!guard) {
         return false;
     }
 
-    g_shared_data.current_file = std::move(path);
-    if (!g_shared_data.on_start(g_shared_data.current_file.c_str())) {
+    OnInstallStart on_start;
+    {
+        SCOPED_MUTEX(&g_shared_data.mutex);
+        if (g_shared_data.in_progress || !g_shared_data.current_file.empty() || !g_shared_data.on_start) {
+            return false;
+        }
+
+        g_shared_data.current_file = path;
+        on_start = g_shared_data.on_start;
+    }
+
+    // called without the lock held, on_start blocks until the previous install
+    // has finished, which can take minutes.
+    if (!on_start(path.c_str())) {
+        SCOPED_MUTEX(&g_shared_data.mutex);
         g_shared_data.current_file.clear();
         return false;
     }
 
+    SCOPED_MUTEX(&g_shared_data.mutex);
     g_shared_data.in_progress = true;
     return true;
 }
@@ -763,8 +822,7 @@ struct FsInstallProxy final : FsProxyVfs {
     using FsProxyVfs::FsProxyVfs;
 
     Result FailedIfNotEnabled() {
-        SCOPED_MUTEX(&g_shared_data.mutex);
-        if (!g_shared_data.enabled) {
+        if (!g_install_enabled) {
             App::Notify("Please launch MTP install menu before trying to install"_i18n);
             R_THROW(FsError_NotImplemented);
         }
@@ -844,14 +902,27 @@ struct FsInstallProxy final : FsProxyVfs {
         auto f = static_cast<File*>(file->impl);
         R_UNLESS(f && f->entry, FsError_PathNotFound);
 
-        SCOPED_MUTEX(&g_shared_data.mutex);
-        if (!g_shared_data.enabled) {
-            log_write("[MTP] failing as not enabled\n");
-            R_THROW(FsError_NotImplemented);
-        }
+        if (f->installing) {
+            InstallCallbackGuard guard;
+            if (!guard) {
+                log_write("[MTP] failing as not enabled\n");
+                R_THROW(FsError_NotImplemented);
+            }
 
-        if (f->installing && (!g_shared_data.on_write || !g_shared_data.on_write(buf, write_size))) {
-            log_write("[MTP] failing as not written\n");
+            OnInstallWrite on_write;
+            {
+                SCOPED_MUTEX(&g_shared_data.mutex);
+                on_write = g_shared_data.on_write;
+            }
+
+            // called without the lock held, on_write blocks whilst the
+            // installer catches up with the data already sent to it.
+            if (!on_write || !on_write(buf, write_size)) {
+                log_write("[MTP] failing as not written\n");
+                R_THROW(FsError_NotImplemented);
+            }
+        } else if (!g_install_enabled) {
+            log_write("[MTP] failing as not enabled\n");
             R_THROW(FsError_NotImplemented);
         }
 
@@ -865,17 +936,28 @@ struct FsInstallProxy final : FsProxyVfs {
             return;
         }
 
-        {
-            SCOPED_MUTEX(&g_shared_data.mutex);
-            if (f->installing) {
-                log_write("[MTP] closing current file\n");
-                if (g_shared_data.on_close) {
-                    g_shared_data.on_close();
+        if (f->installing) {
+            log_write("[MTP] closing current file\n");
+
+            {
+                InstallCallbackGuard guard;
+
+                OnInstallClose on_close;
+                if (guard) {
+                    SCOPED_MUTEX(&g_shared_data.mutex);
+                    on_close = g_shared_data.on_close;
                 }
 
-                g_shared_data.in_progress = false;
-                g_shared_data.current_file.clear();
+                // called without the lock held, on_close blocks until the
+                // install of this file has finished.
+                if (on_close) {
+                    on_close();
+                }
             }
+
+            SCOPED_MUTEX(&g_shared_data.mutex);
+            g_shared_data.in_progress = false;
+            g_shared_data.current_file.clear();
         }
 
         FsProxyVfs::CloseFile(file);
@@ -979,6 +1061,11 @@ bool IsInit() {
 }
 
 void Exit() {
+    // done before taking g_mutex, and before haze::Exit() joins the haze
+    // thread, as that thread may still be sat inside a blocking install
+    // callback. DisableInstallMode() is what releases it.
+    DisableInstallMode();
+
     SCOPED_MUTEX(&g_mutex);
     if (!g_is_running) {
         return;
@@ -995,15 +1082,35 @@ void Exit() {
 
 void InitInstallMode(const OnInstallStart& on_start, const OnInstallWrite& on_write, const OnInstallClose& on_close) {
     SCOPED_MUTEX(&g_shared_data.mutex);
+    condvarInit(std::addressof(g_shared_data.cv));
     g_shared_data.on_start = on_start;
     g_shared_data.on_write = on_write;
     g_shared_data.on_close = on_close;
-    g_shared_data.enabled = true;
+    g_shared_data.in_progress = false;
+    g_shared_data.current_file.clear();
+    g_install_enabled = true;
+}
+
+bool IsInstallModeEnabled() {
+    return g_install_enabled;
 }
 
 void DisableInstallMode() {
+    // published first so that any callback which is currently blocked can see
+    // it and return, otherwise the wait below would never finish.
+    g_install_enabled = false;
+
     SCOPED_MUTEX(&g_shared_data.mutex);
-    g_shared_data.enabled = false;
+    while (g_shared_data.in_flight) {
+        condvarWaitTimeout(std::addressof(g_shared_data.cv), std::addressof(g_shared_data.mutex), 1e+8);
+    }
+
+    // safe to drop the callbacks now, nothing can be using them.
+    g_shared_data.on_start = {};
+    g_shared_data.on_write = {};
+    g_shared_data.on_close = {};
+    g_shared_data.in_progress = false;
+    g_shared_data.current_file.clear();
 }
 
 } // namespace sphaira::libhaze

@@ -7,6 +7,7 @@
 #include "utils/thread.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <ftpsrv.h>
 #include <ftpsrv_vfs.h>
 #include <nx/vfs_nx.h>
@@ -19,6 +20,7 @@ namespace {
 
 struct InstallSharedData {
     Mutex mutex;
+    CondVar cv;
     std::deque<std::string> queued_files;
 
     void* user;
@@ -27,7 +29,10 @@ struct InstallSharedData {
     OnInstallClose on_close;
 
     bool in_progress;
-    bool enabled;
+    // number of install callbacks currently executing. the callbacks block for
+    // as long as an install takes, so they are *never* run whilst holding
+    // mutex, this counter is what keeps them alive instead.
+    u32 in_flight;
 };
 
 FtpSrvConfig g_ftpsrv_config{};
@@ -61,8 +66,48 @@ void ftp_nro_change_callback(const char* path) {
 
 InstallSharedData g_shared_data{};
 
+// kept as an atomic (rather than a field of the struct above) so that it can be
+// polled by an in-flight callback without taking any lock.
+std::atomic_bool g_install_enabled{false};
+
 const char* SUPPORTED_EXT[] = {
     ".nsp", ".xci", ".nsz", ".xcz", ".msp",
+};
+
+// holds a reference to the install callbacks whilst one of them is running.
+// DisableInstallMode() waits for every reference to be dropped before clearing
+// the callbacks, so they stay valid for as long as the guard is alive, and the
+// shared mutex stays free the whole time the (blocking) callback runs.
+struct InstallCallbackGuard {
+    InstallCallbackGuard() {
+        SCOPED_MUTEX(&g_shared_data.mutex);
+        if (!g_install_enabled) {
+            return;
+        }
+
+        m_data = std::addressof(g_shared_data);
+        m_data->in_flight++;
+    }
+
+    ~InstallCallbackGuard() {
+        if (!m_data) {
+            return;
+        }
+
+        SCOPED_MUTEX(&m_data->mutex);
+        m_data->in_flight--;
+        condvarWakeAll(std::addressof(m_data->cv));
+    }
+
+    InstallCallbackGuard(const InstallCallbackGuard&) = delete;
+    void operator=(const InstallCallbackGuard&) = delete;
+
+    explicit operator bool() const {
+        return m_data != nullptr;
+    }
+
+private:
+    InstallSharedData* m_data{};
 };
 
 struct VfsUserData {
@@ -73,20 +118,37 @@ struct VfsUserData {
 // ive given up with good names.
 void on_thing() {
     log_write("[FTP] doing on_thing\n");
-    SCOPED_MUTEX(&g_shared_data.mutex);
-    log_write("[FTP] locked on_thing\n");
 
-    if (!g_shared_data.in_progress) {
-        if (!g_shared_data.queued_files.empty()) {
-            log_write("[FTP] pushing new file data\n");
-            if (!g_shared_data.on_start || !g_shared_data.on_start(g_shared_data.queued_files[0].c_str())) {
-                g_shared_data.queued_files.clear();
-            } else {
-                log_write("[FTP] success on new file push\n");
-                g_shared_data.in_progress = true;
-            }
-        }
+    InstallCallbackGuard guard;
+    if (!guard) {
+        return;
     }
+
+    OnInstallStart on_start;
+    std::string path;
+    {
+        SCOPED_MUTEX(&g_shared_data.mutex);
+        if (g_shared_data.in_progress || g_shared_data.queued_files.empty()) {
+            return;
+        }
+
+        on_start = g_shared_data.on_start;
+        path = g_shared_data.queued_files[0];
+    }
+
+    log_write("[FTP] pushing new file data\n");
+
+    // called without the lock held, on_start blocks until the previous install
+    // has finished, which can take minutes.
+    if (!on_start || !on_start(path.c_str())) {
+        SCOPED_MUTEX(&g_shared_data.mutex);
+        g_shared_data.queued_files.clear();
+        return;
+    }
+
+    log_write("[FTP] success on new file push\n");
+    SCOPED_MUTEX(&g_shared_data.mutex);
+    g_shared_data.in_progress = true;
 }
 
 int vfs_install_open(void* user, const char* path, enum FtpVfsOpenMode mode) {
@@ -100,7 +162,7 @@ int vfs_install_open(void* user, const char* path, enum FtpVfsOpenMode mode) {
             return -1;
         }
 
-        if (!g_shared_data.enabled) {
+        if (!g_install_enabled) {
             errno = EACCES;
             return -1;
         }
@@ -147,19 +209,27 @@ int vfs_install_read(void* user, void* buf, size_t size) {
 }
 
 int vfs_install_write(void* user, const void* buf, size_t size) {
-    SCOPED_MUTEX(&g_shared_data.mutex);
-    if (!g_shared_data.enabled) {
+    InstallCallbackGuard guard;
+    if (!guard) {
         errno = EACCES;
         return -1;
     }
 
-    auto data = static_cast<VfsUserData*>(user);
-    if (!data->valid) {
-        errno = EACCES;
-        return -1;
+    OnInstallWrite on_write;
+    {
+        SCOPED_MUTEX(&g_shared_data.mutex);
+        auto data = static_cast<VfsUserData*>(user);
+        if (!data->valid) {
+            errno = EACCES;
+            return -1;
+        }
+
+        on_write = g_shared_data.on_write;
     }
 
-    if (!g_shared_data.on_write || !g_shared_data.on_write(buf, size)) {
+    // called without the lock held, on_write blocks whilst the installer
+    // catches up with the data already sent to it.
+    if (!on_write || !on_write(buf, size)) {
         errno = EIO;
         return -1;
     }
@@ -188,27 +258,49 @@ int vfs_install_isfile_ready(void* user) {
 int vfs_install_close(void* user) {
     {
         log_write("[FTP] closing file\n");
-        SCOPED_MUTEX(&g_shared_data.mutex);
         auto data = static_cast<VfsUserData*>(user);
         if (data->valid) {
             log_write("[FTP] closing valid file\n");
 
-            auto it = std::find(g_shared_data.queued_files.cbegin(), g_shared_data.queued_files.cend(), data->path);
-            if (it != g_shared_data.queued_files.cend()) {
-                if (it == g_shared_data.queued_files.cbegin()) {
-                    log_write("[FTP] closing current file\n");
-                    if (g_shared_data.on_close) {
-                        g_shared_data.on_close();
+            OnInstallClose on_close;
+            bool queued = false;
+            {
+                SCOPED_MUTEX(&g_shared_data.mutex);
+                const auto it = std::find(g_shared_data.queued_files.cbegin(), g_shared_data.queued_files.cend(), data->path);
+                queued = it != g_shared_data.queued_files.cend();
+
+                if (queued && it == g_shared_data.queued_files.cbegin()) {
+                    on_close = g_shared_data.on_close;
+                } else if (queued) {
+                    log_write("[FTP] closing other file...\n");
+                } else {
+                    log_write("[FTP] could not find file in queue...\n");
+                }
+            }
+
+            if (on_close) {
+                log_write("[FTP] closing current file\n");
+
+                InstallCallbackGuard guard;
+                if (guard) {
+                    // called without the lock held, on_close blocks until the
+                    // install of this file has finished.
+                    on_close();
+                }
+            }
+
+            // done after on_close so that the queue keeps gating the other
+            // sessions whilst this file is still being installed.
+            if (queued) {
+                SCOPED_MUTEX(&g_shared_data.mutex);
+                const auto it = std::find(g_shared_data.queued_files.cbegin(), g_shared_data.queued_files.cend(), data->path);
+                if (it != g_shared_data.queued_files.cend()) {
+                    if (it == g_shared_data.queued_files.cbegin()) {
+                        g_shared_data.in_progress = false;
                     }
 
-                    g_shared_data.in_progress = false;
-                } else {
-                    log_write("[FTP] closing other file...\n");
+                    g_shared_data.queued_files.erase(it);
                 }
-
-                g_shared_data.queued_files.erase(it);
-            } else {
-                log_write("[FTP] could not find file in queue...\n");
             }
 
             if (data->path) {
@@ -621,6 +713,11 @@ bool Init() {
 }
 
 void Exit() {
+    // done before taking g_mutex, and before joining the ftp thread, as that
+    // thread may still be sat inside a blocking install callback.
+    // DisableInstallMode() is what releases it.
+    DisableInstallMode();
+
     SCOPED_MUTEX(&g_mutex);
     if (!g_is_running) {
         return;
@@ -646,15 +743,35 @@ void ExitSignal() {
 
 void InitInstallMode(const OnInstallStart& on_start, const OnInstallWrite& on_write, const OnInstallClose& on_close) {
     SCOPED_MUTEX(&g_shared_data.mutex);
+    condvarInit(std::addressof(g_shared_data.cv));
     g_shared_data.on_start = on_start;
     g_shared_data.on_write = on_write;
     g_shared_data.on_close = on_close;
-    g_shared_data.enabled = true;
+    g_shared_data.in_progress = false;
+    g_shared_data.queued_files.clear();
+    g_install_enabled = true;
+}
+
+bool IsInstallModeEnabled() {
+    return g_install_enabled;
 }
 
 void DisableInstallMode() {
+    // published first so that any callback which is currently blocked can see
+    // it and return, otherwise the wait below would never finish.
+    g_install_enabled = false;
+
     SCOPED_MUTEX(&g_shared_data.mutex);
-    g_shared_data.enabled = false;
+    while (g_shared_data.in_flight) {
+        condvarWaitTimeout(std::addressof(g_shared_data.cv), std::addressof(g_shared_data.mutex), 1e+8);
+    }
+
+    // safe to drop the callbacks now, nothing can be using them.
+    g_shared_data.on_start = {};
+    g_shared_data.on_write = {};
+    g_shared_data.on_close = {};
+    g_shared_data.in_progress = false;
+    g_shared_data.queued_files.clear();
 }
 
 unsigned GetPort() {

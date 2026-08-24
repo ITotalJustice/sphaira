@@ -24,8 +24,10 @@ Menu::Menu(u32 flags) : stream::Menu{"MTP Install"_i18n, flags} {
 }
 
 Menu::~Menu() {
-    // signal for thread to exit and wait.
-    libhaze::DisableInstallMode();
+    // unblocks any haze callback that is currently waiting on us and then
+    // disables install mode. must happen before libhaze::Exit(), which joins
+    // the haze thread.
+    CancelInstallMode();
 
     if (!m_was_mtp_enabled) {
         log_write("[MTP] disabling on exit\n");
@@ -54,6 +56,10 @@ void Menu::Update(Controller* controller, TouchInfo* touch) {
 
 void Menu::OnDisableInstallMode() {
     libhaze::DisableInstallMode();
+}
+
+bool Menu::IsInstallModeActive() const {
+    return libhaze::IsInstallModeEnabled();
 }
 
 } // namespace sphaira::ui::menu::mtp
