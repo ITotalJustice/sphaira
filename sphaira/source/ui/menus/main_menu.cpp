@@ -555,21 +555,21 @@ MainMenu::MainMenu() {
 
             SidebarEntryArray::Items language_items;
             language_items.push_back("Auto"_i18n);
-            language_items.push_back("English"_i18n);
-            language_items.push_back("Japanese"_i18n);
-            language_items.push_back("French"_i18n);
-            language_items.push_back("German"_i18n);
-            language_items.push_back("Italian"_i18n);
-            language_items.push_back("Spanish"_i18n);
-            language_items.push_back("Chinese (Simplified)"_i18n);
-            language_items.push_back("Korean"_i18n);
-            language_items.push_back("Dutch"_i18n);
-            language_items.push_back("Portuguese"_i18n);
-            language_items.push_back("Russian"_i18n);
-            language_items.push_back("Chinese (Traditional)"_i18n);
-            language_items.push_back("Swedish"_i18n);
-            language_items.push_back("Vietnamese"_i18n);
-            language_items.push_back("Ukrainian"_i18n);
+            language_items.push_back("English");
+            language_items.push_back("日本語"); // Japanese
+            language_items.push_back("Français"); // French
+            language_items.push_back("Deutsch"); // German
+            language_items.push_back("Italiano"); // Italian
+            language_items.push_back("Español"); // Spanish
+            language_items.push_back("简体中文"); // Chinese (Simplified)
+            language_items.push_back("한국어"); // Korean
+            language_items.push_back("Nederlands"); // Dutch
+            language_items.push_back("Português"); // Portuguese
+            language_items.push_back("Русский"); // Russian
+            language_items.push_back("繁體中文"); // Chinese (Traditional)
+            language_items.push_back("Svenska"); // Swedish
+            language_items.push_back("Tiếng Việt"); // Vietnamese
+            language_items.push_back("Українська"); // Ukrainian
 
             // build menus info.
             std::string menus_info = "Launch one of Sphaira's menus:\n"_i18n;

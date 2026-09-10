@@ -104,10 +104,7 @@
     "如果佈景主題未設定音樂檔案，則會載入預設音樂 (若存在)。"
   ],
   "Show IP address": "顯示 IP 位址",
-  "display_ip_info": [
-    "在所有選單中顯示 IP 位址 (包含 WiFi 強度)。\n",
-    "注意：在小程式模式下，由於該位置會顯示警告訊息，IP 位址將被隱藏。"
-  ],
+  "display_ip_info": "在所有選單中顯示 IP 位址，WiFi 強度，連接狀態和小程式模式警告訊息",
   "Remove Background Music": "移除背景音樂",
   "Removes the background music file": "移除背景音樂檔案",
   "No background music file is set": "未設定背景音樂檔案",
@@ -153,7 +150,7 @@
   "Set the menu that appears on the right tab.": "設定顯示在右側分頁的選單。",
   "Install options": "安裝選項",
   "install_options_info": [
-    "更改安裝選項。",
+    "更改安裝選項。\n",
     "您可以從此處啟用安裝功能。"
   ],
   "Export options": "匯出選項",
@@ -411,6 +408,16 @@
     "連接的裝置可用於檔案瀏覽器，也可作為提取遊戲和存檔時的備份位置。"
   ],
   "HDD write protect": "硬碟寫入保護",
+  "Show system files": "顯示系統檔案",
+  "hdd_show_system_files_info": [
+    "僅限 NTFS。顯示 Windows 標記為系統檔案的項目，例如 $Recycle.Bin",
+    "除非您清楚此選項的作用，否則請保持停用。"
+  ],
+  "Mount hibernated NTFS": "掛載休眠中的 NTFS 磁碟機",
+  "hdd_ignore_hibernation_info": [
+    "僅限 NTFS。掛載 Windows 處於休眠狀態 (快速啟動) 下的磁碟機。",
+    "警告：此磁碟機上已儲存的 Windows 工作階段將會遺失。"
+  ],
   "Makes the connected HDD read-only.": "將連接的硬碟設為唯讀。",
   "Installing is disabled, enable now?": "安裝功能已停用，要現在啟用嗎？",
   "WARNING: Installing apps will lead to a ban!": "警告：安裝未授權的應用程式會導致主機被 Ban！",
@@ -672,7 +679,7 @@
   "Backing up current version": "備份目前版本",
   "Installing validated update": "安裝經過驗證的更新",
   "Failed to install update": "無法安裝更新",
-  "Update complete. Restarting Sphaira.": "更新完成。正在重新啟動Sphaira。",
+  "Update complete. Restarting Sphaira.": "更新完成。正在重新啟動 Sphaira",
   "All fields must be non-empty!": "所有欄位都不能留空！",
   "Open": "開啟",
   "Empty...": "空的...",
@@ -951,21 +958,6 @@
   "Menu": "選單",
   "Menu Options": "選單選項",
   "Auto": "自動",
-  "English": "英語",
-  "Japanese": "日本語",
-  "French": "Français",
-  "German": "Deutsch",
-  "Italian": "Italiano",
-  "Spanish": "Español",
-  "Chinese (Simplified)": "简体中文",
-  "Korean": "한국어",
-  "Dutch": "荷蘭語",
-  "Portuguese": "Português",
-  "Russian": "Русский",
-  "Chinese (Traditional)": "繁體中文",
-  "Swedish": "Svenska",
-  "Vietnamese": "越南語",
-  "Ukrainian": "Українська",
   "Launch one of Sphaira's menus:\n": "啟動 Sphaira 的其中一個選單：\n",
   "\nYou can change the left/right menu in the Advanced Options.": " \n您可以在進階選項中更改左側/右側選單。",
   "Network": "網路",
@@ -994,12 +986,14 @@
     "如果 Sphaira 有可用更新，您可以從此選單下載。"
   ],
   "network_options_info": "切換 FTP、MTP、HDD 和 NXlink",
+  "by ": "作者: ",
   "Switch Ports": "Switch Ports",
   "Downloading Switch Ports catalog": "下載 Switch Ports 目錄",
   "Failed to download Switch Ports catalog": "Switch Ports 目錄下載失敗",
   "Resolving port download": "正在解析移植下載",
   "Failed to resolve port download": "無法解析移植下載",
   "Browse ports from this category.": "瀏覽此類別的移植。",
+  "Default install folder: ": "預設安裝資料夾: ",
   "Install ": "安裝 ",
   "Destination: ": "目的地： ",
   "Only the homebrew port is downloaded. Original game data may still be required.": "僅下載自製程式的移植。可能仍需要原始遊戲數據。",
@@ -1011,8 +1005,7 @@
   "Language": "語言",
   "translation_info": [
     "更換語言。\n",
-    "如果找不到您的語言，或缺少翻譯，請考慮在 github.com/ITotalJustice/sphaira 提交 PR (Pull Request)。",
-    "github.com/ITotalJustice/sphaira"
+    "如果找不到您的語言，或缺少翻譯，請考慮在 github.com/NaGaa95/sphaira 提交 PR (Pull Request)。"
   ],
   "advanced_options_info": [
     "更改進階選項。",
@@ -1021,6 +1014,7 @@
   "System %.1f GB": "系統 %.1f GB",
   "microSD %.1f GB": "microSD %.1f GB",
   "[Applet Mode]": "[小程式模式]",
+  "Wi-Fi %.0f%%": "Wi-Fi %.0f%%",
   "Ethernet": "乙太網路",
   "No Internet": "無網際網路連線",
   "State: %s | Speed: %s": "狀態：%s | 速度：%s",
@@ -1135,9 +1129,6 @@
   "Delete Entry": "刪除項目",
   "Delete an existing mount option.\n\nNOTE: You must restart Sphaira for changes to take effect!": "刪除現有的掛載選項。\n\n注意：您必須重新啟動 Sphaira 才能使變更生效！",
   "Section #": "區段 #",
-  "by ": "作者：",
-  "Default install folder: ": "預設安裝資料夾：",
-  "Wi-Fi %.0f%%": "Wi-Fi %.0f%%",
   "CPU Cores": "CPU 核心",
   "3 (Default)": "3（預設）",
   "4 (Advanced)": "4（進階）",

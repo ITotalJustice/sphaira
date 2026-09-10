@@ -1966,9 +1966,10 @@ App::App(const char* argv0) {
         }
     });
 
+    std::string language_name;
     {
         SCOPED_TIMESTAMP("i18n init");
-        i18n::init(GetLanguage());
+        language_name = i18n::init(GetLanguage());
     }
 
     if (App::GetLogEnable()) {
@@ -2022,22 +2023,38 @@ App::App(const char* argv0) {
     // not sure if these are meant to be deleted or not...
     {
         SCOPED_TIMESTAMP("font init");
+        PlSharedFontType standard_font_type = PlSharedFontType_Standard;
+        std::vector<PlSharedFontType> lang_fonts = {
+            PlSharedFontType_ChineseSimplified,
+            PlSharedFontType_ExtChineseSimplified,
+            PlSharedFontType_ChineseTraditional,
+            PlSharedFontType_Standard,
+        };
+        if (language_name == "zh-Hans")
+        {
+            standard_font_type = PlSharedFontType_ChineseSimplified;
+            std::erase(lang_fonts, PlSharedFontType_ChineseSimplified);
+        }
+        else if (language_name == "zh-Hant")
+        {
+            standard_font_type = PlSharedFontType_ChineseTraditional;
+            std::erase(lang_fonts, PlSharedFontType_ChineseTraditional);
+        }
+        else
+        {
+            std::erase(lang_fonts, PlSharedFontType_Standard);
+        }
+        lang_fonts.push_back(PlSharedFontType_KO);
+
         PlFontData font_standard, font_extended, font_lang;
-        plGetSharedFontByType(&font_standard, PlSharedFontType_Standard);
+        plGetSharedFontByType(&font_standard, standard_font_type);
         plGetSharedFontByType(&font_extended, PlSharedFontType_NintendoExt);
 
         auto standard_font = nvgCreateFontMem(this->vg, "Standard", (unsigned char*)font_standard.address, font_standard.size, 0);
         auto extended_font = nvgCreateFontMem(this->vg, "Extended", (unsigned char*)font_extended.address, font_extended.size, 0);
         nvgAddFallbackFontId(this->vg, standard_font, extended_font);
 
-        constexpr PlSharedFontType lang_font[] = {
-            PlSharedFontType_ChineseSimplified,
-            PlSharedFontType_ExtChineseSimplified,
-            PlSharedFontType_ChineseTraditional,
-            PlSharedFontType_KO,
-        };
-
-        for (auto type : lang_font) {
+        for (auto type : lang_fonts) {
             if (R_SUCCEEDED(plGetSharedFontByType(&font_lang, type))) {
                 char name[32];
                 std::snprintf(name, sizeof(name), "Lang_%u", font_lang.type);
