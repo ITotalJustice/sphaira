@@ -10,7 +10,7 @@ enum class WordOrder {
     NamePhrase   // SOV (Japanese, Korean)
 };
 
-bool init(long index);
+std::string init(long index);
 void exit();
 
 std::string get(std::string_view str);
