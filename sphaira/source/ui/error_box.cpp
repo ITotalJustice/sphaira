@@ -211,6 +211,9 @@ auto GetCodeHint(Result rc) -> std::string {
 
         case Result_GcEmptyGamecard:
             return "No game card was found. Make sure it is inserted correctly."_i18n;
+
+        case FsError_TargetLocked:
+            return "The file or folder is in use. Close any running software, turn off FTP / MTP, or restart the console."_i18n;
     }
 
     return {};
