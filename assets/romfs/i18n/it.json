@@ -216,7 +216,7 @@
     "Consente di saltare la verifica della chiave fissa RSA NCA (hash sull'header NCA). ",
     "Viene utilizzato per verificare che l'header non sia stato modificato. ",
     "L'header è firmato da Nintendo, quindi non può essere contraffatto ed è affidabile per rilevare gli header NCA modificati (come le conversioni NSP/XCI).\n",
-    "Si consiglia di mantenerlo disabilitato, a meno che non sia necessario installare conversionui NSP/XCI."
+    "Si consiglia di mantenerlo disabilitato, a meno che non sia necessario installare conversioni NSP/XCI."
   ],
   "Skip RSA NPDM verify": "Salta verifica RSA NPDM",
   "npdm_verify_info": [
