@@ -150,6 +150,9 @@ struct NpdmPatch {
     ForwarderAddressSpace address_space{ForwarderAddressSpace::Bit36};
     CpuCoreMode core_mode{CpuCoreMode::Three};
     ForwarderSvcDebugMode svc_debug_mode{ForwarderSvcDebugMode::Automatic};
+    // sets AllowDebug instead of ForceDebug in the DebugFlags capability,
+    // ie. the process can be debugged rather than being a debugger itself.
+    bool allow_debug{};
 };
 
 struct NcapPatch {
@@ -503,6 +506,15 @@ auto patch_npdm(std::vector<u8>& npdm, const NpdmPatch& patch) -> bool {
     if (enable_svc_debug) {
         npdm_patch_kc(npdm, meta.aci0_offset + aci0.kac_offset, aci0.kac_size, 16, BIT(19));
         npdm_patch_kc(npdm, meta.acid_offset + acid.kac_offset, acid.kac_size, 16, BIT(19));
+    }
+
+    // must be applied after the svc debug block above, as npdm_patch_kc
+    // rewrites the whole DebugFlags capability and only one of the three
+    // debug flag bits may be set (HOS 19+ validation).
+    // BIT(17) is AllowDebug, BIT(19) is ForceDebug.
+    if (patch.allow_debug) {
+        npdm_patch_kc(npdm, meta.aci0_offset + aci0.kac_offset, aci0.kac_size, 16, BIT(17));
+        npdm_patch_kc(npdm, meta.acid_offset + acid.kac_offset, acid.kac_size, 16, BIT(17));
     }
 
     std::memcpy(npdm.data(), &meta, sizeof(meta));
@@ -916,8 +928,19 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
     u64 hash_data[SHA256_HASH_SIZE / sizeof(u64)];
     const auto hash_path = config.nro_path + config.args;
     sha256CalculateHash(hash_data, hash_path.data(), hash_path.length());
-    const u64 old_tid = 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
-    const u64 tid = 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
+
+    // NetherSX2 needs SaltyNX (NX-FPS / FPSLocker) to be able to attach to
+    // the forwarder process. SaltyNX has no force-debug permission, so
+    // svcDebugActiveProcess fails with 0xfa01 (kernel 125, InvalidState)
+    // unless the target is a retail-range title id with AllowDebug set.
+    // give this one forwarder a retail tid instead of the homebrew
+    // 0x05 range, and migrate (delete) the old 0x05 forwarder instead.
+    // the E000 mask guarantees (tid & 0x1F00) == 0, like a retail base title.
+    const bool saltynx = config.nro_path.ends_with("/NetherSX2.nro");
+    const u64 old_tid = saltynx ? 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000)
+                                : 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
+    const u64 tid     = saltynx ? 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFE000)
+                                : 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
 
     std::vector<NcaEntry> nca_entries;
 
@@ -944,7 +967,8 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
         npdm_patch.tid = tid;
         npdm_patch.address_space = config.address_space;
         npdm_patch.core_mode = config.core_mode;
-        npdm_patch.svc_debug_mode = config.svc_debug_mode;
+        npdm_patch.allow_debug = saltynx;
+        npdm_patch.svc_debug_mode = saltynx ? ForwarderSvcDebugMode::Disabled : config.svc_debug_mode;
         R_UNLESS(patch_npdm(exefs[1].data, npdm_patch), Result_CoreUnavailable);
 
         nca_entries.emplace_back(
