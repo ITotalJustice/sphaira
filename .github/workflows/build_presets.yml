@@ -11,6 +11,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -66,3 +68,35 @@ jobs:
       with:
         name: sphaira-${{ matrix.preset }}
         path: build/${{ matrix.preset }}/sphaira.nro
+
+    # publish an easy-to-find release: plain sphaira.nro plus an SD card zip
+    # with the switch/sphaira/ folder structure ready to extract to the card root.
+    - name: Package SD card zip
+      if: ${{ github.event_name != 'pull_request' && matrix.preset == 'Release' }}
+      run: |
+        mkdir -p pkg/switch/sphaira
+        cp build/${{ matrix.preset }}/sphaira.nro pkg/switch/sphaira/sphaira.nro
+        cp build/${{ matrix.preset }}/sphaira.nro sphaira.nro
+        cd pkg
+        cmake -E tar cf ../sphaira_sd.zip --format=zip switch || python3 -m zipfile -c ../sphaira_sd.zip switch
+        cd ..
+        ls -la sphaira.nro sphaira_sd.zip
+
+    - name: Publish test release
+      if: ${{ github.event_name != 'pull_request' && matrix.preset == 'Release' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: saltynx-test
+        name: Sphaira – NetherSX2 SaltyNX test build
+        prerelease: true
+        overwrite_files: true
+        body: |
+          Test build s patchem pro NetherSX2 forwarder (AllowDebug + retail TID pro SaltyNX/NX-FPS).
+
+          **Instalace:** stahni `sphaira_sd.zip` a rozbal ho na koren SD karty (vytvori/prepise `switch/sphaira/sphaira.nro`),
+          nebo stahni samotne `sphaira.nro` a zkopiruj ho rucne do `/switch/sphaira/`.
+
+          Pak ve Sphaiře znovu vytvoř NetherSX2 forwarder a zkontroluj `saltynx.log`.
+        files: |
+          sphaira.nro
+          sphaira_sd.zip
