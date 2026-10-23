@@ -11,8 +11,6 @@ on:
 
 jobs:
   build:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -68,45 +66,3 @@ jobs:
       with:
         name: sphaira-${{ matrix.preset }}
         path: build/${{ matrix.preset }}/sphaira.nro
-
-    # publish an easy-to-find release: plain sphaira.nro plus an SD card zip
-    # with the switch/sphaira/ folder structure ready to extract to the card root.
-    - name: Package SD card zip
-      if: ${{ github.event_name != 'pull_request' && matrix.preset == 'Release' }}
-      run: |
-        mkdir -p pkg/switch/sphaira
-        cp build/${{ matrix.preset }}/sphaira.nro pkg/switch/sphaira/sphaira.nro
-        cp build/${{ matrix.preset }}/sphaira.nro sphaira.nro
-        cd pkg
-        cmake -E tar cf ../sphaira_sd.zip --format=zip switch || python3 -m zipfile -c ../sphaira_sd.zip switch
-        cd ..
-        ls -la sphaira.nro sphaira_sd.zip
-
-    - name: Publish test release
-      if: ${{ github.event_name != 'pull_request' && matrix.preset == 'Release' }}
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: saltynx-test
-        name: Sphaira – SaltyNX/FPSLocker forwarder test build
-        prerelease: true
-        overwrite_files: true
-        body: |
-          Based on the official **Sphaira 1.0.8** release (upstream commit
-          `338348e`, the current upstream `master` at the time of this build).
-          This test build additionally adds a **Native Game (FPSLocker)** option
-          to the forwarder editor. `Automatic` keeps the existing behaviour (including automatic detection of
-          NetherSX2), `Enabled` gives any emulator/homebrew a retail-range title id
-          with AllowDebug for stock SaltyNX/FPSLocker, and `Disabled` forces the
-          normal homebrew title id.
-
-          **Standard installation:** extract `sphaira_sd.zip` to the SD-card root, or
-          copy `sphaira.nro` to `/switch/sphaira/`.
-
-          **hbmenu-replacement / Easy-Setup layout:** download `sphaira.nro`, rename
-          it to `hbmenu.nro`, and place it in the SD-card root.
-
-          Re-create the forwarder after updating Sphaira so the selected mode and
-          title id take effect.
-        files: |
-          sphaira.nro
-          sphaira_sd.zip
