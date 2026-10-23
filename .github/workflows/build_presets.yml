@@ -91,8 +91,10 @@ jobs:
         prerelease: true
         overwrite_files: true
         body: |
-          Test build adds a **Native Game (FPSLocker)** option to the forwarder editor.
-          `Automatic` keeps the existing behaviour (including automatic detection of
+          Based on the official **Sphaira 1.0.8** release (upstream commit
+          `338348e`, the current upstream `master` at the time of this build).
+          This test build additionally adds a **Native Game (FPSLocker)** option
+          to the forwarder editor. `Automatic` keeps the existing behaviour (including automatic detection of
           NetherSX2), `Enabled` gives any emulator/homebrew a retail-range title id
           with AllowDebug for stock SaltyNX/FPSLocker, and `Disabled` forces the
           normal homebrew title id.
