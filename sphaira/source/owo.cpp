@@ -83,10 +83,29 @@ auto remove_sdmc_prefixes(std::string value) -> std::string {
     return value;
 }
 
-auto legacy_sphaira_forwarder_tid(std::string_view hash_path) -> u64 {
+auto forwarder_path_hash(std::string_view hash_path) -> u64 {
     u64 hash_data[SHA256_HASH_SIZE / sizeof(u64)];
     sha256CalculateHash(hash_data, hash_path.data(), hash_path.length());
-    return 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
+    return hash_data[0];
+}
+
+auto homebrew_forwarder_tid(u64 hash) -> u64 {
+    return 0x0500000000000000 | (hash & 0x00FFFFFFFFFFF000);
+}
+
+auto legacy_retail_forwarder_tid(u64 hash) -> u64 {
+    return 0x0100000000000000 | (hash & 0x00FFFFFFFFFFF000);
+}
+
+auto native_game_forwarder_tid(u64 hash) -> u64 {
+    // The E000 mask guarantees (tid & 0x1F00) == 0, like a retail base title.
+    return 0x0100000000000000 | (hash & 0x00FFFFFFFFFFE000);
+}
+
+void append_forwarder_tid_candidates(std::vector<u64>& tids, u64 hash) {
+    tids.emplace_back(homebrew_forwarder_tid(hash));
+    tids.emplace_back(legacy_retail_forwarder_tid(hash));
+    tids.emplace_back(native_game_forwarder_tid(hash));
 }
 
 // stdio-like wrapper for std::vector
@@ -970,36 +989,36 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
     }
 
     // create tid by using a hash over path + args
-    u64 hash_data[SHA256_HASH_SIZE / sizeof(u64)];
     const auto hash_path = config.nro_path + config.args;
-    sha256CalculateHash(hash_data, hash_path.data(), hash_path.length());
+    const auto hash = forwarder_path_hash(hash_path);
 
-    // NetherSX2 needs SaltyNX (NX-FPS / FPSLocker) to be able to attach to
-    // the forwarder process. SaltyNX has no force-debug permission, so
-    // svcDebugActiveProcess fails with 0xfa01 (kernel 125, InvalidState)
-    // unless the target is a retail-range title id with AllowDebug set.
-    // give this one forwarder a retail tid instead of the homebrew
-    // 0x05 range, and migrate (delete) the old 0x05 forwarder instead.
-    // the E000 mask guarantees (tid & 0x1F00) == 0, like a retail base title.
-    const bool saltynx = is_nethersx2_nro_path(config.nro_path);
-    const u64 old_tid = saltynx ? 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000)
-                                : 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
-    const u64 tid     = saltynx ? 0x0100000000000000 | (hash_data[0] & 0x00FFFFFFFFFFE000)
-                                : 0x0500000000000000 | (hash_data[0] & 0x00FFFFFFFFFFF000);
+    // A native-game forwarder gets a retail-range title id and AllowDebug
+    // so SaltyNX (NX-FPS / FPSLocker) can attach to its process. SaltyNX
+    // has no force-debug permission, so svcDebugActiveProcess fails with
+    // 0xfa01 (kernel 125, InvalidState) for the normal homebrew 0x05 range.
+    // Automatic keeps the existing built-in opt-in for NetherSX2, while
+    // Enabled/Disabled let the user force the choice for any emulator or
+    // other homebrew in the forwarder editor.
+    const bool detected_nethersx2 = is_nethersx2_nro_path(config.nro_path);
+    const bool native_game = config.native_game_mode == ForwarderNativeGameMode::Enabled
+        || (config.native_game_mode == ForwarderNativeGameMode::Automatic && detected_nethersx2);
+    const u64 tid = native_game ? native_game_forwarder_tid(hash) : homebrew_forwarder_tid(hash);
 
-    // Older installs could have hashed the same path without the sdmc:
-    // prefix. Remove that legacy copy as well, otherwise two identical
-    // HOME icons can remain and the old, non-debug one may be launched.
-    std::vector<u64> legacy_tids{old_tid};
-    if (saltynx) {
-        const auto hash_path_without_sdmc = remove_sdmc_prefixes(hash_path);
-        if (hash_path_without_sdmc != hash_path) {
-            legacy_tids.emplace_back(legacy_sphaira_forwarder_tid(hash_path_without_sdmc));
-        }
+    // Reinstalling under a different mode changes the title id. Remove the
+    // other representations Sphaira may have used for this same path+args,
+    // otherwise duplicate HOME icons can remain and an old copy without the
+    // requested title-id/debug settings may be launched. Also cover older
+    // installs whose hash input did not include the sdmc: prefix.
+    std::vector<u64> legacy_tids;
+    append_forwarder_tid_candidates(legacy_tids, hash);
+    const auto hash_path_without_sdmc = remove_sdmc_prefixes(hash_path);
+    if (hash_path_without_sdmc != hash_path) {
+        append_forwarder_tid_candidates(legacy_tids, forwarder_path_hash(hash_path_without_sdmc));
     }
 
-    log_write("[owo] forwarder path:%s args:%s saltynx:%u tid:%016lX old_tid:%016lX\n",
-        config.nro_path.c_str(), config.args.c_str(), saltynx, tid, old_tid);
+    log_write("[owo] forwarder path:%s args:%s native_game_mode:%u detected_nethersx2:%u native_game:%u tid:%016lX\n",
+        config.nro_path.c_str(), config.args.c_str(), static_cast<unsigned>(config.native_game_mode),
+        detected_nethersx2, native_game, tid);
 
     std::vector<NcaEntry> nca_entries;
 
@@ -1026,8 +1045,8 @@ auto install_forwader_internal(ui::ProgressBox* pbox, OwoConfig& config, NcmStor
         npdm_patch.tid = tid;
         npdm_patch.address_space = config.address_space;
         npdm_patch.core_mode = config.core_mode;
-        npdm_patch.allow_debug = saltynx;
-        npdm_patch.svc_debug_mode = saltynx ? ForwarderSvcDebugMode::Disabled : config.svc_debug_mode;
+        npdm_patch.allow_debug = native_game;
+        npdm_patch.svc_debug_mode = native_game ? ForwarderSvcDebugMode::Disabled : config.svc_debug_mode;
         R_UNLESS(patch_npdm(exefs[1].data, npdm_patch), Result_CoreUnavailable);
 
         nca_entries.emplace_back(
